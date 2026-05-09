@@ -531,6 +531,145 @@ gotcha is now memorised.
 - tRPC route: `maxDuration = 60` for report generation
 - proxy.ts (Next.js 16 convention)
 
+### Phase 11 — Multi-format programme import + UX walk-back (2026-05-08 → 2026-05-09) ✅
+
+Two unrelated threads landed in this session: (a) extending the
+programme/schedule import beyond XML to also accept Excel and PDF —
+the most-requested onboarding fix; and (b) walking back several of
+the cumulative Phase-10 IA changes after a real-browser E2E
+walkthrough revealed they were too loud taken together. Plus one real
+bug — the dashboard stats SQL was failing silently and showing "—"
+placeholders.
+
+#### Cert diagnosis (`https://sitefile.app` apex) — non-incident
+- User screenshot showed Edge rejecting the apex with
+  `NET::ERR_CERT_AUTHORITY_INVALID`. Diagnosed as **H4 — airport
+  WiFi TLS interception** (Stansted Airport network). Confirmed by:
+  apex DNS resolves to `76.76.21.21` (Vercel anycast, not
+  Cloudflare), no CAA records blocking, `openssl s_client` from a
+  different network shows a valid Let's Encrypt R13 cert with the
+  correct CN. Nothing to fix on our side; user's airport network
+  injects its own root CA. Captured in
+  `~/.claude/plans/create-a-plan-to-robust-matsumoto.md` as a
+  reusable runbook.
+
+#### Phase 11.A — Excel (.xlsx) programme import (`8bfcbb5`)
+- New `src/server/services/excel-import.ts` (exceljs-based) with
+  two entry points:
+  * `inspectExcel(buf)` — returns headers + 5 sample rows + a
+    heuristic-suggested ColumnMapping for the user to confirm.
+    Heuristic uses case-insensitive regex on header text
+    (`task|activity` → name, `start|begin` → plannedStart, etc.).
+  * `parseExcelWithMapping(buf, mapping)` — returns the existing
+    ParsedTask[] shape so the DB-insert path is unchanged.
+- Hierarchy: prefers WBS column (`1.2.3` → parent `1.2`); falls
+  back to parent-by-name match.
+- Date parsing handles JS Date objects, Excel epoch numbers (via
+  exceljs auto-conversion), ISO strings, and DD/MM/YYYY (UK
+  default).
+- tRPC `previewImport` and `import` extended to discriminated
+  unions: `{kind:"xml"} | {kind:"xlsx-inspect"} | {kind:"xlsx-parse"}`
+  for preview, `{kind:"xml"} | {kind:"xlsx"}` for import.
+- import-dialog.tsx rewritten as a 3-step wizard: file picker →
+  column mapping (xlsx only, with auto-suggested defaults +
+  sample rows disclosure) → existing preview table → commit.
+- End-to-end verified locally with an 11-row WBS-hierarchical
+  fixture: auto-mapping detected all 5 columns, preview
+  rendered hierarchy correctly, commit created tasks with
+  status badges derived from %Complete.
+
+#### Phase 11.B — PDF programme import via Claude vision (`2291604`)
+- New `src/server/services/claude-client.ts` — singleton Anthropic
+  client; throws a user-friendly error when
+  `ANTHROPIC_API_KEY` is missing or still set to the
+  `sk-ant-PLACEHOLDER` value from `.env.example`.
+- New `src/server/services/pdf-import.ts` — sends the PDF bytes
+  to Sonnet 4.6 via the messages API with a `submit_programme`
+  tool that pins JSON output. The tool input_schema declares
+  `tasks[]` with sourceRef/name/parentSourceRef/start/end/pct
+  plus a `confidence` float (0-1).
+- System prompt requires ISO-8601 dates, falls back to DD/MM/YYYY
+  on ambiguous strings (UK construction default), and tells the
+  model NOT to invent tasks.
+- import-dialog.tsx extended for `.pdf`: 10-30s "Extracting from
+  PDF…" loader, "AI extracted" sparkles badge on preview, amber
+  warning banner if confidence < 0.7, **fully editable preview
+  rows** (name as Input, dates as date inputs, % as number,
+  trash icon to drop bad rows). The user's edits are what gets
+  committed; the original LLM extraction is not re-used.
+- `task.import` mutation accepts a `{kind:"pdf", tasks}` source
+  so the client can ship corrected rows back without re-running
+  inference.
+- Error path verified locally with placeholder API key: upload
+  → tRPC roundtrip → `getAnthropicClient` throws → dialog
+  displays "ANTHROPIC_API_KEY is not configured. PDF programme
+  import requires a real Anthropic API key." Real extraction
+  needs a non-placeholder key in Vercel env. Cost expectation:
+  ~$0.05–0.30 per import depending on PDF size.
+
+#### Phase 11.C — Accessibility polish (`4351828`)
+- Tooltips on icon-only buttons:
+  * theme-toggle, user-menu (DemoUserMenu) — `title=""` HTML
+    attribute on the inner span (dropdown click reveals options
+    so a real Tooltip would conflict)
+  * CaptureLauncher icon variant — real Tooltip primitive
+  * task-list reorder/edit/delete (4 buttons) — each wrapped in
+    Tooltip with appropriate label using base-ui's `render` prop
+  * Mobile capture review skipped (touch UI, no hover)
+  * OfflineQueueIndicator skipped (already shows visible text)
+- aria-live regions: upload-queue counter, report-list
+  StatusBadge cell, mobile capture review counter — all
+  `role=status aria-live=polite` so screen readers announce
+  async state changes.
+
+#### Phase 11.D — UX walk-back from a real-browser E2E (`ca00fdd`)
+A second `agent-browser` walkthrough (with the user pushing back
+that "site UI/dashboard layout & workflow have changed and not for
+the better") surfaced that the cumulative Phase-10 IA changes were
+too aggressive. Reverted:
+- **PWA install banner removed from dashboard** — was ~200px tall
+  on every dashboard visit, dominated the top of the page, pushed
+  the actual stats grid below the fold. The PWAInstallBanner
+  component file stays in the codebase for a future less-prominent
+  placement.
+- **Sidebar slimmed back** — dropped the desktop "Capture Photos"
+  primary CTA (capture is a phone action; mobile-nav still has it)
+  and the "Press ⌘K to search" hint. Sidebar is back to
+  Dashboard / Projects / Account + footer cluster.
+- **Project detail page**: next-step nudge banner moved BELOW the
+  project header + stats (was rendering ABOVE, so users saw a CTA
+  before they knew what page they were on for projects in the
+  tasks-but-no-evidence middle state). Reports hero card removed
+  (it duplicated the Reports stat count immediately above it).
+  Restored the 3-section nav (Work / Intelligence / Admin) with
+  full-size cards instead of compact "More" pills — the pills
+  demoted GPS Zones / Audit Log / Settings too much.
+
+Kept (not reverted): ⌘K palette (still global, just no longer
+advertised), Account page, Dashboard reachable at `/`, status
+label centralisation, dark mode, billing-failed visual weight,
+AI suggestions header, Excel/PDF import, a11y polish.
+
+#### Phase 11.E — Dashboard stats SQL bug (real bug, in `ca00fdd`)
+Surfaced during the E2E walkthrough — every stat card on the
+dashboard showed "—" even for users with data. Root cause:
+`src/server/trpc/routers/dashboard.ts` was passing a JS `Date`
+object directly into a `sql\`\`` template inside a postgres
+`FILTER (where ... >= ${date})` clause. The drizzle → postgres-js
+parameter binding was failing silently — the whole
+`dashboard.summary` endpoint returned 500, which the StatCards
+rendered as "—" placeholders.
+
+Fix: convert the cutoff to `.toISOString()` before binding. Two
+lines. Verified by running the literal SQL via Supabase MCP first
+to confirm the syntax is fine, then watching the endpoint return
+real data (7 active projects / 19 tasks / 4 evidence) for
+contractor-1 after the fix.
+
+This bug had probably been live since Phase 5/6 — it just
+manifested clearly once contractor-1 had non-trivial data
+through the multi-format import work.
+
 ---
 
 ## What's Outstanding (2026-04-11)
