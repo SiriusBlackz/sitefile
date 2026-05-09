@@ -54,6 +54,12 @@ const envSchema = z.object({
   // without taking Clerk down.
   REPORT_TOKEN_SECRET: z.string().optional(),
 
+  // Vercel Cron secret. Set in Vercel project settings; Vercel injects it
+  // as `Authorization: Bearer ${CRON_SECRET}` on cron-triggered requests.
+  // Optional — if unset, the cron route accepts any caller (fine for dev,
+  // not for production).
+  CRON_SECRET: z.string().optional(),
+
   // Demo mode flag — accepts the literal "true". Anything else is treated
   // as not-demo by the call sites.
   DEMO_MODE: z.string().optional(),
