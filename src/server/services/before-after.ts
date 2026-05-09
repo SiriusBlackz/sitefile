@@ -2,7 +2,7 @@ import { eq, and, gte, lte, asc } from "drizzle-orm";
 import { evidence, gpsZones } from "@/server/db/schema";
 import { pointInPolygon } from "@/lib/geo";
 import type { db as dbType } from "@/server/db";
-import { getPublicUrl } from "./storage";
+import { getInlineDataUrl } from "./storage";
 
 type DB = typeof dbType;
 
@@ -128,17 +128,21 @@ export async function generateBeforeAfterPairs(
     // Don't create a pair if they're the same item
     if (earliest.storageKey === latest.storageKey) continue;
 
+    const beforeUrl = await getInlineDataUrl(earliest.storageKey);
+    const afterUrl = await getInlineDataUrl(latest.storageKey);
+    if (!beforeUrl || !afterUrl) continue;
+
     pairs.push({
       taskId: group.taskId,
       taskName: group.taskName,
       zoneName: group.zoneName,
       before: {
-        publicUrl: getPublicUrl(earliest.storageKey),
+        publicUrl: beforeUrl,
         capturedAt: earliest.capturedAt.toISOString(),
         filename: earliest.filename,
       },
       after: {
-        publicUrl: getPublicUrl(latest.storageKey),
+        publicUrl: afterUrl,
         capturedAt: latest.capturedAt.toISOString(),
         filename: latest.filename,
       },

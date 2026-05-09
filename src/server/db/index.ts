@@ -1,8 +1,12 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
+// Importing env validates the entire server-side env at boot — it's
+// imported transitively by every tRPC procedure via the db, so a missing
+// var fails loudly during dev startup instead of inside a random request.
+import { env } from "@/lib/env";
 
-const connectionString = process.env.DATABASE_URL!;
+const connectionString = env.DATABASE_URL;
 
 const client = postgres(connectionString, {
   ssl: "require",

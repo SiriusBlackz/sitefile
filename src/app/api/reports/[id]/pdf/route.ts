@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import bcrypt from "bcryptjs";
 import { db } from "@/server/db";
 import { reports } from "@/server/db/schema";
 import { resolveCurrentUser, DemoEnsureUserError } from "@/server/services/current-user";
 import { assertProjectAccess } from "@/server/trpc/helpers";
 import { fetchFromStorage } from "@/server/services/storage";
+import { verifyReportToken } from "@/server/services/report-tokens";
 import { TRPCError } from "@trpc/server";
 
 function json(status: number, body: unknown) {
@@ -53,17 +53,21 @@ export async function GET(
     return json(409, { error: "Report is not ready" });
   }
 
-  if (report.passwordHash) {
-    const password =
-      req.nextUrl.searchParams.get("p") ??
-      req.headers.get("x-report-password");
-    if (!password) {
-      return json(401, { error: "Password required" });
-    }
-    const match = await bcrypt.compare(password, report.passwordHash);
-    if (!match) {
-      return json(401, { error: "Incorrect password" });
-    }
+  // A short-lived signed token is required to access the PDF, regardless of
+  // whether a password is set. The token is minted by report.download after
+  // it has validated project access and the password (if any). The token is
+  // bound to the requesting user, so a leaked URL cannot be replayed by a
+  // different signed-in user. Tokens expire after 60s.
+  const token = req.nextUrl.searchParams.get("t");
+  if (!token) {
+    return json(401, { error: "Download token required" });
+  }
+  const verified = verifyReportToken(token);
+  if (!verified) {
+    return json(401, { error: "Invalid or expired download token" });
+  }
+  if (verified.reportId !== id || verified.userId !== resolved.userId) {
+    return json(403, { error: "Token does not match request" });
   }
 
   // Resolve the bytes — prefer inline base64, fall back to storage (R2 or disk).

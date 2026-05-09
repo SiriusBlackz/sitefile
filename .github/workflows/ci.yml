@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel older runs on the same ref when a new one starts.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # The build imports src/lib/env, which validates DATABASE_URL is non-empty.
+    # CI never connects to the DB — a placeholder string is enough to satisfy
+    # the validator. Real secrets should not appear here.
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+  # Placeholder so the matrix is wired and ready when test scripts land.
+  # Add `pnpm test` here once vitest/jest is in place — there are no tests
+  # today, so making this a real required check would block PRs for no
+  # signal.
+  test:
+    runs-on: ubuntu-latest
+    if: false
+    steps:
+      - run: echo "tests disabled until a runner is added"

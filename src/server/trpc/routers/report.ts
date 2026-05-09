@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
 import { reports } from "@/server/db/schema";
 import { inngest } from "@/server/inngest/client";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
+import { signReportToken } from "@/server/services/report-tokens";
 import bcrypt from "bcryptjs";
 
 export const reportRouter = createTRPCRouter({
@@ -32,61 +33,88 @@ export const reportRouter = createTRPCRouter({
 
   generate: protectedProcedure
     .input(
-      z.object({
-        projectId: z.string().uuid(),
-        periodStart: z.string().min(1),
-        periodEnd: z.string().min(1),
-        password: z.string().optional(),
-        signatures: z.array(z.object({
-          role: z.enum(["contractor", "project_manager", "client"]),
-          name: z.string().min(1),
-          title: z.string().optional(),
-          date: z.string().optional(),
-          imageDataUrl: z.string().optional(),
-        })).optional(),
-      })
+      z
+        .object({
+          projectId: z.string().uuid(),
+          periodStart: z.string().min(1),
+          periodEnd: z.string().min(1),
+          password: z.string().optional(),
+          signatures: z.array(z.object({
+            role: z.enum(["contractor", "project_manager", "client"]),
+            name: z.string().min(1),
+            title: z.string().optional(),
+            date: z.string().optional(),
+            imageDataUrl: z.string().optional(),
+          })).optional(),
+        })
+        .refine((d) => d.periodEnd >= d.periodStart, {
+          message: "Period end must be on or after period start",
+          path: ["periodEnd"],
+        })
     )
     .mutation(async ({ ctx, input }) => {
       await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
-
-      // Prevent duplicate generation — reject if a report is already generating
-      const inProgress = await ctx.db.query.reports.findFirst({
-        where: and(
-          eq(reports.projectId, input.projectId),
-          eq(reports.status, "generating")
-        ),
-      });
-      if (inProgress) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "A report is already being generated. Please wait for it to complete.",
-        });
-      }
-
-      const existing = await ctx.db.query.reports.findMany({
-        where: eq(reports.projectId, input.projectId),
-        columns: { reportNumber: true },
-        orderBy: [desc(reports.reportNumber)],
-        limit: 1,
-      });
-      const reportNumber = (existing[0]?.reportNumber ?? 0) + 1;
 
       const passwordHash = input.password
         ? await bcrypt.hash(input.password, 10)
         : null;
 
-      const [report] = await ctx.db
-        .insert(reports)
-        .values({
-          projectId: input.projectId,
-          generatedBy: ctx.userId,
-          reportNumber,
-          periodStart: input.periodStart,
-          periodEnd: input.periodEnd,
-          passwordHash,
-          status: "generating",
-        })
-        .returning();
+      // Insert with retry: a partial unique index (status='generating')
+      // ensures only one in-flight report per project, and a unique on
+      // (project_id, report_number) prevents duplicate numbers under
+      // concurrent calls. Both are 23505 — distinguish by constraint name.
+      let report: typeof reports.$inferSelect | undefined;
+      const MAX_RETRIES = 3;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const existing = await ctx.db.query.reports.findMany({
+          where: eq(reports.projectId, input.projectId),
+          columns: { reportNumber: true },
+          orderBy: [desc(reports.reportNumber)],
+          limit: 1,
+        });
+        const reportNumber = (existing[0]?.reportNumber ?? 0) + 1;
+
+        try {
+          [report] = await ctx.db
+            .insert(reports)
+            .values({
+              projectId: input.projectId,
+              generatedBy: ctx.userId,
+              reportNumber,
+              periodStart: input.periodStart,
+              periodEnd: input.periodEnd,
+              passwordHash,
+              status: "generating",
+            })
+            .returning();
+          break;
+        } catch (err) {
+          const dbErr = err as { code?: string; constraint_name?: string; constraint?: string };
+          if (dbErr.code !== "23505") throw err;
+          const constraint = dbErr.constraint_name ?? dbErr.constraint ?? "";
+          if (constraint.includes("one_generating_per_project")) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "A report is already being generated. Please wait for it to complete.",
+            });
+          }
+          // Otherwise it's the (project, report_number) collision — retry.
+          if (attempt === MAX_RETRIES - 1) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Could not allocate a report number. Please try again.",
+              cause: err,
+            });
+          }
+        }
+      }
+      if (!report) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Report insert failed after retries",
+        });
+      }
+      const reportNumber = report.reportNumber;
 
       try {
         await inngest.send({
@@ -124,7 +152,7 @@ export const reportRouter = createTRPCRouter({
         password: z.string().optional(),
       })
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       const report = await ctx.db.query.reports.findFirst({
         where: eq(reports.id, input.id),
       });
@@ -141,14 +169,13 @@ export const reportRouter = createTRPCRouter({
         if (!match) throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect password" });
       }
 
-      // Report PDFs are always served through the dedicated, auth-aware route,
-      // which re-checks project access and validates the password server-side.
-      // Pass the validated password via query so users don't re-enter it.
-      const suffix = input.password
-        ? `?p=${encodeURIComponent(input.password)}`
-        : "";
+      // Mint a short-lived (60s) HMAC-signed token bound to this user + this
+      // report. The PDF route verifies the token instead of re-checking the
+      // password, so the password never leaves this mutation. Token in URL is
+      // safe because it expires before referrer/history leakage matters.
+      const token = signReportToken(report.id, ctx.userId);
       return {
-        url: `/api/reports/${report.id}/pdf${suffix}`,
+        url: `/api/reports/${report.id}/pdf?t=${encodeURIComponent(token)}`,
         filename: `report-${report.reportNumber}.pdf`,
       };
     }),

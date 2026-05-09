@@ -1,4 +1,9 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { join, dirname } from "path";
 
@@ -59,18 +64,87 @@ export async function getUploadUrl(
   };
 }
 
+const MIME_BY_EXT: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+};
+
 export function getPublicUrl(storageKey: string): string {
   // Sanitize storage key to prevent path traversal
   const safeKey = storageKey.replace(/\.\./g, "").replace(/\/\//g, "/");
 
-  if (isR2Configured) {
-    return `${process.env.R2_PUBLIC_URL}/${safeKey}`;
-  }
-  // Always go through the auth'd /api/uploads/ route when R2 isn't configured.
-  // On Vercel the underlying file lives in /tmp; locally it lives in
-  // .local-uploads/ (gitignored). Both are served via the same hardened
-  // handler so dev testing exercises the same code path as production demo.
+  // Always go through the auth'd /api/uploads/ route, regardless of whether
+  // R2 is configured. The route streams from R2 via fetchFromStorage when
+  // configured, or from local disk otherwise. This guarantees every evidence
+  // request re-checks org membership + project access before returning bytes.
+  // R2_PUBLIC_URL is no longer used as a direct CDN endpoint for evidence —
+  // serving evidence via a public bucket bypassed all auth and is a leak.
   return `/api/uploads/${safeKey.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+/**
+ * Verify the storage object exists and return its size. Used by
+ * evidence.confirm so a client cannot confirm an upload that never landed,
+ * or claim a size different from what's actually stored.
+ *
+ * Returns `{ exists: false }` when the object is missing rather than
+ * throwing, so callers can produce friendly error messages.
+ */
+export async function statStoredObject(
+  storageKey: string
+): Promise<{ exists: boolean; size?: number }> {
+  if (isR2Configured) {
+    const client = getS3Client();
+    try {
+      const res = await client.send(
+        new HeadObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME!,
+          Key: storageKey,
+        })
+      );
+      return { exists: true, size: res.ContentLength };
+    } catch (err) {
+      const code = (err as { name?: string; $metadata?: { httpStatusCode?: number } })
+        ?.name;
+      const status = (err as { $metadata?: { httpStatusCode?: number } })
+        ?.$metadata?.httpStatusCode;
+      if (code === "NotFound" || code === "NoSuchKey" || status === 404) {
+        return { exists: false };
+      }
+      throw err;
+    }
+  }
+
+  const { stat } = await import("fs/promises");
+  try {
+    const s = await stat(join(getLocalUploadDir(), storageKey));
+    return { exists: true, size: s.size };
+  } catch {
+    return { exists: false };
+  }
+}
+
+/**
+ * Server-only. Returns a `data:` URL with the object's bytes inlined as
+ * base64. Used by the report generator to embed evidence images in HTML
+ * before Puppeteer rasterises it — Puppeteer has no Clerk session, so it
+ * cannot fetch from /api/uploads/. Returns null if the object is missing.
+ */
+export async function getInlineDataUrl(
+  storageKey: string
+): Promise<string | null> {
+  const bytes = await fetchFromStorage(storageKey);
+  if (!bytes) return null;
+  const ext = storageKey.split(".").pop()?.toLowerCase() ?? "";
+  const mime = MIME_BY_EXT[ext] ?? "application/octet-stream";
+  return `data:${mime};base64,${bytes.toString("base64")}`;
 }
 
 /**

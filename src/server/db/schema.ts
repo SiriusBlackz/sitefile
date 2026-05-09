@@ -10,11 +10,26 @@ import {
   bigint,
   jsonb,
   unique,
+  uniqueIndex,
   index,
+  check,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
+import {
+  USER_ROLES,
+  PROJECT_STATUSES,
+  TASK_STATUSES,
+  REPORT_STATUSES,
+  EVIDENCE_TYPES,
+  LINK_METHODS,
+  PROJECT_MEMBER_ROLES,
+} from "./enums";
+
+function quotedList(values: readonly string[]): string {
+  return values.map((v) => `'${v}'`).join(", ");
+}
 
 // ─── Organisations ───────────────────────────────────────────────────────────
 
@@ -35,18 +50,27 @@ export const organisationsRelations = relations(organisations, ({ many }) => ({
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  orgId: uuid("org_id")
-    .notNull()
-    .references(() => organisations.id),
-  clerkId: text("clerk_id").unique().notNull(),
-  email: text("email").notNull(),
-  name: text("name").notNull(),
-  role: text("role").notNull().default("member"),
-  avatarUrl: text("avatar_url"),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organisations.id),
+    clerkId: text("clerk_id").unique().notNull(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    role: text("role").notNull().default("member"),
+    avatarUrl: text("avatar_url"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+  },
+  (t) => [
+    check(
+      "users_role_check",
+      sql.raw(`${t.role.name} IN (${quotedList(USER_ROLES)})`)
+    ),
+  ]
+);
 
 export const usersRelations = relations(users, ({ one, many }) => ({
   organisation: one(organisations, {
@@ -80,6 +104,10 @@ export const projects = pgTable("projects", {
 }, (t) => [
   index("projects_org_id_idx").on(t.orgId),
   index("projects_status_idx").on(t.status),
+  check(
+    "projects_status_check",
+    sql.raw(`${t.status.name} IN (${quotedList(PROJECT_STATUSES)})`)
+  ),
 ]);
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
@@ -108,7 +136,13 @@ export const projectMembers = pgTable(
       .references(() => users.id),
     role: text("role").notNull().default("member"),
   },
-  (t) => [unique().on(t.projectId, t.userId)]
+  (t) => [
+    unique().on(t.projectId, t.userId),
+    check(
+      "project_members_role_check",
+      sql.raw(`${t.role.name} IN (${quotedList(PROJECT_MEMBER_ROLES)})`)
+    ),
+  ]
 );
 
 export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
@@ -145,6 +179,10 @@ export const tasks = pgTable("tasks", {
 }, (t) => [
   index("tasks_project_id_idx").on(t.projectId),
   index("tasks_status_idx").on(t.status),
+  check(
+    "tasks_status_check",
+    sql.raw(`${t.status.name} IN (${quotedList(TASK_STATUSES)})`)
+  ),
 ]);
 
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
@@ -215,6 +253,10 @@ export const evidence = pgTable("evidence", {
   index("evidence_project_id_idx").on(t.projectId),
   index("evidence_project_created_idx").on(t.projectId, t.createdAt),
   index("evidence_captured_at_idx").on(t.capturedAt),
+  check(
+    "evidence_type_check",
+    sql.raw(`${t.type.name} IN (${quotedList(EVIDENCE_TYPES)})`)
+  ),
 ]);
 
 export const evidenceRelations = relations(evidence, ({ one, many }) => ({
@@ -250,6 +292,10 @@ export const evidenceLinks = pgTable(
   (t) => [
     unique().on(t.evidenceId, t.taskId),
     index("evidence_links_task_id_idx").on(t.taskId),
+    check(
+      "evidence_links_link_method_check",
+      sql.raw(`${t.linkMethod.name} IN (${quotedList(LINK_METHODS)})`)
+    ),
   ]
 );
 
@@ -288,6 +334,22 @@ export const reports = pgTable("reports", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
 }, (t) => [
   index("reports_project_id_idx").on(t.projectId),
+  // Two reports in the same project must not share a report number — makes
+  // the MAX+1 race in report.generate fail at the DB level instead of
+  // creating duplicate-numbered rows.
+  unique("reports_project_report_number_unique").on(
+    t.projectId,
+    t.reportNumber
+  ),
+  // Only one in-flight report per project — the partial unique index turns
+  // the check-then-insert race in report.generate into a hard CONFLICT.
+  uniqueIndex("reports_one_generating_per_project_idx")
+    .on(t.projectId)
+    .where(sql`status = 'generating'`),
+  check(
+    "reports_status_check",
+    sql.raw(`${t.status.name} IN (${quotedList(REPORT_STATUSES)})`)
+  ),
 ]);
 
 export const reportsRelations = relations(reports, ({ one }) => ({

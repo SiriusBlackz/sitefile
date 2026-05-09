@@ -1,37 +1,56 @@
-import { eq, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { createTRPCRouter, protectedProcedure } from "../index";
 import {
   projects,
+  projectMembers,
   tasks,
   evidence,
   auditLog,
 } from "@/server/db/schema";
+import type { Context } from "../context";
+
+/**
+ * Resolve the set of projects this user can see on the dashboard.
+ * - Admins: every project in their org.
+ * - Members: only projects they're listed in via project_members.
+ *
+ * Returns an array of `{ id, status }` so the caller can build counts and
+ * use the IDs for sub-queries (tasks, evidence, audit log) without a second
+ * round-trip.
+ */
+async function listAccessibleProjects(
+  ctx: Context & { userId: string; orgId: string; dbUser: { role: string } }
+): Promise<{ id: string; status: string | null }[]> {
+  if (ctx.dbUser.role === "admin") {
+    return ctx.db
+      .select({ id: projects.id, status: projects.status })
+      .from(projects)
+      .where(eq(projects.orgId, ctx.orgId));
+  }
+  const rows = await ctx.db
+    .select({ id: projects.id, status: projects.status })
+    .from(projects)
+    .innerJoin(projectMembers, eq(projectMembers.projectId, projects.id))
+    .where(
+      and(
+        eq(projects.orgId, ctx.orgId),
+        eq(projectMembers.userId, ctx.userId)
+      )
+    );
+  return rows;
+}
 
 export const dashboardRouter = createTRPCRouter({
   summary: protectedProcedure.query(async ({ ctx }) => {
-    // Project counts with SQL aggregation
-    const projectStats = await ctx.db
-      .select({
-        status: projects.status,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(projects)
-      .where(eq(projects.orgId, ctx.orgId))
-      .groupBy(projects.status);
+    const accessible = await listAccessibleProjects(ctx);
 
-    const projectCounts = { total: 0, active: 0, archived: 0 };
-    for (const row of projectStats) {
-      projectCounts.total += row.count;
-      if (row.status === "active") projectCounts.active = row.count;
-      if (row.status === "archived") projectCounts.archived = row.count;
+    const projectCounts = { total: accessible.length, active: 0, archived: 0 };
+    for (const p of accessible) {
+      if (p.status === "active") projectCounts.active++;
+      if (p.status === "archived") projectCounts.archived++;
     }
 
-    // Get project IDs for sub-queries (just IDs, not full rows)
-    const orgProjectIds = await ctx.db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(eq(projects.orgId, ctx.orgId));
-    const projectIds = orgProjectIds.map((p) => p.id);
+    const projectIds = accessible.map((p) => p.id);
 
     if (projectIds.length === 0) {
       return {
@@ -85,12 +104,8 @@ export const dashboardRouter = createTRPCRouter({
   }),
 
   recentActivity: protectedProcedure.query(async ({ ctx }) => {
-    // Get project IDs for this org (just IDs)
-    const orgProjectIds = await ctx.db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(eq(projects.orgId, ctx.orgId));
-    const projectIds = orgProjectIds.map((p) => p.id);
+    const accessible = await listAccessibleProjects(ctx);
+    const projectIds = accessible.map((p) => p.id);
 
     if (projectIds.length === 0) return [];
 

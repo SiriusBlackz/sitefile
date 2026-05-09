@@ -8,7 +8,7 @@ import {
   auditLog,
   reports,
 } from "@/server/db/schema";
-import { getPublicUrl } from "./storage";
+import { getInlineDataUrl } from "./storage";
 import { generateBeforeAfterPairs } from "./before-after";
 import type { db as dbType } from "@/server/db";
 
@@ -259,9 +259,12 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
         gt = { id: link.task.id, name: link.task.name, evidence: [] };
         taskEvidenceMap.set(link.task.id, gt);
       }
+      const inlineUrl = await getInlineDataUrl(
+        ev.thumbnailKey ?? ev.storageKey
+      );
       gt.evidence.push({
         id: ev.id,
-        publicUrl: getPublicUrl(ev.thumbnailKey ?? ev.storageKey),
+        publicUrl: inlineUrl ?? "",
         originalFilename: ev.originalFilename,
         capturedAt: ev.capturedAt?.toISOString() ?? null,
         latitude: ev.latitude,

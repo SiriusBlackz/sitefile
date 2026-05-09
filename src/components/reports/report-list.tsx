@@ -39,7 +39,7 @@ interface ReportListProps {
 }
 
 export function ReportList({ reports }: ReportListProps) {
-  const utils = trpc.useUtils();
+  const downloadMutation = trpc.report.download.useMutation();
   // Transient UI state for the spinner + password dialog.
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [pwPrompt, setPwPrompt] = useState<Report | null>(null);
@@ -48,7 +48,7 @@ export function ReportList({ reports }: ReportListProps) {
   async function runDownload(report: Report, password?: string) {
     setLoadingId(report.id);
     try {
-      const result = await utils.report.download.fetch({
+      const result = await downloadMutation.mutateAsync({
         id: report.id,
         password,
       });

@@ -65,12 +65,57 @@ export async function writeAuditLog(
 }
 
 /**
- * Fire-and-forget audit log write for non-transactional callers. Errors are
- * logged and swallowed — use this when an audit failure shouldn't block the
- * user action (e.g. inside a tRPC mutation that already committed its work).
+ * Optional reporter for audit-write failures — wire to Sentry, Inngest DLQ,
+ * or a metric counter from app bootstrap. Keep this side-effect-free if it
+ * throws; we'd never want a broken reporter to take down a working request.
+ */
+export type AuditFailureReporter = (failure: {
+  entry: AuditEntry;
+  error: unknown;
+}) => void | Promise<void>;
+
+let failureReporter: AuditFailureReporter | null = null;
+
+export function setAuditFailureReporter(fn: AuditFailureReporter | null): void {
+  failureReporter = fn;
+}
+
+function reportAuditFailure(entry: AuditEntry, error: unknown): void {
+  // Single structured log line — greppable in Vercel logs and easy to alert
+  // on. Drops metadata (may contain user-supplied freeform JSON) to keep the
+  // log line bounded in size.
+  console.error(
+    JSON.stringify({
+      type: "audit_failure",
+      timestamp: new Date().toISOString(),
+      projectId: entry.projectId,
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message }
+          : { message: String(error) },
+    })
+  );
+  if (failureReporter) {
+    void Promise.resolve(failureReporter({ entry, error })).catch(
+      (reporterErr) => {
+        console.error("[audit] failureReporter threw:", reporterErr);
+      }
+    );
+  }
+}
+
+/**
+ * Fire-and-forget audit log write for non-transactional callers. Failures
+ * are reported via the structured failure pipeline (greppable JSON log line
+ * + optional reporter hook) instead of being silently swallowed by a plain
+ * console.error. Use inside a tRPC mutation when an audit failure shouldn't
+ * block the user action.
  */
 export function writeAuditLogAsync(db: DBOrTx, entry: AuditEntry): void {
   writeAuditLog(db, entry).catch((err) => {
-    console.error("[audit] Failed to write audit log:", err);
+    reportAuditFailure(entry, err);
   });
 }

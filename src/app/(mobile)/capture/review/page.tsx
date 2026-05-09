@@ -25,13 +25,16 @@ import {
 import { toast } from "sonner";
 import {
   addToQueue as addOffline,
+  getStashedCapture,
+  clearStashedCapture,
   type OfflineCapture,
 } from "@/lib/offline-queue";
 import { usePWA } from "@/lib/use-pwa";
 
 interface ReviewPhoto {
   id: string;
-  dataUrl: string;
+  blob: Blob;
+  previewUrl: string;
   timestamp: string;
   latitude: number | null;
   longitude: number | null;
@@ -54,30 +57,60 @@ function ReviewContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("projectId") ?? "";
+  const sessionId = searchParams.get("session") ?? "";
 
-  const [photos, setPhotos] = useState<ReviewPhoto[]>(() => {
-    if (typeof window === "undefined") return [];
-    const raw = sessionStorage.getItem("capture-queue");
-    if (!raw) return [];
-    const data = JSON.parse(raw) as {
-      id: string;
-      dataUrl: string;
-      timestamp: string;
-      latitude: number | null;
-      longitude: number | null;
-    }[];
-    return data.map((d) => ({
-      ...d,
-      note: "",
-      taskId: "",
-      status: "pending" as const,
-      progress: 0,
-    }));
-  });
+  const [photos, setPhotos] = useState<ReviewPhoto[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
   const { isOnline } = usePWA();
+
+  // Hydrate from IndexedDB staging store on mount.
+  useEffect(() => {
+    let cancelled = false;
+    if (!sessionId) {
+      setHydrated(true);
+      return;
+    }
+    getStashedCapture(sessionId)
+      .then((stash) => {
+        if (cancelled || !stash) {
+          setHydrated(true);
+          return;
+        }
+        setPhotos(
+          stash.photos.map((p) => ({
+            id: p.id,
+            blob: p.blob,
+            previewUrl: URL.createObjectURL(p.blob),
+            timestamp: p.timestamp,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            note: "",
+            taskId: "",
+            status: "pending" as const,
+            progress: 0,
+          }))
+        );
+        setHydrated(true);
+      })
+      .catch((err) => {
+        console.error("[review] hydrate failed:", err);
+        setHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  // Revoke object URLs on unmount to free blob memory.
+  useEffect(() => {
+    return () => {
+      for (const p of photos) URL.revokeObjectURL(p.previewUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: capture URLs at unmount
+  }, []);
 
   const { data: tasks = [] } = trpc.task.list.useQuery(
     { projectId },
@@ -88,12 +121,13 @@ function ReviewContent() {
   const confirmUpload = trpc.evidence.confirm.useMutation();
   const linkEvidence = trpc.evidence.link.useMutation();
 
-  // Redirect if no photos
+  // Redirect if no photos (after hydration completes — otherwise the empty
+  // initial state would bounce us straight back to capture).
   useEffect(() => {
-    if (photos.length === 0) {
+    if (hydrated && photos.length === 0) {
       router.replace(`/capture?projectId=${projectId}`);
     }
-  }, [photos.length, projectId, router]);
+  }, [hydrated, photos.length, projectId, router]);
 
   const selected = photos[selectedIdx];
 
@@ -105,25 +139,17 @@ function ReviewContent() {
 
   function removePhoto(id: string) {
     setPhotos((prev) => {
+      const removed = prev.find((p) => p.id === id);
+      if (removed) URL.revokeObjectURL(removed.previewUrl);
       const next = prev.filter((p) => p.id !== id);
       if (selectedIdx >= next.length) setSelectedIdx(Math.max(0, next.length - 1));
       return next;
     });
   }
 
-  // Convert dataUrl to Blob
-  function dataUrlToBlob(dataUrl: string): Blob {
-    const [header, data] = dataUrl.split(",");
-    const mime = header.match(/:(.*?);/)?.[1] ?? "image/jpeg";
-    const bytes = atob(data);
-    const arr = new Uint8Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-    return new Blob([arr], { type: mime });
-  }
-
   // Upload a single photo
   async function uploadOne(photo: ReviewPhoto) {
-    const blob = dataUrlToBlob(photo.dataUrl);
+    const blob = photo.blob;
     const filename = `capture-${Date.now()}.jpg`;
 
     updatePhoto(photo.id, { status: "uploading", progress: 0 });
@@ -199,13 +225,13 @@ function ReviewContent() {
   // Upload all photos
   async function uploadAll() {
     if (!isOnline) {
-      // Queue for offline upload
+      // Queue for offline upload — blobs go straight to IndexedDB, no
+      // data-URL round-trip required.
       for (const photo of photos) {
-        const blob = dataUrlToBlob(photo.dataUrl);
         const item: OfflineCapture = {
           id: photo.id,
           projectId,
-          blob,
+          blob: photo.blob,
           filename: `capture-${Date.now()}.jpg`,
           mimeType: "image/jpeg",
           capturedAt: photo.timestamp,
@@ -222,7 +248,7 @@ function ReviewContent() {
       toast.success(
         `${photos.length} photo${photos.length !== 1 ? "s" : ""} queued for upload when back online`
       );
-      sessionStorage.removeItem("capture-queue");
+      if (sessionId) await clearStashedCapture(sessionId);
       router.push("/");
       return;
     }
@@ -275,9 +301,9 @@ function ReviewContent() {
       {/* Selected photo preview */}
       {selected && (
         <div className="relative flex-shrink-0 bg-black" style={{ height: "40dvh" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element -- camera data URL */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- camera blob URL */}
           <img
-            src={selected.dataUrl}
+            src={selected.previewUrl}
             alt=""
             className="h-full w-full object-contain"
           />
@@ -311,7 +337,7 @@ function ReviewContent() {
           >
             {/* eslint-disable-next-line @next/next/no-img-element -- camera data URL */}
             <img
-              src={photo.dataUrl}
+              src={photo.previewUrl}
               alt=""
               className="h-full w-full object-cover"
             />
@@ -418,8 +444,8 @@ function ReviewContent() {
             <Button
               variant="outline"
               className="border-zinc-700 text-white"
-              onClick={() => {
-                sessionStorage.removeItem("capture-queue");
+              onClick={async () => {
+                if (sessionId) await clearStashedCapture(sessionId);
                 router.push(`/capture?projectId=${projectId}`);
               }}
             >
@@ -427,8 +453,8 @@ function ReviewContent() {
               Take More
             </Button>
             <Button
-              onClick={() => {
-                sessionStorage.removeItem("capture-queue");
+              onClick={async () => {
+                if (sessionId) await clearStashedCapture(sessionId);
                 router.push(`/projects/${projectId}/evidence`);
               }}
             >

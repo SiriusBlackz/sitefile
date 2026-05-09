@@ -4,8 +4,9 @@
  */
 
 const DB_NAME = "sitefile-offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "capture-queue";
+const STAGING_STORE = "capture-staging";
 
 export interface OfflineCapture {
   id: string;
@@ -24,6 +25,24 @@ export interface OfflineCapture {
   createdAt: number;
 }
 
+/**
+ * Used for the capture → review handoff. We previously stashed photos as
+ * data URLs in sessionStorage which would silently truncate large batches
+ * (sessionStorage is ~5 MB). IndexedDB stores blobs natively without the
+ * base64 inflation and has a much higher quota.
+ */
+export interface CaptureStaging {
+  sessionId: string;
+  photos: {
+    id: string;
+    blob: Blob;
+    timestamp: string;
+    latitude: number | null;
+    longitude: number | null;
+  }[];
+  createdAt: number;
+}
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -31,6 +50,9 @@ function openDB(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STAGING_STORE)) {
+        db.createObjectStore(STAGING_STORE, { keyPath: "sessionId" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -107,4 +129,38 @@ export async function clearCompleted(): Promise<void> {
 
 export function getQueueCount(): Promise<number> {
   return getPendingQueue().then((q) => q.length);
+}
+
+// ─── Capture staging (capture → review handoff) ───────────────────────────
+
+export async function stashCapture(staging: CaptureStaging): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STAGING_STORE, "readwrite");
+    tx.objectStore(STAGING_STORE).put(staging);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getStashedCapture(
+  sessionId: string
+): Promise<CaptureStaging | null> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STAGING_STORE, "readonly");
+    const req = tx.objectStore(STAGING_STORE).get(sessionId);
+    req.onsuccess = () => resolve((req.result as CaptureStaging) ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function clearStashedCapture(sessionId: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STAGING_STORE, "readwrite");
+    tx.objectStore(STAGING_STORE).delete(sessionId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }

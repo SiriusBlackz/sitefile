@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
 import { projects, organisations, projectMembers, users } from "@/server/db/schema";
+import { PROJECT_MEMBER_ROLES, PROJECT_STATUSES } from "@/server/db/enums";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 import {
@@ -14,10 +15,33 @@ import {
 
 export const projectRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
-    const result = await ctx.db.query.projects.findMany({
-      where: eq(projects.orgId, ctx.orgId),
-      orderBy: (projects, { desc }) => [desc(projects.createdAt)],
-    });
+    // Admins see every project in the org. Non-admin members only see the
+    // projects they've been added to via project_members. This matches the
+    // membership check enforced by every other router (task, evidence, zone,
+    // report) so the project list never shows a project the user can't open.
+    let result: typeof projects.$inferSelect[];
+    if (ctx.dbUser.role === "admin") {
+      result = await ctx.db.query.projects.findMany({
+        where: eq(projects.orgId, ctx.orgId),
+        orderBy: [desc(projects.createdAt)],
+      });
+    } else {
+      const rows = await ctx.db
+        .select()
+        .from(projects)
+        .innerJoin(
+          projectMembers,
+          eq(projectMembers.projectId, projects.id)
+        )
+        .where(
+          and(
+            eq(projects.orgId, ctx.orgId),
+            eq(projectMembers.userId, ctx.userId)
+          )
+        )
+        .orderBy(desc(projects.createdAt));
+      result = rows.map((r) => r.projects);
+    }
 
     // In demo mode, treat pending_payment as active
     if (process.env.DEMO_MODE === "true") {
@@ -33,11 +57,14 @@ export const projectRouter = createTRPCRouter({
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      // assertProjectAccess enforces org match AND project membership (admins
+      // bypass membership). Previously this only checked org match, so any
+      // org member could load any project even if not added to it.
+      await assertProjectAccess(ctx.db, input.id, ctx.orgId, ctx.userId);
       const project = await ctx.db.query.projects.findFirst({
         where: eq(projects.id, input.id),
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-      if (project.orgId !== ctx.orgId) throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
 
       // In demo mode, treat pending_payment as active
       if (process.env.DEMO_MODE === "true" && project.status === "pending_payment") {
@@ -48,15 +75,20 @@ export const projectRouter = createTRPCRouter({
 
   create: protectedProcedure
     .input(
-      z.object({
-        name: z.string().min(1, "Project name is required"),
-        reference: z.string().optional(),
-        clientName: z.string().optional(),
-        contractType: z.string().optional(),
-        startDate: z.string().optional(),
-        endDate: z.string().optional(),
-        reportingFrequency: z.string().optional(),
-      })
+      z
+        .object({
+          name: z.string().min(1, "Project name is required"),
+          reference: z.string().optional(),
+          clientName: z.string().optional(),
+          contractType: z.string().optional(),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          reportingFrequency: z.string().optional(),
+        })
+        .refine(
+          (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,
+          { message: "End date must be on or after start date", path: ["endDate"] }
+        )
     )
     .mutation(async ({ ctx, input }) => {
       const stripeConfigured =
@@ -113,17 +145,22 @@ export const projectRouter = createTRPCRouter({
 
   update: adminProcedure
     .input(
-      z.object({
-        id: z.string().uuid(),
-        name: z.string().min(1).optional(),
-        reference: z.string().optional(),
-        clientName: z.string().optional(),
-        contractType: z.string().optional(),
-        startDate: z.string().optional(),
-        endDate: z.string().optional(),
-        reportingFrequency: z.string().optional(),
-        status: z.string().optional(),
-      })
+      z
+        .object({
+          id: z.string().uuid(),
+          name: z.string().min(1).optional(),
+          reference: z.string().optional(),
+          clientName: z.string().optional(),
+          contractType: z.string().optional(),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          reportingFrequency: z.string().optional(),
+          status: z.enum(PROJECT_STATUSES).optional(),
+        })
+        .refine(
+          (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,
+          { message: "End date must be on or after start date", path: ["endDate"] }
+        )
     )
     .mutation(async ({ ctx, input }) => {
       await assertProjectAccess(ctx.db, input.id, ctx.orgId, ctx.userId);
@@ -219,7 +256,7 @@ export const projectRouter = createTRPCRouter({
       z.object({
         projectId: z.string().uuid(),
         userId: z.string().uuid(),
-        role: z.string().default("member"),
+        role: z.enum(PROJECT_MEMBER_ROLES).default("member"),
       })
     )
     .mutation(async ({ ctx, input }) => {

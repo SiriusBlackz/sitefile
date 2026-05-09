@@ -3,6 +3,7 @@ import { eq, asc, and, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
 import { tasks } from "@/server/db/schema";
+import { TASK_STATUSES } from "@/server/db/enums";
 import { detectAndParse } from "@/server/services/programme-import";
 import {
   inspectExcel,
@@ -84,9 +85,7 @@ export const taskRouter = createTRPCRouter({
         parentTaskId: z.string().uuid().nullable().optional(),
         plannedStart: z.string().optional(),
         plannedEnd: z.string().optional(),
-        status: z
-          .enum(["not_started", "in_progress", "completed", "delayed"])
-          .optional(),
+        status: z.enum(TASK_STATUSES).optional(),
         progressPct: z.number().min(0).max(100).optional(),
       })
     )
@@ -139,9 +138,7 @@ export const taskRouter = createTRPCRouter({
         plannedEnd: z.string().nullable().optional(),
         actualStart: z.string().nullable().optional(),
         actualEnd: z.string().nullable().optional(),
-        status: z
-          .enum(["not_started", "in_progress", "completed", "delayed"])
-          .optional(),
+        status: z.enum(TASK_STATUSES).optional(),
         progressPct: z.number().min(0).max(100).optional(),
       })
     )

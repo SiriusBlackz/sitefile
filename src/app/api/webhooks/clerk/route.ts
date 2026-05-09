@@ -81,7 +81,14 @@ export async function POST(req: Request) {
         .where(eq(users.clerkId, clerkId));
     }
   } catch (err) {
+    // Return 500 so Clerk retries the delivery — silently swallowing the
+    // error and returning 200 means a failed user/org sync is permanently
+    // lost. Clerk only retries non-2xx responses.
     console.error(`[clerk webhook] Error handling ${event.type}:`, err);
+    return NextResponse.json(
+      { error: "Webhook processing failed" },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ received: true });

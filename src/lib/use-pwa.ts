@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { processOfflineQueue } from "./offline-queue-processor";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -31,11 +32,38 @@ export function usePWA() {
       });
     }
 
+    // Drain the offline queue. Runs on:
+    //   - the `online` event (network came back)
+    //   - the SW background-sync trigger ("process-offline-queue")
+    //   - manual retries from the indicator ("process-offline-queue")
+    //   - tab becoming visible (catches the case where the user re-opens
+    //     the PWA after going through a tunnel — visibility flips even
+    //     when the online event already fired in the background)
+    const drain = () => {
+      processOfflineQueue().catch((err) =>
+        console.error("[offline-queue] drain failed:", err)
+      );
+    };
+
     // Track online status
-    const onOnline = () => setIsOnline(true);
+    const onOnline = () => {
+      setIsOnline(true);
+      drain();
+    };
     const onOffline = () => setIsOnline(false);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) drain();
+    };
+    const onProcessQueue = () => drain();
+
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
+    window.addEventListener("process-offline-queue", onProcessQueue);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // Drain once on mount in case the tab opened with pending items —
+    // common after a quit/relaunch of the PWA after offline capture.
+    if (typeof navigator !== "undefined" && navigator.onLine) drain();
 
     // Capture install prompt
     const onBeforeInstall = (e: Event) => {
@@ -47,6 +75,8 @@ export function usePWA() {
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
+      window.removeEventListener("process-offline-queue", onProcessQueue);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("beforeinstallprompt", onBeforeInstall);
     };
   }, []);

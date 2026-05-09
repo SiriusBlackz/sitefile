@@ -3,7 +3,8 @@ import { eq, and, desc, lte, gte, sql, inArray, ilike, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
 import { evidence, evidenceLinks, users, uploadIntents } from "@/server/db/schema";
-import { getUploadUrl, getPublicUrl } from "@/server/services/storage";
+import { EVIDENCE_TYPES, LINK_METHODS } from "@/server/db/enums";
+import { getUploadUrl, getPublicUrl, statStoredObject } from "@/server/services/storage";
 import { suggestTasks } from "@/server/services/ai-linker";
 import { assertProjectAccess, assertTaskInProject } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
@@ -102,6 +103,24 @@ export const evidenceRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Unsupported mime type" });
       }
 
+      // Verify the object actually landed in storage before consuming the
+      // intent. Without this, a client could confirm an upload that never
+      // happened (e.g. presign step ran but the PUT was dropped), creating
+      // an evidence row that points to a missing file.
+      const head = await statStoredObject(input.storageKey);
+      if (!head.exists) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Upload not found in storage. Please retry the upload.",
+        });
+      }
+      if (head.size !== undefined && head.size !== input.fileSizeBytes) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Stored file size does not match declared size",
+        });
+      }
+
       const type = input.mimeType.startsWith("video/") ? "video" : "photo";
 
       const [record] = await ctx.db
@@ -158,7 +177,7 @@ export const evidenceRouter = createTRPCRouter({
         taskId: z.string().uuid().optional(),
         dateFrom: z.string().optional(),
         dateTo: z.string().optional(),
-        type: z.enum(["photo", "video"]).optional(),
+        type: z.enum(EVIDENCE_TYPES).optional(),
         search: z.string().max(200).optional(),
         uploadedBy: z.string().uuid().optional(),
       })
@@ -250,10 +269,7 @@ export const evidenceRouter = createTRPCRouter({
       z.object({
         evidenceId: z.string().uuid(),
         taskId: z.string().uuid(),
-        linkMethod: z
-          .enum(["manual", "ai_suggested"])
-          .optional()
-          .default("manual"),
+        linkMethod: z.enum(LINK_METHODS).optional().default("manual"),
         aiConfidence: z.number().min(0).max(1).optional(),
       })
     )

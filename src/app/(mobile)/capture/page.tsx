@@ -14,11 +14,12 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { usePWA } from "@/lib/use-pwa";
+import { stashCapture } from "@/lib/offline-queue";
 
 interface CapturedPhoto {
   id: string;
   blob: Blob;
-  dataUrl: string;
+  previewUrl: string;
   timestamp: Date;
   latitude: number | null;
   longitude: number | null;
@@ -153,11 +154,14 @@ function CaptureContent() {
     canvas.toBlob(
       (blob) => {
         if (!blob) return;
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+        // URL.createObjectURL keeps the blob in memory but avoids the
+        // base64 inflation of toDataURL — important when capturing dozens
+        // of photos in one session.
+        const previewUrl = URL.createObjectURL(blob);
         const photo: CapturedPhoto = {
           id: crypto.randomUUID(),
           blob,
-          dataUrl,
+          previewUrl,
           timestamp: new Date(),
           latitude: null,
           longitude: null,
@@ -197,18 +201,29 @@ function CaptureContent() {
     );
   }
 
-  // Navigate to review
-  function goToReview() {
-    // Store photos in sessionStorage as data URLs (for the review page)
-    const data = photos.map((p) => ({
-      id: p.id,
-      dataUrl: p.dataUrl,
-      timestamp: p.timestamp.toISOString(),
-      latitude: p.latitude,
-      longitude: p.longitude,
-    }));
-    sessionStorage.setItem("capture-queue", JSON.stringify(data));
-    router.push(`/capture/review?projectId=${projectId}`);
+  // Navigate to review — stash blobs in IndexedDB instead of sessionStorage
+  // so large capture batches don't hit the ~5 MB sessionStorage quota.
+  async function goToReview() {
+    const sessionId = crypto.randomUUID();
+    try {
+      await stashCapture({
+        sessionId,
+        photos: photos.map((p) => ({
+          id: p.id,
+          blob: p.blob,
+          timestamp: p.timestamp.toISOString(),
+          latitude: p.latitude,
+          longitude: p.longitude,
+        })),
+        createdAt: Date.now(),
+      });
+    } catch (err) {
+      console.error("[capture] stash failed:", err);
+      return;
+    }
+    router.push(
+      `/capture/review?projectId=${projectId}&session=${sessionId}`
+    );
   }
 
   if (!projectId) {
@@ -321,7 +336,7 @@ function CaptureContent() {
           {photos.length > 0 ? (
             // eslint-disable-next-line @next/next/no-img-element -- camera data URL
             <img
-              src={photos[photos.length - 1].dataUrl}
+              src={photos[photos.length - 1].previewUrl}
               alt=""
               className="h-full w-full object-cover"
             />
