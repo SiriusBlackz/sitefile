@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ProjectCard } from "@/components/projects/project-card";
-import { Plus, FolderKanban } from "lucide-react";
+import { AlertTriangle, FolderKanban, Plus } from "lucide-react";
 
 export default function ProjectsPage() {
-  const { data: projects, isLoading } = trpc.project.list.useQuery();
+  const { data: projects, isLoading, error, refetch, isRefetching } =
+    trpc.project.list.useQuery();
 
   return (
     <div className="space-y-6">
@@ -33,6 +34,22 @@ export default function ProjectsPage() {
               className="h-40 animate-pulse rounded-lg border bg-muted"
             />
           ))}
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-destructive/40 bg-destructive/5 p-12 text-center">
+          <AlertTriangle className="h-10 w-10 text-destructive" />
+          <h3 className="mt-4 text-lg font-semibold">Couldn&apos;t load projects</h3>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            {error.message || "Something went wrong fetching your projects."}
+          </p>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={() => refetch()}
+            disabled={isRefetching}
+          >
+            {isRefetching ? "Retrying…" : "Retry"}
+          </Button>
         </div>
       ) : projects && projects.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

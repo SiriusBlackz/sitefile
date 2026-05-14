@@ -1,5 +1,10 @@
+import { TRPCError } from "@trpc/server";
 import { db } from "@/server/db";
-import { resolveCurrentUser, DemoEnsureUserError } from "@/server/services/current-user";
+import {
+  resolveCurrentUser,
+  DemoEnsureUserError,
+  EnsureUserError,
+} from "@/server/services/current-user";
 
 export async function createTRPCContext(opts: { headers: Headers }) {
   let resolved;
@@ -10,6 +15,16 @@ export async function createTRPCContext(opts: { headers: Headers }) {
       console.error("[tRPC context] demo user resolution failed:", e.cause);
       // Surface a safe error; the tRPC error formatter strips internals.
       throw new Error("Demo session unavailable");
+    }
+    if (e instanceof EnsureUserError) {
+      // The clerkId + cause are already logged in resolveCurrentUser. Send a
+      // user-facing 503 so the UI can show "try again" rather than the
+      // misleading "Not signed in" that protectedProcedure would emit.
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: e.message,
+        cause: e.cause,
+      });
     }
     throw e;
   }

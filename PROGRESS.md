@@ -858,9 +858,93 @@ Supabase Pro (~£25/mo).
 Verified live: `curl -H "Authorization: Bearer $CRON_SECRET"
 https://www.sitefile.app/api/cron/db-ping` → `{"ok":true,"elapsedMs":94}`.
 
+### Phase 13 — Beta-test round 2 follow-ups + dashboard redesign (in progress, 2026-05-10)
+
+Multiple uncommitted threads in the working tree at the start of this
+session, plus one new redesign that was specced from a hand-drawn
+beta-tester sketch in `beta test 2.0/dashboard design.jpg`.
+
+#### Phase 13.A — Reliability polish (uncommitted, pre-session)
+- **`projects` list error state** — `src/app/(dashboard)/projects/page.tsx`
+  pulls `error` + `refetch` off the tRPC query and renders a destructive
+  card with a Retry button when `project.list` fails. Was previously
+  silent (loading skeletons → empty grid).
+- **`ensureUser` failures stop being swallowed** —
+  `src/server/services/current-user.ts` adds a new `EnsureUserError`
+  class. The catch around `ensureUser()` used to log + fall through
+  with `dbUser = null`, which the tRPC layer then served as a generic
+  "Not signed in" 401, hiding real provisioning bugs (DB outages, race
+  conditions, schema mismatches). Now throws with the clerkId in the
+  log line. `src/server/trpc/context.ts` maps it to a TRPCError so the
+  client gets an actionable message.
+- **Account page Clerk import** —
+  `src/app/(dashboard)/account/page.tsx` replaces the
+  `require("@clerk/nextjs")` lazy-load (with the eslint-disable
+  comment) with a static top-level import of `UserProfile`. Slightly
+  cleaner; same render path.
+
+#### Phase 13.B — Dashboard redesign from beta-tester sketch (uncommitted, this session)
+
+A beta tester drew a layout for the dashboard
+(`beta test 2.0/dashboard design.jpg`) — replace the four aggregate
+stat cards with a per-project table, keep the Recent Activity +
+Quick Actions row underneath. Confirmed two interpretation calls with
+the user before implementing:
+
+- **Replace the stat cards entirely** (the per-project table covers
+  the same info more usefully); don't keep the old cards as a top row.
+- **Progress column shows fraction + bar + percent** ("5 / 12 tasks"
+  with a thin progress bar and `42%` to the right). Plain task counts
+  rather than `progress_pct` averages or schedule-based time progress —
+  always-defined, no extra bookkeeping.
+
+Implementation:
+- New `dashboard.projectsTable` tRPC procedure in
+  `src/server/trpc/routers/dashboard.ts`. Returns one row per
+  non-archived accessible project: `{ id, name, status, tasks: { total,
+  completed }, evidenceCount, currentTask: { id, name } | null }`.
+  Three queries (per-project task-status counts, per-project evidence
+  counts, candidate "current task" rows ordered `in_progress → delayed
+  → not_started by planned_start`), then assembled in JS so the
+  dashboard issues a single endpoint call.
+- `src/app/(dashboard)/page.tsx` rewritten: 4-column shadcn `Table`
+  (Project | Progress | Current Task | Evidence) wrapped in a Card.
+  Loading state renders 3 skeleton rows. Empty state preserved (the
+  "Welcome to Sitefile" card with Capture/Link/Report icons). Error
+  state with Retry button. Recent Activity (lg:col-span-2) +
+  Quick Actions (col-1) row kept; Quick Actions now has both
+  `New Project` (primary) and `View Projects` (outline) so it isn't
+  a single-button card. Removed unused imports (`StatCard` helper +
+  the standalone summary query).
+- `listAccessibleProjects` extended to also return `name` so the
+  table doesn't need a second `projects` query.
+
+Verified locally:
+- `pnpm tsc --noEmit` clean.
+- `pnpm dev` boots ("Ready in 282ms"); first dev compile is currently
+  blocked by a Tailwind v4 + Turbopack + pnpm CSS resolution quirk
+  (`Can't resolve 'tailwindcss' in '/Users/derianj/projects'`) that
+  surfaces during initial CSS compile — pre-existing, not introduced
+  by this change. User to verify the rendered layout against the
+  sketch before commit.
+
+Per the `feedback_cumulative_ux` note, this is an IA change (replaces
+the dashboard's primary above-the-fold content) so it gets a screenshot
+check before going further.
+
+#### Outstanding within Phase 13
+- Visual verification of the new dashboard against the sketch (open
+  question: is column width / progress-bar density right?).
+- Investigate the Tailwind v4 + Turbopack + pnpm CSS resolution
+  warning (may need an `optimizeCss` workaround or `transpilePackages`
+  in `next.config.ts`).
+- Once verified, ship as a single commit covering both 13.A reliability
+  polish and 13.B dashboard redesign — or split if the user prefers
+  separate commits per concern.
+
 ---
 
-## What's Outstanding (2026-05-09)
+## What's Outstanding (2026-05-10)
 
 ### Active blockers — your side, no code work needed
 1. **`STRIPE_WEBHOOK_SECRET`** — handler is fully wired up + idempotent

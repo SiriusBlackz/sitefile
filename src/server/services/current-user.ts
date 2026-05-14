@@ -16,6 +16,13 @@ export class DemoEnsureUserError extends Error {
   }
 }
 
+export class EnsureUserError extends Error {
+  constructor(message: string, public cause?: unknown) {
+    super(message);
+    this.name = "EnsureUserError";
+  }
+}
+
 export async function resolveCurrentUser(headers: Headers): Promise<ResolvedUser> {
   let clerkId: string | null = null;
   let dbUser: DbUser | null = null;
@@ -65,7 +72,20 @@ export async function resolveCurrentUser(headers: Headers): Promise<ResolvedUser
           });
         }
       } catch (e) {
-        console.error("[resolveCurrentUser] ensureUser failed:", e);
+        // Failures here previously fell through to a generic "Not signed in"
+        // because dbUser stayed null. That hid real provisioning bugs (DB
+        // outages, race conditions, schema mismatches). Surface them as a
+        // typed error so the tRPC layer can return an actionable message
+        // and Vercel logs carry the clerkId.
+        const message = e instanceof Error ? e.message : String(e);
+        console.error(
+          `[resolveCurrentUser] ensureUser failed for clerkId=${clerkId}:`,
+          message
+        );
+        throw new EnsureUserError(
+          "Account provisioning failed. Please try again or contact support.",
+          e
+        );
       }
     }
   }

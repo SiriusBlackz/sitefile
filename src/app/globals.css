@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+/* @import "shadcn/tailwind.css"; — disabled: Tailwind v4 + Turbopack + pnpm
+   resolution quirk (gotcha #11). The CLI dep "shadcn" isn't a CSS module and
+   the import walked enhanced-resolve up to /Users/derianj/projects/, failing
+   to find tailwindcss. Components carry their own classes; this file is
+   safe to drop. */
 
 @custom-variant dark (&:is(.dark *));
 

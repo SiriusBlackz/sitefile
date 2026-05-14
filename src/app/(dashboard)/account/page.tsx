@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { UserProfile } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogOut, UserRound } from "lucide-react";
@@ -54,11 +55,6 @@ function DemoAccountPanel() {
 }
 
 function ClerkAccountPanel() {
-  // Clerk's <UserProfile /> component is the canonical full-featured account
-  // page (email, password, sessions, MFA, delete account). Render it here.
-  // We import lazily so demo-mode builds without Clerk env still work.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { UserProfile } = require("@clerk/nextjs") as typeof import("@clerk/nextjs");
   return (
     <div className="flex justify-center">
       <UserProfile

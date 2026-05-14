@@ -5,6 +5,15 @@ import { trpc } from "@/lib/trpc";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   FolderKanban,
@@ -38,10 +47,17 @@ const ENTITY_LABELS: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const { data: summary, isLoading: summaryLoading } =
-    trpc.dashboard.summary.useQuery();
+  const {
+    data: rows,
+    isLoading: rowsLoading,
+    error: rowsError,
+    refetch: refetchRows,
+    isRefetching: rowsRefetching,
+  } = trpc.dashboard.projectsTable.useQuery();
   const { data: activity = [], isLoading: activityLoading } =
     trpc.dashboard.recentActivity.useQuery();
+
+  const isEmpty = !rowsLoading && (rows?.length ?? 0) === 0;
 
   return (
     <div className="space-y-6">
@@ -49,74 +65,50 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">
-            Overview of your projects and recent activity.
+            Overview of all your projects and recent activity.
           </p>
         </div>
-        <Link
-          href="/projects/new"
-          className={cn(buttonVariants(), "shrink-0")}
-        >
+        <Link href="/projects/new" className={cn(buttonVariants(), "shrink-0")}>
           <Plus className="mr-1 h-4 w-4" />
           New Project
         </Link>
       </div>
 
-      {/* Stats grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Projects"
-          value={summary?.projects.active ?? "—"}
-          subtitle={`${summary?.projects.archived ?? 0} archived`}
-          icon={FolderKanban}
-          loading={summaryLoading}
-        />
-        <StatCard
-          title="Tasks"
-          value={summary?.tasks.total ?? "—"}
-          subtitle={
-            summary
-              ? `${summary.tasks.completed} done, ${summary.tasks.delayed} delayed`
-              : ""
-          }
-          icon={ListChecks}
-          loading={summaryLoading}
-          alert={summary && summary.tasks.delayed > 0}
-        />
-        <StatCard
-          title="Evidence"
-          value={summary?.evidence.total ?? "—"}
-          subtitle={`${summary?.evidence.thisWeek ?? 0} this week`}
-          icon={ImageIcon}
-          loading={summaryLoading}
-        />
-        <StatCard
-          title="Progress"
-          value={
-            summary && summary.tasks.total > 0
-              ? `${Math.round((summary.tasks.completed / summary.tasks.total) * 100)}%`
-              : "—"
-          }
-          subtitle="tasks completed"
-          icon={TrendingUp}
-          loading={summaryLoading}
-        />
-      </div>
+      {rowsError && (
+        <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />
+          <div className="flex-1">
+            <p className="text-sm font-medium">Couldn&apos;t load projects</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {rowsError.message || "Try again in a moment."}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetchRows()}
+            disabled={rowsRefetching}
+          >
+            {rowsRefetching ? "Retrying…" : "Retry"}
+          </Button>
+        </div>
+      )}
 
-      {/* Onboarding — first-time user */}
-      {!summaryLoading && summary?.projects.total === 0 && (
+      {/* Empty state — first-time user, no projects yet. */}
+      {isEmpty && !rowsError ? (
         <Card className="border-dashed border-2">
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <FolderKanban className="h-12 w-12 text-muted-foreground/40 mb-4" />
             <h2 className="text-lg font-semibold">Welcome to Sitefile</h2>
             <p className="text-sm text-muted-foreground max-w-md mt-1 mb-6">
-              Get started by creating your first project. Upload site photos, link them to programme tasks, and generate professional progress reports.
+              Get started by creating your first project. Upload site photos,
+              link them to programme tasks, and generate professional progress
+              reports.
             </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Link href="/projects/new" className={cn(buttonVariants(), "gap-1")}>
-                <Plus className="h-4 w-4" />
-                Create First Project
-              </Link>
-            </div>
+            <Link href="/projects/new" className={cn(buttonVariants(), "gap-1")}>
+              <Plus className="h-4 w-4" />
+              Create First Project
+            </Link>
             <div className="grid grid-cols-3 gap-6 mt-8 text-xs text-muted-foreground">
               <div className="flex flex-col items-center gap-1">
                 <Camera className="h-5 w-5" />
@@ -131,6 +123,44 @@ export default function DashboardPage() {
                 <span>3. Report</span>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Projects</CardTitle>
+          </CardHeader>
+          <CardContent className="px-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-6">Project</TableHead>
+                  <TableHead className="w-[280px]">Progress</TableHead>
+                  <TableHead>Current Task</TableHead>
+                  <TableHead className="pr-6 text-right">Evidence</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rowsLoading
+                  ? [0, 1, 2].map((i) => (
+                      <TableRow key={i}>
+                        <TableCell className="pl-6">
+                          <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+                        </TableCell>
+                        <TableCell>
+                          <div className="h-4 w-full animate-pulse rounded bg-muted" />
+                        </TableCell>
+                        <TableCell>
+                          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+                        </TableCell>
+                        <TableCell className="pr-6 text-right">
+                          <div className="ml-auto h-4 w-8 animate-pulse rounded bg-muted" />
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  : rows?.map((row) => <ProjectRow key={row.id} row={row} />)}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}
@@ -179,7 +209,8 @@ export default function DashboardPage() {
                         </span>{" "}
                         <span className="text-muted-foreground">
                           {ACTION_LABELS[entry.action] ?? entry.action}{" "}
-                          {entry.metadata && (entry.metadata as Record<string, string>).name
+                          {entry.metadata &&
+                          (entry.metadata as Record<string, string>).name
                             ? `"${(entry.metadata as Record<string, string>).name}"`
                             : `a ${ENTITY_LABELS[entry.entityType] ?? entry.entityType}`}
                         </span>
@@ -217,6 +248,16 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               <Link
+                href="/projects/new"
+                className={cn(
+                  buttonVariants(),
+                  "w-full justify-start"
+                )}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                New Project
+              </Link>
+              <Link
                 href="/projects"
                 className={cn(
                   buttonVariants({ variant: "outline" }),
@@ -228,69 +269,62 @@ export default function DashboardPage() {
               </Link>
             </CardContent>
           </Card>
-
-          {/* Delayed tasks alert */}
-          {summary && summary.tasks.delayed > 0 && (
-            <Card className="mt-4 border-amber-200 dark:border-amber-900/50">
-              <CardContent className="flex items-start gap-3 pt-4">
-                <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium">
-                    {summary.tasks.delayed} Delayed Task
-                    {summary.tasks.delayed !== 1 ? "s" : ""}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Review your project tasks to address delays.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-function StatCard({
-  title,
-  value,
-  subtitle,
-  icon: Icon,
-  loading,
-  alert,
-}: {
-  title: string;
-  value: string | number;
-  subtitle: string;
-  icon: typeof FolderKanban;
-  loading: boolean;
-  alert?: boolean;
-}) {
+type ProjectRowData = {
+  id: string;
+  name: string;
+  status: string | null;
+  tasks: { total: number; completed: number };
+  evidenceCount: number;
+  currentTask: { id: string; name: string } | null;
+};
+
+function ProjectRow({ row }: { row: ProjectRowData }) {
+  const { total, completed } = row.tasks;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {title}
-        </CardTitle>
-        <Icon
-          className={cn(
-            "h-4 w-4",
-            alert ? "text-amber-500" : "text-muted-foreground"
-          )}
-        />
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="h-8 w-16 animate-pulse rounded bg-muted" />
+    <TableRow className="group">
+      <TableCell className="pl-6 font-medium">
+        <Link
+          href={`/projects/${row.id}`}
+          className="hover:underline group-hover:text-primary"
+        >
+          {row.name}
+        </Link>
+      </TableCell>
+      <TableCell>
+        {total === 0 ? (
+          <span className="text-xs text-muted-foreground">No tasks yet</span>
         ) : (
-          <>
-            <div className="text-2xl font-bold">{value}</div>
-            <p className="text-xs text-muted-foreground">{subtitle}</p>
-          </>
+          <div className="space-y-1.5">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums">
+              <span>
+                {completed} / {total} tasks
+              </span>
+              <span>{pct}%</span>
+            </div>
+          </div>
         )}
-      </CardContent>
-    </Card>
+      </TableCell>
+      <TableCell className="max-w-[280px] truncate text-sm text-muted-foreground">
+        {row.currentTask?.name ?? "—"}
+      </TableCell>
+      <TableCell className="pr-6 text-right tabular-nums">
+        {row.evidenceCount}
+      </TableCell>
+    </TableRow>
   );
 }
 
