@@ -59,20 +59,32 @@ export async function POST(req: Request) {
           .set({ email, name, avatarUrl: data.image_url })
           .where(eq(users.clerkId, clerkId));
       } else {
-        // Create org + user
-        const [org] = await db
-          .insert(organisations)
-          .values({ name: `${name}'s Organisation` })
-          .returning();
-
-        await db.insert(users).values({
-          orgId: org.id,
-          clerkId,
-          email,
-          name,
-          role: "admin",
-          avatarUrl: data.image_url,
+        // Fall back to email so a Clerk instance swap rehydrates the
+        // existing org instead of provisioning a fresh empty one.
+        const byEmail = await db.query.users.findFirst({
+          where: eq(users.email, email),
         });
+        if (byEmail) {
+          await db
+            .update(users)
+            .set({ clerkId, name, avatarUrl: data.image_url })
+            .where(eq(users.id, byEmail.id));
+        } else {
+          // Create org + user
+          const [org] = await db
+            .insert(organisations)
+            .values({ name: `${name}'s Organisation` })
+            .returning();
+
+          await db.insert(users).values({
+            orgId: org.id,
+            clerkId,
+            email,
+            name,
+            role: "admin",
+            avatarUrl: data.image_url,
+          });
+        }
       }
     } else if (type === "user.updated") {
       await db

@@ -72,6 +72,33 @@ export async function ensureUser(
     };
   }
 
+  // Fall back to email lookup so a Clerk instance swap (e.g. pk_test → pk_live)
+  // rehydrates the existing org instead of provisioning a fresh empty one.
+  if (clerkUser.email) {
+    const byEmail = await db.query.users.findFirst({
+      where: eq(users.email, clerkUser.email),
+    });
+    if (byEmail) {
+      const [updated] = await db
+        .update(users)
+        .set({
+          clerkId,
+          name: clerkUser.name,
+          avatarUrl: clerkUser.imageUrl ?? byEmail.avatarUrl,
+        })
+        .where(eq(users.id, byEmail.id))
+        .returning();
+      return {
+        id: updated.id,
+        orgId: updated.orgId,
+        clerkId: updated.clerkId,
+        email: updated.email,
+        name: updated.name,
+        role: updated.role,
+      };
+    }
+  }
+
   // No user found — auto-provision org + user
   const [org] = await db
     .insert(organisations)
