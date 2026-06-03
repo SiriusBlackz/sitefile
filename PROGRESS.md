@@ -942,19 +942,189 @@ check before going further.
   polish and 13.B dashboard redesign — or split if the user prefers
   separate commits per concern.
 
+### Phase 14 — Clerk pk_test → pk_live swap (in progress, started 2026-05-17, paused 2026-05-19)
+
+The Phase 9 launch-blocker swap from earlier sessions. Production
+Clerk instance was already cloned from Development under the existing
+`proud-bluejay-8` app on 2026-05-14, with 5 unverified CNAMEs sitting
+in Clerk's Domains tab awaiting DNS. Memory note in
+`project_state.md` has the full resume runbook (steps 1–8); this
+phase entry only captures what shipped.
+
+#### Phase 14.A — `ensureUser` + Clerk webhook email-fallback (shipped 2026-05-17, commit `aa3a473`)
+
+Pre-swap code fix. Without this, the 4 existing dev-instance users
+(j.alexander/derian.jackson/thelocaltrader1/xavier.bot.dj) would
+re-sign-up against the Production Clerk instance, get fresh `clerk_id`
+values, miss the existing-user lookup in
+`src/server/services/ensure-user.ts`, and be provisioned as brand-new
+empty orgs severed from their existing projects and evidence. Verified
+2026-05-17 against the actual code — earlier memory had wrongly
+claimed `ensureUser` already did email-fallback.
+
+Both `src/server/services/ensure-user.ts:60` and the `user.created`
+branch of `src/app/api/webhooks/clerk/route.ts:50` now fall back to an
+email lookup when the `clerk_id` lookup misses, and update the existing
+row's `clerk_id` in place rather than creating a new user + org. The
+fix is reusable for any future Clerk instance migration.
+
+`pnpm tsc --noEmit` clean; pushed to main; Vercel auto-deploy fired
+(verified via `vercel ls` — top deployment 9s after the push, status
+`Building`).
+
+#### Outstanding within Phase 14 (paused 2026-05-19, pick-up point)
+
+User-side dashboard/DNS work, no further code changes needed unless
+something surprising surfaces:
+
+1. **(NEXT)** Confirm the duplicate `key-lionfish-48` Clerk app was
+   deleted on 2026-05-14 (or delete it now).
+2. Add 5 CNAMEs in Cloudflare → `sitefile.app` zone → DNS → Records.
+   ALL must be DNS-only (grey cloud, not orange) or Clerk's TLS
+   handshake breaks:
+   - `clerk` → `frontend-api.clerk.services`
+   - `accounts` → `accounts.clerk.services`
+   - `clkmail` → `mail.4knznfllwfu.clerk.services`
+   - `clk._domainkey` → `dkim1.4knznfllwfu.clerk.services`
+   - `clk2._domainkey` → `dkim2.4knznfllwfu.clerk.services`
+3. Click "Verify configuration" in Clerk → Domains. Wait for `0/5`
+   indicator to flip to `5/5` (~1–5 min).
+4. Check Configure → SSO Connections — if Google sign-in is enabled,
+   Production needs its own Google Cloud OAuth client (Dev uses
+   Clerk's shared sandbox creds).
+5. Configure → Webhooks → Add Endpoint: URL
+   `https://www.sitefile.app/api/webhooks/clerk`, events
+   `user.created` + `user.updated`. Copy the `whsec_…`.
+6. Configure → API Keys: copy `pk_live_…` and `sk_live_…`.
+7. Swap three Vercel envs (production) — `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`,
+   `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET` — then `vercel redeploy`.
+8. Verify:
+   - `curl -X POST -d '{}' https://www.sitefile.app/api/webhooks/clerk`
+     → expect 400 "Invalid signature" (env loaded; Svix rejecting
+     unsigned body).
+   - Incognito sign-up with fresh email → land on dashboard.
+   - `pnpm exec tsx scripts/watch-users.ts <that-email>` → new
+     `users` row + audit entry.
+   - Each of the 4 existing dev users re-signs-up with same email →
+     Phase 14.A fix should rehydrate their `org_id` and keep all
+     projects/evidence intact. Spot-check each via
+     `scripts/watch-users.ts`.
+
+Resume command: tell Claude "resume Clerk pk_live swap" — the plan
+file is at `~/.claude/plans/whats-on-the-todolist-joyful-engelbart.md`
+and `project_state.md` memory has the same step list.
+
+#### Phase 14.B — DNS dig diagnosis, Production webhook + Vercel env swap (shipped 2026-06-03)
+
+The remaining dashboard/DNS work from Phase 14 (steps 2–7 in 14.A's
+"Outstanding" list) substantively shipped today, with one sub-issue
+deferred behind a Clerk-side support ticket.
+
+**Cloudflare CNAMEs added + dig diagnosis of stuck verification.**
+All 5 required CNAMEs added in Cloudflare → `sitefile.app` zone, all
+Proxy = DNS-only (grey cloud). Clerk verifies `clerk.sitefile.app` +
+`accounts.sitefile.app` (2/5) but the 3 email records (`clkmail`,
+`clk._domainkey`, `clk2._domainkey`) stayed Unverified for ~2 weeks.
+Root cause proven via `dig` against both 8.8.8.8 and 1.1.1.1: the
+Cloudflare records are 100% correct, but the Clerk-side targets
+themselves return NXDOMAIN:
+
+```
+dig mail.4knznfllwfu.clerk.services    → empty (no answer)
+dig dkim1.4knznfllwfu.clerk.services   → empty
+dig dkim2.4knznfllwfu.clerk.services   → empty
+```
+
+Clerk's email subdomain (`4knznfllwfu` namespace) was never
+provisioned on their backend during the clone-from-Development step.
+The two working CNAMEs point at *shared* Clerk endpoints; only the
+instance-specific email subdomain is broken. Filed a Clerk support
+ticket with the dig evidence asking them to re-provision server-side;
+chose the ship-without-email path so launch isn't blocked. Plan file
+at `~/.claude/plans/i-want-to-fix-smooth-quail.md` has full details.
+Email customization is cosmetic — sign-in/sign-up function with just
+the 2 frontend CNAMEs verified; emails come from `*.clerk.accounts.dev`
+(Clerk's default sender) instead of `noreply@sitefile.app` until Clerk
+fixes their side. New gotcha #12 in `project_state.md`: when a CNAME-
+verification check is stuck, `dig` the provider-side target too, not
+just the host record.
+
+**Production Clerk webhook endpoint added.** URL
+`https://www.sitefile.app/api/webhooks/clerk`, events `user.created` +
+`user.updated`. Signing secret captured into Vercel — note this is a
+*different* `whsec_…` string from the Development webhook secret
+that previously sat in `CLERK_WEBHOOK_SECRET`.
+
+**Three Vercel production envs swapped + redeployed:**
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` → `pk_live_…`, `CLERK_SECRET_KEY` →
+`sk_live_…`, `CLERK_WEBHOOK_SECRET` → new Production webhook secret.
+Vercel forbids in-place add for an existing var (UI shows "A variable
+with the name X already exists for the target production") — values
+had to be edited via the `…` menu on each row, not re-added. Redeploy
+with build cache disabled to ensure the `NEXT_PUBLIC_` value rebakes
+at build time.
+
+**Automated smoke tests (all pass):**
+- `curl -s https://www.sitefile.app/sign-in | grep -oE 'pk_(test|live)_…'`
+  → `pk_live_Y2xlcmsuc2l0ZWZpbGUuYXBwJA` (decodes to
+  `clerk.sitefile.app$` — Production Frontend API). Confirms env
+  baked correctly at build time.
+- `POST https://www.sitefile.app/api/webhooks/clerk -d '{}'` → HTTP 400
+  ("Invalid signature") — Svix is loaded with a signing secret.
+- `GET /sign-in` → HTTP 200; `GET /sign-up` → HTTP 200; no Clerk init
+  crash.
+- `GET https://clerk.sitefile.app/v1/environment` → HTTP 403 (expected
+  without auth) — proves TLS handshake works against the new Production
+  Frontend API endpoint and the `clerk` CNAME routes correctly.
+
+**Manual smoke tests — pending (resume point):**
+1. **Fresh-signup E2E.** Incognito → /sign-up → fresh email → land on
+   dashboard → run `pnpm exec tsx scripts/watch-users.ts <email>` →
+   expect new `users` row + audit entry.
+2. **Existing-user rehydration.** Each of the 4 dev users
+   (j.alexander, derian.jackson, thelocaltrader1, xavier.bot.dj) signs
+   in again. The Phase 14.A email-fallback in
+   `src/server/services/ensure-user.ts` should rehydrate each user's
+   `org_id` and keep their projects/evidence intact. Verify via
+   `watch-users.ts <email>` that their `clerk_id` was updated in place
+   (NOT a new user row + empty org).
+
+User started Test #1 on 2026-06-03 but reported "site not loading or
+taking forever" — server-side was fast at the time (curl /sign-up: HTTP
+200 in 185ms). Slowness is client-side, almost certainly the PWA
+service worker holding stale chunks built against the old Dev Clerk
+URLs (gotcha #6). Fix:
+
+```js
+// In DevTools console at https://www.sitefile.app/
+await Promise.all([
+  ...(await navigator.serviceWorker.getRegistrations()).map(r => r.unregister()),
+  ...(await caches.keys()).map(k => caches.delete(k))
+]);
+location.reload();
+```
+
+Or simply use a fresh incognito window with no prior cookies/cache.
+
+After Tests 1 + 2 pass, `STRIPE_WEBHOOK_SECRET` is the only remaining
+launch blocker.
+
 ---
 
-## What's Outstanding (2026-05-10)
+## What's Outstanding (2026-06-03)
 
 ### Active blockers — your side, no code work needed
-1. **`STRIPE_WEBHOOK_SECRET`** — handler is fully wired up + idempotent
+1. **Phase 14.C — Manual smoke verification.** Complete Tests 1 + 2 above
+   (fresh signup E2E + existing-user rehydration). Clear SW cache first if
+   site loads slowly. Server side is verified; this is the last gate
+   before declaring Phase 14 done.
+2. **`STRIPE_WEBHOOK_SECRET`** — handler is fully wired up + idempotent
    (mig 0004), waiting on a real Stripe account + secret.
-2. **Clerk `pk_test_*` → `pk_live_*` swap** — production currently uses
-   the Clerk Development instance (`proud-bluejay-8`). Functions for
-   invite-only beta but must swap to a Production Clerk instance before
-   real public launch. The Phase 12.E webhook config will need to be
-   redone on the Production instance (new endpoint URL, new signing
-   secret in `CLERK_WEBHOOK_SECRET`).
+3. **Clerk email DNS (cosmetic, deferred to Clerk support).** 3 of 5
+   CNAMEs stuck Unverified due to Clerk-side NXDOMAIN — support ticket
+   filed 2026-05-31. Once they re-provision the email subdomain (or
+   issue new targets), either auto-verifies or needs a Cloudflare
+   CNAME-target update. Sign-in already works without it.
 
 ### Optional polish
 - **Mapbox token** — enables GPS zone editor
