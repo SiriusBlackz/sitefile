@@ -12,26 +12,50 @@ import type { db as dbType } from "@/server/db";
 
 type DB = typeof dbType;
 
+/** Project statuses that block billable write operations. */
+const INACTIVE_BILLING_STATUSES = new Set([
+  "pending_payment",
+  "payment_failed",
+  "cancelled",
+]);
+
 /**
  * Verify the project exists, belongs to the user's organisation,
  * and the user is either an org admin or a project member.
  * Throws FORBIDDEN if the org doesn't match or user lacks access, NOT_FOUND if missing.
+ *
+ * Pass `{ requireActive: true }` on billable writes (uploads, imports,
+ * report generation) so projects without a live subscription are
+ * read-only. Demo-mode projects are created "active" so this never
+ * affects them.
  */
 export async function assertProjectAccess(
   db: DB,
   projectId: string,
   orgId: string,
-  userId?: string | null
+  userId?: string | null,
+  opts?: { requireActive?: boolean }
 ) {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
-    columns: { id: true, orgId: true },
+    columns: { id: true, orgId: true, status: true },
   });
   if (!project) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
   }
   if (project.orgId !== orgId) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+  }
+  if (
+    opts?.requireActive &&
+    project.status &&
+    INACTIVE_BILLING_STATUSES.has(project.status)
+  ) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "This project does not have an active subscription. Complete payment in Settings to continue.",
+    });
   }
 
   // If userId provided, check that user is an org admin or a project member

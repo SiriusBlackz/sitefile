@@ -40,7 +40,9 @@ export const evidenceRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId, {
+        requireActive: true,
+      });
       const evidenceId = crypto.randomUUID();
       // Sanitize filename — keep only safe chars, drop path separators
       const safeFilename = input.filename.replace(/[^\w.\-]/g, "_").slice(0, 200);
@@ -78,7 +80,9 @@ export const evidenceRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId, {
+        requireActive: true,
+      });
 
       // Verify an outstanding upload intent matches this storageKey + caller.
       const intent = await ctx.db.query.uploadIntents.findFirst({

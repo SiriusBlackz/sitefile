@@ -270,20 +270,23 @@ export const taskRouter = createTRPCRouter({
 
   previewImport: protectedProcedure
     .input(
+      // Size caps: ~15MB binary ≈ 20M base64 chars. Without them any
+      // authenticated user can push arbitrarily large payloads into the
+      // XML parser / Claude PDF import and burn unbounded API spend.
       z.discriminatedUnion("kind", [
-        z.object({ kind: z.literal("xml"), xml: z.string().min(10) }),
+        z.object({ kind: z.literal("xml"), xml: z.string().min(10).max(10_000_000) }),
         z.object({
           kind: z.literal("xlsx-inspect"),
-          xlsxBase64: z.string().min(10),
+          xlsxBase64: z.string().min(10).max(20_000_000),
         }),
         z.object({
           kind: z.literal("xlsx-parse"),
-          xlsxBase64: z.string().min(10),
+          xlsxBase64: z.string().min(10).max(20_000_000),
           mapping: columnMappingSchema,
         }),
         z.object({
           kind: z.literal("pdf"),
-          pdfBase64: z.string().min(10),
+          pdfBase64: z.string().min(10).max(20_000_000),
         }),
       ])
     )
@@ -339,7 +342,9 @@ export const taskRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId, {
+        requireActive: true,
+      });
       let parsedTasks;
       let format: "msproject" | "p6" | "xlsx" | "pdf";
       if (input.source.kind === "xml") {

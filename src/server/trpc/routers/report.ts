@@ -53,7 +53,9 @@ export const reportRouter = createTRPCRouter({
         })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId, {
+        requireActive: true,
+      });
 
       const passwordHash = input.password
         ? await bcrypt.hash(input.password, 10)
