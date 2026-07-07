@@ -1109,6 +1109,72 @@ Or simply use a fresh incognito window with no prior cookies/cache.
 After Tests 1 + 2 pass, `STRIPE_WEBHOOK_SECRET` is the only remaining
 launch blocker.
 
+### Phase 15 — Full review + report pipeline hardening (2026-07-06 → 2026-07-08) ✅
+
+Full architecture/UI/workflow review (3 parallel review passes + live
+E2E run: demo login → project → tasks → 6 photos through the real
+upload pipeline → report generated → PDF inspected page by page).
+Full findings in the review artifact; 12 of 14 April `betatest.md`
+blockers confirmed genuinely fixed. Six-commit fix batch, each
+verified live:
+
+81. **`cancelled` project status** (migration `0006_square_morph.sql`,
+    applied to prod) — Stripe `customer.subscription.deleted` wrote a
+    status the CHECK constraint rejected: webhook 500-looped and
+    cancelled customers stayed active forever.
+82. **Server-side billing enforcement** — `assertProjectAccess`
+    `requireActive` option on `evidence.getUploadUrl/confirm`,
+    `task.import`, `report.generate`. Previously only a client banner;
+    abandoned checkout = free product. Negative-tested. Plus ~15MB
+    caps on `previewImport` payloads (unbounded Claude spend).
+83. **`report.list` passwordHash leak** — full rows (bcrypt hash +
+    reportData blob) were serialized to every member's browser; now
+    `hasPassword: boolean`.
+84. **Report pipeline restructure** — THE launch blocker: base64
+    images in Inngest step output blew the ~4MB cap at just 6 photos
+    (live-reproduced: 4.6MB step output → 3 retries → failed). Now a
+    single `generate-and-store` step returning only the storage key;
+    images enter HTML as short-lived presigned R2 URLs (`getReadUrl`);
+    before/after uses thumbnails; undated evidence included via
+    `uploadedAt` fallback (was silently dropped); planned-progress
+    pinned to `periodEnd`; `maxDuration=300` on `/api/inngest`.
+    E2E after: report completes in ~8s, PDF 3.4MB → 0.7MB.
+85. **Report feedback loop** — reports page polls (3s) while
+    generating, toasts on completed/failed; `report.generate` reaps
+    rows stuck in `generating` >15 min (a lost Inngest event
+    previously blocked the project's reports forever).
+86. **PDF pagination + page numbers** — templates export pure
+    pagination helpers (`paginateGallery`, `timelinePageCount`,
+    `verificationPageCount`); `renderReportHTML` computes all page
+    numbers in one pass so footers/TOC can't disagree (exec summary
+    footer said "Page 2" while physically page 3). Gantt splits at 26
+    rows/page, gallery at 6 photos/page with "(continued)" headers,
+    audit trail >8 rows gets its own numbered pages. Verification 0%
+    tiles now neutral slate + explainer (was alarm-red on a
+    client-facing doc); Zone Verified tile omitted when no zones.
+    Stress-verified: 30 tasks / 8-photo task / 20 audit rows → footers
+    1-11 sequential, TOC exact.
+
+#### NEW launch blockers found by the review (dashboard-side, no code)
+- **R2 bucket has NO CORS policy** — browser preflight → 403 for BOTH
+  `www.sitefile.app` and localhost: evidence upload is broken in prod
+  from any browser (Node-side smoke passes, which is why it was never
+  caught; bucket held exactly 1 evidence object ever). Fix: Cloudflare
+  → R2 → `siteproof-media` → Settings → CORS (app's S3 token gets
+  AccessDenied on bucket config). ~5 min.
+- **Supabase paused again 2026-07-06 despite the db-ping cron**
+  (restored via MCP during review). Endpoint is live and
+  CRON_SECRET-guarded — check Vercel → Crons for why it isn't firing.
+  Consider Supabase Pro before beta; this is the second pause.
+
+#### Known remaining (unchanged priorities)
+- In-memory rate limiter (still the only report-password brute-force
+  guard); "DIGITALLY SIGNED" badge renders for typed names with no
+  image/date; evidence delete still missing (API + UI); review
+  artifact has the full ranked list (stale Add Task dialog values,
+  evidence dialog stale link state, unlinked-evidence queue, zone map
+  geolocate, 44px touch targets, marketing page).
+
 ---
 
 ## What's Outstanding (2026-06-03)
