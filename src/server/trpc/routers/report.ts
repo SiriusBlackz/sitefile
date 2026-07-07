@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, lt, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
 import { reports } from "@/server/db/schema";
@@ -76,6 +76,23 @@ export const reportRouter = createTRPCRouter({
       const passwordHash = input.password
         ? await bcrypt.hash(input.password, 10)
         : null;
+
+      // Reap stale in-flight rows first. A row stuck in "generating"
+      // (Inngest lost the event, onFailure itself failed, app never
+      // synced) would otherwise block this project's reports forever via
+      // the partial unique index. Real generations finish in a couple of
+      // minutes; 15 minutes is decisively dead.
+      const STALE_GENERATING_MS = 15 * 60 * 1000;
+      await ctx.db
+        .update(reports)
+        .set({ status: "failed" })
+        .where(
+          and(
+            eq(reports.projectId, input.projectId),
+            eq(reports.status, "generating"),
+            lt(reports.createdAt, new Date(Date.now() - STALE_GENERATING_MS))
+          )
+        );
 
       // Insert with retry: a partial unique index (status='generating')
       // ensures only one in-flight report per project, and a unique on
