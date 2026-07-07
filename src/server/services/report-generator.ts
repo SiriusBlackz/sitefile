@@ -19,14 +19,20 @@ import {
   ExecutiveSummary,
   type SummaryStats,
 } from "@/components/reports/templates/executive-summary";
-import { ProgrammeTimeline, type TimelineTask } from "@/components/reports/templates/programme-timeline";
+import {
+  ProgrammeTimeline,
+  timelinePageCount,
+  type TimelineTask,
+} from "@/components/reports/templates/programme-timeline";
 import {
   EvidenceGalleryPage,
+  paginateGallery,
   type GalleryTask,
 } from "@/components/reports/templates/evidence-gallery";
 import { BeforeAfterPage } from "@/components/reports/templates/before-after";
 import {
   VerificationPage,
+  verificationPageCount,
   type VerificationStats,
 } from "@/components/reports/templates/verification";
 import { SignOffPage } from "@/components/reports/templates/sign-off";
@@ -374,6 +380,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     withExifData: withExif,
     withGpsCoords: withGps,
     gpsVerifiedByZone,
+    zonesConfigured: zones.length,
     averageUploadDelay: formatDuration(avgDelay),
     maxUploadDelay: formatDuration(maxDelay),
     evidenceByType: Array.from(typeMap.entries()).map(([type, count]) => ({
@@ -409,24 +416,26 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const { meta, summaryStats, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
     data;
 
-  // Calculate page numbers — page 1 = cover, page 2 = TOC, then content
-  // Skip empty sections
+  // Page numbers are computed in ONE pass using the same pagination
+  // helpers the templates render with — footers and TOC can't disagree.
+  // Page 1 = cover, page 2 = TOC, then content; empty sections skipped.
   const hasGallery = galleryTasks.length > 0;
   const hasBeforeAfter = beforeAfterPairs.length > 0;
 
   const summaryPage = 3;
-  const timelinePage = 4;
-  const galleryStartPage = 5;
-  const galleryPageCount = hasGallery ? Math.ceil(galleryTasks.reduce((n, t) => n + t.evidence.length, 0) / 6) : 0;
+  const timelineStart = 4;
+  const timelinePages = timelinePageCount(timelineTasks.length);
+  const galleryStartPage = timelineStart + timelinePages;
+  const galleryPageCount = paginateGallery(galleryTasks).length;
   const beforeAfterStart = galleryStartPage + galleryPageCount;
   const beforeAfterPageCount = hasBeforeAfter ? Math.ceil(beforeAfterPairs.length / 2) : 0;
   const verificationStart = beforeAfterStart + beforeAfterPageCount;
-  const signOffStart = verificationStart + 1;
+  const signOffStart = verificationStart + verificationPageCount(verificationStats);
 
   // Build TOC entries
   const tocEntries: TocEntry[] = [
     { title: "Executive Summary", page: summaryPage },
-    { title: "Programme Timeline", page: timelinePage },
+    { title: "Programme Timeline", page: timelineStart },
   ];
   if (hasGallery) {
     tocEntries.push({ title: "Evidence Gallery", page: galleryStartPage });
@@ -440,13 +449,19 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const children = [
     createElement(CoverPage, { key: "cover", meta }),
     createElement(TableOfContents, { key: "toc", meta, entries: tocEntries }),
-    createElement(ExecutiveSummary, { key: "summary", meta, stats: summaryStats }),
+    createElement(ExecutiveSummary, {
+      key: "summary",
+      meta,
+      stats: summaryStats,
+      startPage: summaryPage,
+    }),
     createElement(ProgrammeTimeline, {
       key: "timeline",
       meta,
       tasks: timelineTasks,
       periodStart: meta.periodStart,
       periodEnd: meta.periodEnd,
+      startPage: timelineStart,
     }),
     createElement(EvidenceGalleryPage, {
       key: "gallery",

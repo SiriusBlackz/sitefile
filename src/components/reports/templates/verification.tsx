@@ -5,6 +5,8 @@ export interface VerificationStats {
   withExifData: number;
   withGpsCoords: number;
   gpsVerifiedByZone: number;
+  /** Number of GPS zones configured on the project — 0 hides the zone tile. */
+  zonesConfigured: number;
   averageUploadDelay: string; // human-readable, e.g. "2h 15m"
   maxUploadDelay: string;
   evidenceByType: { type: string; count: number }[];
@@ -16,6 +18,35 @@ export interface AuditEntry {
   user: string;
   action: string;
   entity: string;
+}
+
+/** Audit rows that fit under the stats sections on the first page. */
+const AUDIT_ON_STATS_PAGE = 8;
+/** Audit rows per dedicated continuation page. */
+const AUDIT_ROWS_PER_PAGE = 22;
+
+/**
+ * Pure pagination shared with renderReportHTML's TOC math. A short audit
+ * trail sits under the stats; a longer one moves to its own page(s)
+ * instead of overflowing the fixed A4 box.
+ */
+export function paginateVerification(stats: VerificationStats): {
+  inlineAudit: AuditEntry[] | null;
+  extraAuditPages: AuditEntry[][];
+} {
+  const audit = stats.auditTrailSummary;
+  if (audit.length <= AUDIT_ON_STATS_PAGE) {
+    return { inlineAudit: audit.length > 0 ? audit : null, extraAuditPages: [] };
+  }
+  const extraAuditPages: AuditEntry[][] = [];
+  for (let i = 0; i < audit.length; i += AUDIT_ROWS_PER_PAGE) {
+    extraAuditPages.push(audit.slice(i, i + AUDIT_ROWS_PER_PAGE));
+  }
+  return { inlineAudit: null, extraAuditPages };
+}
+
+export function verificationPageCount(stats: VerificationStats): number {
+  return 1 + paginateVerification(stats).extraAuditPages.length;
 }
 
 export function VerificationPage({
@@ -40,120 +71,180 @@ export function VerificationPage({
       ? Math.round((stats.gpsVerifiedByZone / stats.withGpsCoords) * 100)
       : 0;
 
+  const { inlineAudit, extraAuditPages } = paginateVerification(stats);
+
   return (
-    <div className="page">
-      <h2>Verification & Metadata</h2>
-      <div className="text-sm text-muted" style={{ marginBottom: 20 }}>
-        Data integrity analysis for evidence submitted during the reporting period
+    <>
+      <div className="page">
+        <h2>Verification & Metadata</h2>
+        <div className="text-sm text-muted" style={{ marginBottom: 20 }}>
+          Data integrity analysis for evidence submitted during the reporting period
+        </div>
+
+        {/* Integrity metrics */}
+        <h3>Data Integrity</h3>
+        <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+          <IntegrityCard
+            label="EXIF Preserved"
+            value={`${exifRate}%`}
+            detail={`${stats.withExifData} of ${stats.totalEvidence} items`}
+            color={rateColor(exifRate)}
+          />
+          <IntegrityCard
+            label="GPS Coordinates"
+            value={`${gpsRate}%`}
+            detail={`${stats.withGpsCoords} of ${stats.totalEvidence} items`}
+            color={rateColor(gpsRate)}
+          />
+          {stats.zonesConfigured > 0 && (
+            <IntegrityCard
+              label="Zone Verified"
+              value={stats.withGpsCoords > 0 ? `${zoneRate}%` : "—"}
+              detail={
+                stats.withGpsCoords > 0
+                  ? `${stats.gpsVerifiedByZone} of ${stats.withGpsCoords} GPS items`
+                  : "No GPS-tagged items"
+              }
+              color={stats.withGpsCoords > 0 ? rateColor(zoneRate) : "#64748b"}
+            />
+          )}
+        </div>
+        <div className="text-xs text-muted" style={{ marginBottom: 24, lineHeight: 1.6 }}>
+          These rates describe the metadata embedded by the capturing devices
+          (camera model, timestamps, location). Lower rates typically reflect
+          device settings or photos imported from other sources, not an issue
+          with the evidence itself.
+        </div>
+
+        {/* Upload timing analysis */}
+        <h3>Upload vs Capture Timing</h3>
+        <table style={{ marginBottom: 24 }}>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Average delay (capture → upload)</td>
+              <td>{stats.averageUploadDelay}</td>
+            </tr>
+            <tr>
+              <td>Maximum delay</td>
+              <td>{stats.maxUploadDelay}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Evidence by type */}
+        <h3>Evidence Breakdown</h3>
+        <table style={{ marginBottom: 24 }}>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th style={{ textAlign: "right" }}>Count</th>
+              <th style={{ textAlign: "right" }}>Percentage</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.evidenceByType.map((item) => (
+              <tr key={item.type}>
+                <td style={{ textTransform: "capitalize" }}>{item.type}</td>
+                <td style={{ textAlign: "right" }}>{item.count}</td>
+                <td style={{ textAlign: "right" }}>
+                  {stats.totalEvidence > 0
+                    ? Math.round((item.count / stats.totalEvidence) * 100)
+                    : 0}
+                  %
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Short audit trail fits under the stats */}
+        {inlineAudit && <AuditTable entries={inlineAudit} continued={false} />}
+
+        <PageFooter meta={meta} pageNum={startPage} />
       </div>
 
-      {/* Integrity metrics */}
-      <h3>Data Integrity</h3>
-      <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
-        <IntegrityCard
-          label="EXIF Preserved"
-          value={`${exifRate}%`}
-          detail={`${stats.withExifData} of ${stats.totalEvidence} items`}
-          color={exifRate >= 80 ? "#10b981" : exifRate >= 50 ? "#f59e0b" : "#ef4444"}
-        />
-        <IntegrityCard
-          label="GPS Coordinates"
-          value={`${gpsRate}%`}
-          detail={`${stats.withGpsCoords} of ${stats.totalEvidence} items`}
-          color={gpsRate >= 80 ? "#10b981" : gpsRate >= 50 ? "#f59e0b" : "#ef4444"}
-        />
-        <IntegrityCard
-          label="Zone Verified"
-          value={`${zoneRate}%`}
-          detail={`${stats.gpsVerifiedByZone} of ${stats.withGpsCoords} GPS items`}
-          color={zoneRate >= 80 ? "#10b981" : zoneRate >= 50 ? "#f59e0b" : "#ef4444"}
-        />
-      </div>
+      {/* Longer audit trails get their own page(s) */}
+      {extraAuditPages.map((entries, pi) => (
+        <div className="page" key={pi}>
+          <AuditTable entries={entries} continued={pi > 0} heading />
+          <PageFooter meta={meta} pageNum={startPage + 1 + pi} />
+        </div>
+      ))}
+    </>
+  );
+}
 
-      {/* Upload timing analysis */}
-      <h3>Upload vs Capture Timing</h3>
-      <table style={{ marginBottom: 24 }}>
+function AuditTable({
+  entries,
+  continued,
+  heading = false,
+}: {
+  entries: AuditEntry[];
+  continued: boolean;
+  heading?: boolean;
+}) {
+  return (
+    <>
+      {heading ? (
+        <h2>
+          Audit Trail Summary
+          {continued && (
+            <span className="text-xs text-muted" style={{ marginLeft: 8, fontWeight: 400 }}>
+              (continued)
+            </span>
+          )}
+        </h2>
+      ) : (
+        <h3>Audit Trail Summary</h3>
+      )}
+      {!continued && (
+        <div className="text-xs text-muted" style={{ marginBottom: 8 }}>
+          Recent activity during reporting period (most recent first)
+        </div>
+      )}
+      <table>
         <thead>
           <tr>
-            <th>Metric</th>
-            <th>Value</th>
+            <th>Date</th>
+            <th>User</th>
+            <th>Action</th>
+            <th>Entity</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Average delay (capture → upload)</td>
-            <td>{stats.averageUploadDelay}</td>
-          </tr>
-          <tr>
-            <td>Maximum delay</td>
-            <td>{stats.maxUploadDelay}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* Evidence by type */}
-      <h3>Evidence Breakdown</h3>
-      <table style={{ marginBottom: 24 }}>
-        <thead>
-          <tr>
-            <th>Type</th>
-            <th style={{ textAlign: "right" }}>Count</th>
-            <th style={{ textAlign: "right" }}>Percentage</th>
-          </tr>
-        </thead>
-        <tbody>
-          {stats.evidenceByType.map((item) => (
-            <tr key={item.type}>
-              <td style={{ textTransform: "capitalize" }}>{item.type}</td>
-              <td style={{ textAlign: "right" }}>{item.count}</td>
-              <td style={{ textAlign: "right" }}>
-                {stats.totalEvidence > 0
-                  ? Math.round((item.count / stats.totalEvidence) * 100)
-                  : 0}
-                %
+          {entries.map((entry, i) => (
+            <tr key={i}>
+              <td className="text-muted">{formatDateTime(entry.date)}</td>
+              <td>{entry.user}</td>
+              <td>
+                <span className={`badge ${actionBadge(entry.action)}`}>
+                  {entry.action}
+                </span>
               </td>
+              <td>{entry.entity}</td>
             </tr>
           ))}
         </tbody>
       </table>
-
-      {/* Audit trail */}
-      {stats.auditTrailSummary.length > 0 && (
-        <>
-          <h3>Audit Trail Summary</h3>
-          <div className="text-xs text-muted" style={{ marginBottom: 8 }}>
-            Recent activity during reporting period (most recent first)
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>User</th>
-                <th>Action</th>
-                <th>Entity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.auditTrailSummary.slice(0, 20).map((entry, i) => (
-                <tr key={i}>
-                  <td className="text-muted">{formatDateTime(entry.date)}</td>
-                  <td>{entry.user}</td>
-                  <td>
-                    <span className={`badge ${actionBadge(entry.action)}`}>
-                      {entry.action}
-                    </span>
-                  </td>
-                  <td>{entry.entity}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      <PageFooter meta={meta} pageNum={startPage} />
-    </div>
+    </>
   );
+}
+
+/**
+ * Informational colour scale — high rates read as positive, low rates as
+ * neutral. Never alarm-red: these are device-metadata rates on a document
+ * handed to the client, not error states.
+ */
+function rateColor(rate: number): string {
+  if (rate >= 80) return "#10b981";
+  if (rate >= 50) return "#f59e0b";
+  return "#64748b";
 }
 
 function IntegrityCard({

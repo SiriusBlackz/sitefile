@@ -18,6 +18,53 @@ export interface GalleryEvidence {
   note: string | null;
 }
 
+/** A slice of one task's photos that fits on a single gallery page. */
+export interface GalleryChunk {
+  taskId: string;
+  taskName: string;
+  totalItems: number;
+  continued: boolean;
+  evidence: GalleryEvidence[];
+}
+
+/** Photos per A4 page: 2 columns × 3 rows of card+metadata. */
+const PHOTOS_PER_PAGE = 6;
+
+/**
+ * Pure pagination shared by this component and renderReportHTML's TOC
+ * math — the TOC's page numbers are only correct if both sides agree on
+ * the packing. Oversized tasks split across pages with a "(continued)"
+ * header instead of overflowing a fixed A4 box.
+ */
+export function paginateGallery(tasks: GalleryTask[]): GalleryChunk[][] {
+  const pages: GalleryChunk[][] = [];
+  let current: GalleryChunk[] = [];
+  let used = 0;
+
+  for (const task of tasks) {
+    let offset = 0;
+    while (offset < task.evidence.length) {
+      if (used >= PHOTOS_PER_PAGE) {
+        pages.push(current);
+        current = [];
+        used = 0;
+      }
+      const take = Math.min(PHOTOS_PER_PAGE - used, task.evidence.length - offset);
+      current.push({
+        taskId: task.id,
+        taskName: task.name,
+        totalItems: task.evidence.length,
+        continued: offset > 0,
+        evidence: task.evidence.slice(offset, offset + take),
+      });
+      used += take;
+      offset += take;
+    }
+  }
+  if (current.length > 0) pages.push(current);
+  return pages;
+}
+
 export function EvidenceGalleryPage({
   meta,
   tasks,
@@ -27,25 +74,7 @@ export function EvidenceGalleryPage({
   tasks: GalleryTask[];
   startPage: number;
 }) {
-  // Group into pages — roughly 4 photos per page section
-  const pages: { tasks: GalleryTask[]; pageNum: number }[] = [];
-  let currentPage: GalleryTask[] = [];
-  let photoCount = 0;
-  let pageNum = startPage;
-
-  for (const task of tasks) {
-    if (photoCount + task.evidence.length > 6 && currentPage.length > 0) {
-      pages.push({ tasks: currentPage, pageNum });
-      currentPage = [];
-      photoCount = 0;
-      pageNum++;
-    }
-    currentPage.push(task);
-    photoCount += task.evidence.length;
-  }
-  if (currentPage.length > 0) {
-    pages.push({ tasks: currentPage, pageNum });
-  }
+  const pages = paginateGallery(tasks);
 
   if (pages.length === 0) {
     return null;
@@ -53,7 +82,7 @@ export function EvidenceGalleryPage({
 
   return (
     <>
-      {pages.map((page, pi) => (
+      {pages.map((chunks, pi) => (
         <div className="page" key={pi}>
           {pi === 0 && <h2>Evidence Gallery</h2>}
           {pi === 0 && (
@@ -62,12 +91,17 @@ export function EvidenceGalleryPage({
             </div>
           )}
 
-          {page.tasks.map((task) => (
-            <div key={task.id} style={{ marginBottom: 20 }}>
+          {chunks.map((task, ci) => (
+            <div key={`${task.taskId}-${ci}`} style={{ marginBottom: 20 }}>
               <h3 style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 4 }}>
-                {task.name}
+                {task.taskName}
+                {task.continued && (
+                  <span className="text-xs text-muted" style={{ marginLeft: 6, fontWeight: 400 }}>
+                    (continued)
+                  </span>
+                )}
                 <span className="text-xs text-muted" style={{ marginLeft: 8, fontWeight: 400 }}>
-                  ({task.evidence.length} item{task.evidence.length !== 1 ? "s" : ""})
+                  ({task.totalItems} item{task.totalItems !== 1 ? "s" : ""})
                 </span>
               </h3>
 
@@ -138,7 +172,7 @@ export function EvidenceGalleryPage({
             </div>
           ))}
 
-          <PageFooter meta={meta} pageNum={page.pageNum} />
+          <PageFooter meta={meta} pageNum={startPage + pi} />
         </div>
       ))}
     </>

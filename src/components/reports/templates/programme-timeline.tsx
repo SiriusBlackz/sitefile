@@ -13,16 +13,29 @@ export interface TimelineTask {
   evidenceDates: string[]; // ISO date strings when evidence was captured
 }
 
+/**
+ * Rows per A4 page. 28px rows + title/header/legend chrome; 26 keeps a
+ * comfortable margin inside the fixed 297mm page box.
+ */
+const ROWS_PER_PAGE = 26;
+
+/** Shared with renderReportHTML so TOC page numbers match the packing. */
+export function timelinePageCount(taskCount: number): number {
+  return Math.max(1, Math.ceil(taskCount / ROWS_PER_PAGE));
+}
+
 export function ProgrammeTimeline({
   meta,
   tasks,
   periodStart,
   periodEnd,
+  startPage,
 }: {
   meta: ReportMeta;
   tasks: TimelineTask[];
   periodStart: string;
   periodEnd: string;
+  startPage: number;
 }) {
   // Calculate timeline bounds — use project period or task extremes
   const allDates = tasks.flatMap((t) =>
@@ -60,14 +73,35 @@ export function ProgrammeTimeline({
 
   const rowHeight = 28;
   const headerHeight = 28;
-  const chartHeight = headerHeight + tasks.length * rowHeight + 10;
+
+  // Paginate rows — a fixed A4 .page overflows without a footer above
+  // ~30 tasks. Every page repeats the month axis and legend; the time
+  // axis itself is computed from all tasks so bars align across pages.
+  const pages: TimelineTask[][] = [];
+  for (let i = 0; i < tasks.length; i += ROWS_PER_PAGE) {
+    pages.push(tasks.slice(i, i + ROWS_PER_PAGE));
+  }
+  if (pages.length === 0) pages.push([]);
 
   return (
-    <div className="page">
-      <h2>Programme Timeline</h2>
-      <div className="text-sm text-muted" style={{ marginBottom: 16 }}>
-        Gantt chart showing planned schedule with evidence capture markers
-      </div>
+    <>
+      {pages.map((pageTasks, pi) => {
+        const chartHeight = headerHeight + pageTasks.length * rowHeight + 10;
+        return (
+    <div className="page" key={pi}>
+      <h2>
+        Programme Timeline
+        {pi > 0 && (
+          <span className="text-xs text-muted" style={{ marginLeft: 8, fontWeight: 400 }}>
+            (continued)
+          </span>
+        )}
+      </h2>
+      {pi === 0 && (
+        <div className="text-sm text-muted" style={{ marginBottom: 16 }}>
+          Gantt chart showing planned schedule with evidence capture markers
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 0, fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
         {/* Task name column */}
@@ -87,7 +121,7 @@ export function ProgrammeTimeline({
           >
             Task
           </div>
-          {tasks.map((task) => (
+          {pageTasks.map((task) => (
             <div
               key={task.id}
               style={{
@@ -179,7 +213,7 @@ export function ProgrammeTimeline({
           })()}
 
           {/* Task bars */}
-          {tasks.map((task, idx) => {
+          {pageTasks.map((task, idx) => {
             const top = headerHeight + idx * rowHeight;
             const barTop = top + 6;
             const barHeight = 14;
@@ -283,8 +317,11 @@ export function ProgrammeTimeline({
         </span>
       </div>
 
-      <PageFooter meta={meta} pageNum={3} />
+      <PageFooter meta={meta} pageNum={startPage + pi} />
     </div>
+        );
+      })}
+    </>
   );
 }
 

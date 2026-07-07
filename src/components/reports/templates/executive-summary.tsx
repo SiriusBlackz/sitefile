@@ -17,9 +17,11 @@ export interface SummaryStats {
 export function ExecutiveSummary({
   meta,
   stats,
+  startPage,
 }: {
   meta: ReportMeta;
   stats: SummaryStats;
+  startPage: number;
 }) {
   const varianceColor =
     stats.variance >= 0 ? "#166534" : stats.variance >= -10 ? "#92400e" : "#991b1b";
@@ -187,7 +189,7 @@ export function ExecutiveSummary({
         </>
       )}
 
-      <PageFooter meta={meta} pageNum={2} />
+      <PageFooter meta={meta} pageNum={startPage} />
     </div>
   );
 }
