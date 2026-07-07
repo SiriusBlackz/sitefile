@@ -14,10 +14,26 @@ export const reportRouter = createTRPCRouter({
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
-      return ctx.db.query.reports.findMany({
+      // Never send passwordHash (offline-crackable) or the reportData blob
+      // to the client — the UI only needs "is there a password".
+      const rows = await ctx.db.query.reports.findMany({
         where: eq(reports.projectId, input.projectId),
         orderBy: [desc(reports.reportNumber)],
+        columns: {
+          id: true,
+          projectId: true,
+          reportNumber: true,
+          periodStart: true,
+          periodEnd: true,
+          status: true,
+          passwordHash: true,
+          createdAt: true,
+        },
       });
+      return rows.map(({ passwordHash, ...row }) => ({
+        ...row,
+        hasPassword: passwordHash != null,
+      }));
     }),
 
   get: protectedProcedure

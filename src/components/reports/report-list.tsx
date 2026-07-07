@@ -30,7 +30,7 @@ interface Report {
   periodStart: string;
   periodEnd: string;
   status: string | null;
-  passwordHash: string | null;
+  hasPassword: boolean;
   createdAt: Date | null;
 }
 
@@ -73,7 +73,7 @@ export function ReportList({ reports }: ReportListProps) {
   }
 
   function handleDownload(report: Report) {
-    if (report.passwordHash) {
+    if (report.hasPassword) {
       setPwPrompt(report);
       return;
     }
@@ -120,7 +120,7 @@ export function ReportList({ reports }: ReportListProps) {
                 </span>
               </TableCell>
               <TableCell>
-                {report.passwordHash ? (
+                {report.hasPassword ? (
                   <Lock className="h-4 w-4 text-amber-500" />
                 ) : (
                   <span className="text-muted-foreground">—</span>
