@@ -148,6 +148,33 @@ export async function getInlineDataUrl(
 }
 
 /**
+ * Server-only. Returns a short-lived presigned GET URL for the object so
+ * Puppeteer can stream images over HTTP instead of carrying base64 data
+ * URLs through report HTML (which multiplies memory and, when returned
+ * from an Inngest step, blows the ~4MB step-output cap).
+ * Local fallback (no R2): inline data URL — dev-only volumes are small.
+ */
+export async function getReadUrl(
+  storageKey: string,
+  expiresInSeconds = 900
+): Promise<string | null> {
+  if (isR2Configured) {
+    const client = getS3Client();
+    const exists = await statStoredObject(storageKey);
+    if (!exists.exists) return null;
+    return getSignedUrl(
+      client,
+      new GetObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME!,
+        Key: storageKey,
+      }),
+      { expiresIn: expiresInSeconds }
+    );
+  }
+  return getInlineDataUrl(storageKey);
+}
+
+/**
  * Server-side upload. Used for artifacts the server produces (report PDFs,
  * thumbnails) rather than direct browser → R2 uploads.
  * - R2 configured: PutObject to the configured bucket

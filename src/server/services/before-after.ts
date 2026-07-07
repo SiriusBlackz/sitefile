@@ -2,7 +2,7 @@ import { eq, and, gte, lte, asc } from "drizzle-orm";
 import { evidence, gpsZones } from "@/server/db/schema";
 import { pointInPolygon } from "@/lib/geo";
 import type { db as dbType } from "@/server/db";
-import { getInlineDataUrl } from "./storage";
+import { getReadUrl } from "./storage";
 
 type DB = typeof dbType;
 
@@ -68,6 +68,7 @@ export async function generateBeforeAfterPairs(
       items: {
         capturedAt: Date;
         storageKey: string;
+        thumbnailKey: string | null;
         filename: string | null;
       }[];
     }
@@ -107,6 +108,7 @@ export async function generateBeforeAfterPairs(
       group.items.push({
         capturedAt: ev.capturedAt,
         storageKey: ev.storageKey,
+        thumbnailKey: ev.thumbnailKey,
         filename: ev.originalFilename,
       });
     }
@@ -128,8 +130,10 @@ export async function generateBeforeAfterPairs(
     // Don't create a pair if they're the same item
     if (earliest.storageKey === latest.storageKey) continue;
 
-    const beforeUrl = await getInlineDataUrl(earliest.storageKey);
-    const afterUrl = await getInlineDataUrl(latest.storageKey);
+    // Presigned URLs (Puppeteer fetches at render time); thumbnails when
+    // available — full-size originals were the main PDF-bloat source.
+    const beforeUrl = await getReadUrl(earliest.thumbnailKey ?? earliest.storageKey);
+    const afterUrl = await getReadUrl(latest.thumbnailKey ?? latest.storageKey);
     if (!beforeUrl || !afterUrl) continue;
 
     pairs.push({

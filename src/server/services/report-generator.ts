@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { eq, and, gte, lte, asc, desc } from "drizzle-orm";
+import { eq, and, or, gte, lte, asc, desc, isNull, sql } from "drizzle-orm";
 import {
   projects,
   tasks,
@@ -8,7 +8,7 @@ import {
   auditLog,
   reports,
 } from "@/server/db/schema";
-import { getInlineDataUrl } from "./storage";
+import { getReadUrl } from "./storage";
 import { generateBeforeAfterPairs } from "./before-after";
 import type { db as dbType } from "@/server/db";
 
@@ -99,13 +99,25 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   const periodStart = new Date(input.periodStart + "T00:00:00Z");
   const periodEnd = new Date(input.periodEnd + "T23:59:59.999Z");
 
+  // Evidence counts as "in period" by capture date, falling back to upload
+  // date when EXIF gave no capture timestamp — otherwise undated photos
+  // silently vanish from an evidence report.
   const periodEvidence = await db.query.evidence.findMany({
     where: and(
       eq(evidence.projectId, input.projectId),
-      gte(evidence.capturedAt, periodStart),
-      lte(evidence.capturedAt, periodEnd)
+      or(
+        and(
+          gte(evidence.capturedAt, periodStart),
+          lte(evidence.capturedAt, periodEnd)
+        ),
+        and(
+          isNull(evidence.capturedAt),
+          gte(evidence.uploadedAt, periodStart),
+          lte(evidence.uploadedAt, periodEnd)
+        )
+      )
     ),
-    orderBy: [desc(evidence.capturedAt)],
+    orderBy: [desc(sql`coalesce(${evidence.capturedAt}, ${evidence.uploadedAt})`)],
     with: {
       links: {
         with: {
@@ -158,8 +170,10 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
         )
       : 0;
 
-  // Estimate planned progress from dates
-  const now = new Date();
+  // Estimate planned progress from dates, as of the end of the reporting
+  // period (clamped to now) — so regenerating a period later reproduces
+  // the same planned/variance numbers.
+  const now = new Date(Math.min(Date.now(), periodEnd.getTime()));
   let avgPlanned = 0;
   if (allTasks.length > 0) {
     let totalPlanned = 0;
@@ -248,9 +262,18 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     };
   });
 
-  // 8. Evidence gallery (grouped by task)
+  // 8. Evidence gallery (grouped by task). Images go into the HTML as
+  // short-lived presigned URLs, not base64 — Puppeteer fetches them
+  // during render. Cache per key: one photo linked to N tasks is signed once.
   const galleryTasks: GalleryTask[] = [];
   const taskEvidenceMap = new Map<string, GalleryTask>();
+  const readUrlCache = new Map<string, string | null>();
+  async function cachedReadUrl(key: string): Promise<string | null> {
+    if (!readUrlCache.has(key)) {
+      readUrlCache.set(key, await getReadUrl(key));
+    }
+    return readUrlCache.get(key) ?? null;
+  }
 
   for (const ev of periodEvidence) {
     for (const link of ev.links) {
@@ -259,12 +282,10 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
         gt = { id: link.task.id, name: link.task.name, evidence: [] };
         taskEvidenceMap.set(link.task.id, gt);
       }
-      const inlineUrl = await getInlineDataUrl(
-        ev.thumbnailKey ?? ev.storageKey
-      );
+      const readUrl = await cachedReadUrl(ev.thumbnailKey ?? ev.storageKey);
       gt.evidence.push({
         id: ev.id,
-        publicUrl: inlineUrl ?? "",
+        publicUrl: readUrl ?? "",
         originalFilename: ev.originalFilename,
         capturedAt: ev.capturedAt?.toISOString() ?? null,
         latitude: ev.latitude,
@@ -489,7 +510,9 @@ export async function htmlToPdf(html: string): Promise<Buffer> {
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0", timeout: 30000 });
+    // Images are remote presigned URLs now, so the page needs network time
+    // proportional to photo count — 30s was calibrated for inline base64.
+    await page.setContent(html, { waitUntil: "networkidle0", timeout: 120000 });
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
