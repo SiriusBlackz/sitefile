@@ -17,6 +17,7 @@ export const PROJECT_STATUSES = [
   "archived",
   "pending_payment",
   "payment_failed",
+  "cancelled",
 ] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
