@@ -1177,7 +1177,83 @@ verified live:
 
 ---
 
-## What's Outstanding (2026-06-03)
+### Phase 16 — Launch-blocker burndown + Clerk root cause (2026-07-11 → 12)
+
+Pitch-prep session working the P0 list from Phase 15. Items 87–90
+verified live in production; item 91 is the big one.
+
+87. **Phase 15 batch deployed** — the 8 held-back commits pushed;
+    GitHub→Vercel webhook fired, build Ready, site 200. Git remote
+    switched HTTPS→SSH (keychain had no GitHub credential; SSH key
+    auths as SiriusBlackz).
+88. **R2 CORS fixed** (user, Cloudflare dashboard) — policy allows
+    www.sitefile.app / sitefile.app / localhost:3000, PUT+GET+HEAD.
+    Preflight probe verified 204 with correct headers both origins.
+    Browser evidence upload works in prod for the first time ever.
+89. **`/api/health` endpoint** (commit `67d2358`) — public, SELECT 1,
+    503 + generic body on failure. UptimeRobot free monitor pings it
+    every 5 min: keeps Supabase free tier from idle-pausing (daily
+    db-ping cron demonstrably wasn't enough — DB paused 7/6) and gives
+    downtime email alerts. Monitor green, verified live.
+90. **Cron sanity** — Vercel cron enabled + registered; manual Run →
+    200 `db_ping ok ~920ms`. Scheduled-run history unknowable on Hobby
+    (≈1h log retention); superseded by #89 anyway.
+91. **Clerk production sign-in root cause — THE five-week mystery.**
+    Sign-in has been broken for ALL users since the 6/3 pk_live swap:
+    black screen. Headless-browser repro showed clerk-js blocked by
+    CORS because `clerk.sitefile.app` (Frontend API) returns 403 —
+    Cloudflare error 1000 "DNS points to prohibited IP" — on every
+    path. Chain of errors unwound:
+    - 6/3 "site not loading" was blamed on stale SW cache → wrong;
+    - 6/3 smoke test read FAPI 403 as "route confirmed" → wrong
+      (healthy FAPI returns JSON, never a Cloudflare HTML error);
+    - 5/31 email-CNAME diagnosis "Clerk-side NXDOMAIN, wait on
+      support" → wrong: **Clerk support replied Jun 1** that the 3
+      mail CNAME values in Cloudflare were typo'd (`4knznfllwfu` vs
+      correct `4knrnf1ihwfu`) — the reply sat unread six weeks.
+    Because the records never verified, Clerk never provisioned the
+    domain — including never registering the FAPI custom hostname,
+    hence error 1000. Fixed 7/11: 3 CNAMEs corrected in Cloudflare
+    (verified resolving globally to SendGrid targets), support email
+    sent asking Clerk to re-run provisioning. **Awaiting Clerk** —
+    FAPI still 403 at session end.
+92. **Housekeeping** — `beta test*/`, `betatest.md`,
+    `production key.png` gitignored (commit `b151054`).
+
+**Lesson bank:** when a provider CNAME won't verify, byte-compare your
+record value against the provider dashboard's required value (the typo
+was ours); a 403 HTML page from an API host is never "route
+confirmed"; and check the support thread before concluding you're
+blocked on support.
+
+---
+
+## What's Outstanding (2026-07-12)
+
+### Blocking the pitch
+1. **Clerk edge provisioning** — waiting on Clerk (email sent 7/12,
+   they replied last time in <1 day). Monitor: `curl -s
+   https://clerk.sitefile.app/v1/environment` — JSON = fixed, 
+   Cloudflare HTML error = still broken. When fixed, sign-in works.
+2. **P0-4 production smoke test** (user, ~10 min, after #1): incognito
+   → fresh-email signup → create project → add tasks → browser photo
+   upload → link → generate report → download PDF. Covers the never-
+   completed Phase 14.C verification too.
+
+### Strongly recommended before pitch (small, customer-visible)
+3. **Evidence delete** — missing entirely (API + UI).
+4. **Sign-off badge** — "DIGITALLY SIGNED" renders for any typed name
+   with no image/date; credibility risk on a legal-ish page.
+
+### To charge the customer (not needed for pitch)
+5. **Real Stripe account** — prod Vercel env has NO STRIPE_* vars at
+   all. Verified safe: without Stripe, projects are created `active`
+   and the billing gate never blocks. App runs in free mode until set.
+
+### Optional polish (unchanged)
+- Mapbox token (zone editor), Anthropic key (PDF import), custom R2
+  domain, Sentry, PDF encryption, Upstash rate limiter, 44px touch
+  targets, marketing page, XML import guardrails.
 
 ### Active blockers — your side, no code work needed
 1. **Phase 14.C — Manual smoke verification.** Complete Tests 1 + 2 above
