@@ -1228,57 +1228,80 @@ blocked on support.
 
 ---
 
-## What's Outstanding (2026-07-12)
+### Phase 17 — Clerk fix confirmed, signup E2E, go-live planning (2026-07-13 → 19)
 
-### Blocking the pitch
-1. **Clerk edge provisioning** — waiting on Clerk (email sent 7/12,
-   they replied last time in <1 day). Monitor: `curl -s
-   https://clerk.sitefile.app/v1/environment` — JSON = fixed, 
-   Cloudflare HTML error = still broken. When fixed, sign-in works.
-2. **P0-4 production smoke test** (user, ~10 min, after #1): incognito
-   → fresh-email signup → create project → add tasks → browser photo
-   upload → link → generate report → download PDF. Covers the never-
-   completed Phase 14.C verification too.
+93. **Clerk provisioning CONFIRMED FIXED (7/13) — 43-day sign-in
+    outage over.** Joe at Clerk manually re-triggered domain
+    verification after our 7/11 CNAME typo fix (screenshot in
+    `beta test 2.0/clerk update_joe.png`). Verified: FAPI returns
+    HTTP 200 JSON (was Cloudflare error-1000 HTML); all 5 CNAMEs
+    resolve to correct targets; headless load of /sign-in mounts the
+    Clerk form with zero errors. Cosmetic leftover: Production
+    instance display name is still "My Application" — rename to
+    "Sitefile" in Clerk Dashboard (dashboard-only, no API).
+94. **Fresh-signup E2E PASSED in prod (7/16)** — headless Puppeteer
+    signup → verification email arrived from
+    `notifications@sitefile.app` (**mail CNAMEs work — custom-domain
+    email live**) → code entered → dashboard. Technique: Clerk
+    testing token + captcha-config patch (details in memory).
+    Maildrop.cc works for disposable emails; mail.tm is blocked.
+95. **Supabase paused a 3rd time (7/16) and couldn't restore** — free
+    org 2-active-project limit (remy + trade-journal held both
+    slots). Resolved 7/19 by decision: **trade-journal paused,
+    siteproof restored** (ACTIVE_HEALTHY, `/api/health` 200 ~93ms).
+    Upgrade to Pro the day a pilot signs — a pausable DB is
+    acceptable pre-pilot only.
+96. **Go-live planning session (7/19)** — GO-LIVE-BRIEF.md (from the
+    consult-ops session) turned into **GO-LIVE-PLAN.md** (repo root,
+    the forward roadmap). Decisions locked: "live" = one contractor
+    on a real programme using it unsupervised for a full reporting
+    cycle, free pilot, £99/mo conversion after; **T&T IP clause
+    reviewed — CLEAR**, Stansted contractors usable as pilot
+    candidates (zero-departure-signals constraint stays active until
+    resignation); LinkedIn flagship post fires only once genuinely
+    live.
 
-### Strongly recommended before pitch (small, customer-visible)
-3. **Evidence delete** — missing entirely (API + UI).
-4. **Sign-off badge** — "DIGITALLY SIGNED" renders for any typed name
-   with no image/date; credibility risk on a legal-ish page.
+---
 
-### To charge the customer (not needed for pitch)
-5. **Real Stripe account** — prod Vercel env has NO STRIPE_* vars at
-   all. Verified safe: without Stripe, projects are created `active`
-   and the billing gate never blocks. App runs in free mode until set.
+## What's Outstanding (2026-07-19)
 
-### Optional polish (unchanged)
-- Mapbox token (zone editor), Anthropic key (PDF import), custom R2
-  domain, Sentry, PDF encryption, Upstash rate limiter, 44px touch
-  targets, marketing page, XML import guardrails.
+**Forward roadmap now lives in GO-LIVE-PLAN.md** (weekly workstreams
+Jul→Sep). This list is the tactical remainder.
 
-### Active blockers — your side, no code work needed
-1. **Phase 14.C — Manual smoke verification.** Complete Tests 1 + 2 above
-   (fresh signup E2E + existing-user rehydration). Clear SW cache first if
-   site loads slowly. Server side is verified; this is the last gate
-   before declaring Phase 14 done.
-2. **`STRIPE_WEBHOOK_SECRET`** — handler is fully wired up + idempotent
-   (mig 0004), waiting on a real Stripe account + secret.
-3. **Clerk email DNS (cosmetic, deferred to Clerk support).** 3 of 5
-   CNAMEs stuck Unverified due to Clerk-side NXDOMAIN — support ticket
-   filed 2026-05-31. Once they re-provision the email subdomain (or
-   issue new targets), either auto-verifies or needs a Cloudflare
-   CNAME-target update. Sign-in already works without it.
+### Next build session (week of 21 Jul — pilot-ready)
+1. **Evidence delete** — missing entirely (tRPC + UI; soft delete,
+   audit-logged).
+2. **Sign-off badge fix** — "DIGITALLY SIGNED" renders for any typed
+   name with no image/date; credibility risk on a legal-ish page.
+   Both: verify on localhost → user sign-off → commit + push.
+3. **Test-user cleanup** — `sitefile-e2e-9407@maildrop.cc` exists in
+   prod Clerk; its `user.created` webhook failed while DB was paused —
+   check whether Svix retried and created the DB row after restore,
+   then delete Clerk user + any DB rows.
+4. **Full prod smoke test** (user, ~10 min, incognito): fresh-email
+   signup → project → tasks → photo upload → link → report → PDF
+   download. Closes the long-pending Phase 14.C verification.
 
-### Optional polish
+### To charge the customer (Sep, post-pilot per plan)
+5. **Real Stripe account + prod env vars** — handler wired +
+   idempotent (mig 0004). Verified safe meanwhile: without STRIPE_*
+   vars projects are created `active` and the billing gate never
+   blocks — app runs in free mode.
+6. **Supabase Pro upgrade** — trigger: pilot signs.
+
+### Cosmetic / optional polish
+- **Clerk display name** — "My Application" → "Sitefile" in Clerk
+  Dashboard (fixes sign-in card + email sender name)
 - **Mapbox token** — enables GPS zone editor
-- **Anthropic key** — placeholder in current Vercel env. PDF programme
-  import (Phase 11.B) errors cleanly until set
+- **Anthropic key** — placeholder in prod env; PDF programme import
+  (Phase 11.B) errors cleanly until set
 - **Custom R2 domain** (`media.sitefile.app`) — currently using
   `pub-4059c4c9c3a8464eb90e87b52033bd04.r2.dev`
 - **App logo/tagline** — design work
-- **Sentry / observability** — no external monitoring yet. Phase 12.B
-  added `setAuditFailureReporter` hook for one-line Sentry wiring
-- **PDF encryption** — pdf-lib installed but unused (current "password"
-  is download-gating only, UI copy correctly says so)
+- **Sentry / observability** — `setAuditFailureReporter` hook ready
+  for one-line wiring
+- **PDF encryption** — pdf-lib installed but unused (current
+  "password" is download-gating only; UI copy correctly says so)
 
 ### Code-side items deferred (no urgency)
 - **Upstash Redis rate-limiter** — Phase 12.D-optional; in-memory

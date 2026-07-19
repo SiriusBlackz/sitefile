@@ -11,6 +11,8 @@ Sitefile is a **Contractor Progress Evidence Tracker** — a web app where const
 **Workflow:** Capture (phone) → Link (AI-assisted) → Report (laptop)
 **Pricing:** £99 per project / month
 
+**Current mode (Jul 2026): go-live.** The forward roadmap is `GO-LIVE-PLAN.md` (repo root; context in `GO-LIVE-BRIEF.md`); the phase log is `PROGRESS.md`. Target: one free pilot contractor on a real programme, unsupervised, converting to paid after one reporting cycle.
+
 ---
 
 ## Build rules
