@@ -111,6 +111,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   const periodEvidence = await db.query.evidence.findMany({
     where: and(
       eq(evidence.projectId, input.projectId),
+      isNull(evidence.deletedAt),
       or(
         and(
           gte(evidence.capturedAt, periodStart),
@@ -136,7 +137,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
 
   // Also load all evidence for summary stats (lightweight — no links needed)
   const allEvidence = await db.query.evidence.findMany({
-    where: eq(evidence.projectId, input.projectId),
+    where: and(eq(evidence.projectId, input.projectId), isNull(evidence.deletedAt)),
     columns: {
       id: true,
       type: true,

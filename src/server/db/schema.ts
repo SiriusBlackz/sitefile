@@ -248,6 +248,7 @@ export const evidence = pgTable("evidence", {
   exifData: jsonb("exif_data"),
   note: text("note"),
   deviceInfo: text("device_info"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
 }, (t) => [
   index("evidence_project_id_idx").on(t.projectId),

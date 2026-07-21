@@ -19,12 +19,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { EvidenceGrid } from "@/components/evidence/evidence-grid";
 import { UploadQueue } from "@/components/evidence/upload-queue";
 import { TaskLinker } from "@/components/evidence/task-linker";
 import type { EvidenceItem } from "@/components/evidence/evidence-card";
 import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
-import { Upload, Filter, CheckSquare, X, Link2 } from "lucide-react";
+import { Upload, Filter, CheckSquare, X, Link2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 function TaskLinkerWithSuggestions({
@@ -59,6 +69,7 @@ export default function EvidencePage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [uploaderFilter, setUploaderFilter] = useState<string>("");
   const [selectedItem, setSelectedItem] = useState<EvidenceItem | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Debounce search input
@@ -103,6 +114,19 @@ export default function EvidencePage() {
       setSelectedIds(new Set());
       setSelectMode(false);
       setBulkTaskId("");
+    },
+    onError: (err) => {
+      toast.error(err.message);
+    },
+  });
+
+  const deleteMutation = trpc.evidence.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Evidence deleted");
+      setConfirmDelete(false);
+      setSelectedItem(null);
+      utils.evidence.list.invalidate();
+      utils.evidence.count.invalidate();
     },
     onError: (err) => {
       toast.error(err.message);
@@ -407,10 +431,52 @@ export default function EvidencePage() {
                 projectId={projectId}
                 linkedTaskIds={selectedItem.linkedTasks.map((t) => t.taskId)}
               />
+              <div className="flex justify-end border-t pt-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" />
+                  Delete
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={confirmDelete}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDelete(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this evidence?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedItem?.originalFilename ?? "This item"} will be removed
+              from the gallery and future reports. Its task links are removed
+              too. The deletion is recorded in the audit log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!selectedItem) return;
+                deleteMutation.mutate({ evidenceId: selectedItem.id });
+              }}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

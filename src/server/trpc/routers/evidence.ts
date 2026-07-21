@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, desc, lte, gte, sql, inArray, ilike, or } from "drizzle-orm";
+import { eq, and, desc, lte, gte, sql, inArray, ilike, or, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
 import { evidence, evidenceLinks, users, uploadIntents } from "@/server/db/schema";
@@ -168,7 +168,7 @@ export const evidenceRouter = createTRPCRouter({
       const [row] = await ctx.db
         .select({ count: sql<number>`COUNT(*)::int` })
         .from(evidence)
-        .where(eq(evidence.projectId, input.projectId));
+        .where(and(eq(evidence.projectId, input.projectId), isNull(evidence.deletedAt)));
       return { count: row?.count ?? 0 };
     }),
 
@@ -188,7 +188,10 @@ export const evidenceRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
-      const conditions = [eq(evidence.projectId, input.projectId)];
+      const conditions = [
+        eq(evidence.projectId, input.projectId),
+        isNull(evidence.deletedAt),
+      ];
 
       if (input.dateFrom) {
         conditions.push(gte(evidence.capturedAt, new Date(input.dateFrom)));
@@ -281,9 +284,9 @@ export const evidenceRouter = createTRPCRouter({
       // Verify ownership via the evidence's project
       const ev = await ctx.db.query.evidence.findFirst({
         where: eq(evidence.id, input.evidenceId),
-        columns: { projectId: true },
+        columns: { projectId: true, deletedAt: true },
       });
-      if (!ev) throw new TRPCError({ code: "NOT_FOUND", message: "Evidence not found" });
+      if (!ev || ev.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Evidence not found" });
       await assertProjectAccess(ctx.db, ev.projectId, ctx.orgId, ctx.userId);
       await assertTaskInProject(ctx.db, input.taskId, ev.projectId);
 
@@ -328,13 +331,42 @@ export const evidenceRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  delete: protectedProcedure
+    .input(z.object({ evidenceId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const ev = await ctx.db.query.evidence.findFirst({
+        where: eq(evidence.id, input.evidenceId),
+        columns: { projectId: true, deletedAt: true, originalFilename: true },
+      });
+      if (!ev || ev.deletedAt) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Evidence not found" });
+      }
+      await assertProjectAccess(ctx.db, ev.projectId, ctx.orgId, ctx.userId);
+
+      // Soft delete: the row and stored file are retained for the audit
+      // trail; every read path filters on deleted_at IS NULL.
+      await ctx.db
+        .update(evidence)
+        .set({ deletedAt: new Date() })
+        .where(eq(evidence.id, input.evidenceId));
+      writeAuditLogAsync(ctx.db, {
+        projectId: ev.projectId,
+        userId: ctx.userId,
+        action: "delete",
+        entityType: "evidence",
+        entityId: input.evidenceId,
+        metadata: { filename: ev.originalFilename },
+      });
+      return { success: true };
+    }),
+
   suggest: protectedProcedure
     .input(z.object({ evidenceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const item = await ctx.db.query.evidence.findFirst({
         where: eq(evidence.id, input.evidenceId),
       });
-      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Evidence not found" });
+      if (!item || item.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Evidence not found" });
       await assertProjectAccess(ctx.db, item.projectId, ctx.orgId, ctx.userId);
 
       return suggestTasks(ctx.db, {
@@ -361,6 +393,7 @@ export const evidenceRouter = createTRPCRouter({
         .where(
           and(
             eq(evidence.projectId, input.projectId),
+            isNull(evidence.deletedAt),
             sql`${evidence.capturedAt} IS NOT NULL`
           )
         )
@@ -382,7 +415,7 @@ export const evidenceRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // Verify all evidence belongs to the same project and user has access
       const items = await ctx.db.query.evidence.findMany({
-        where: inArray(evidence.id, input.evidenceIds),
+        where: and(inArray(evidence.id, input.evidenceIds), isNull(evidence.deletedAt)),
         columns: { id: true, projectId: true },
       });
       if (items.length !== input.evidenceIds.length) {
@@ -433,7 +466,7 @@ export const evidenceRouter = createTRPCRouter({
         })
         .from(evidence)
         .innerJoin(users, eq(evidence.uploadedBy, users.id))
-        .where(eq(evidence.projectId, input.projectId));
+        .where(and(eq(evidence.projectId, input.projectId), isNull(evidence.deletedAt)));
       return rows;
     }),
 });

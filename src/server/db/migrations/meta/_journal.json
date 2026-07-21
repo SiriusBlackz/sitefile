@@ -50,6 +50,13 @@
       "when": 1783364667205,
       "tag": "0006_square_morph",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784502817709,
+      "tag": "0007_aspiring_the_fallen",
+      "breakpoints": true
     }
   ]
 }

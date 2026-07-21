@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, sql, inArray, isNull } from "drizzle-orm";
 import { createTRPCRouter, protectedProcedure } from "../index";
 import {
   projects,
@@ -93,7 +93,7 @@ export const dashboardRouter = createTRPCRouter({
         thisWeek: sql<number>`count(*) filter (where ${evidence.createdAt} >= ${sevenDaysAgoIso})::int`,
       })
       .from(evidence)
-      .where(inArray(evidence.projectId, projectIds));
+      .where(and(inArray(evidence.projectId, projectIds), isNull(evidence.deletedAt)));
 
     return {
       projects: projectCounts,
@@ -138,7 +138,7 @@ export const dashboardRouter = createTRPCRouter({
         count: sql<number>`count(*)::int`,
       })
       .from(evidence)
-      .where(inArray(evidence.projectId, projectIds))
+      .where(and(inArray(evidence.projectId, projectIds), isNull(evidence.deletedAt)))
       .groupBy(evidence.projectId);
 
     const evidenceTotals = new Map<string, number>();

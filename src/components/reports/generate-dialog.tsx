@@ -158,9 +158,10 @@ export function GenerateDialog({
 
           {/* Signatures Section */}
           <div className="space-y-3">
-            <Label>Digital Signatures (optional)</Label>
+            <Label>Sign-off page (optional)</Label>
             <p className="text-xs text-muted-foreground">
-              Add typed or handwritten signatures for the sign-off page.
+              A typed name only pre-fills the block for wet-ink signing after
+              printing. Draw a signature to mark the block as digitally signed.
             </p>
 
             {SIGNATURE_ROLES.map(({ role, label }) => {

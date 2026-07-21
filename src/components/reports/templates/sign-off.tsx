@@ -107,7 +107,9 @@ function SignatureBlock({
   description: string;
   signature?: SignatureData;
 }) {
-  const isSigned = !!signature;
+  // A typed name alone only pre-fills the block for wet-ink signing.
+  // "Digitally Signed" (and the green treatment) requires a drawn signature.
+  const isSigned = !!signature?.imageDataUrl;
 
   return (
     <div
@@ -181,7 +183,7 @@ function SignatureBlock({
                 style={{ height: 26, maxWidth: "100%", objectFit: "contain" }}
               />
             ) : (
-              signature ? signature.name : ""
+              ""
             )}
           </div>
         </div>
@@ -198,7 +200,7 @@ function SignatureBlock({
               lineHeight: "28px",
             }}
           >
-            {signature?.date ?? ""}
+            {isSigned ? signature?.date ?? "" : ""}
           </div>
         </div>
       </div>
