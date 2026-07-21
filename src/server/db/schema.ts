@@ -41,7 +41,7 @@ export const organisations = pgTable("organisations", {
   stripeCustomerId: text("stripe_customer_id"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
-});
+}).enableRLS();
 
 export const organisationsRelations = relations(organisations, ({ many }) => ({
   users: many(users),
@@ -70,7 +70,7 @@ export const users = pgTable(
       sql.raw(`${t.role.name} IN (${quotedList(USER_ROLES)})`)
     ),
   ]
-);
+).enableRLS();
 
 export const usersRelations = relations(users, ({ one, many }) => ({
   organisation: one(organisations, {
@@ -108,7 +108,7 @@ export const projects = pgTable("projects", {
     "projects_status_check",
     sql.raw(`${t.status.name} IN (${quotedList(PROJECT_STATUSES)})`)
   ),
-]);
+]).enableRLS();
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
   organisation: one(organisations, {
@@ -143,7 +143,7 @@ export const projectMembers = pgTable(
       sql.raw(`${t.role.name} IN (${quotedList(PROJECT_MEMBER_ROLES)})`)
     ),
   ]
-);
+).enableRLS();
 
 export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
   project: one(projects, {
@@ -183,7 +183,7 @@ export const tasks = pgTable("tasks", {
     "tasks_status_check",
     sql.raw(`${t.status.name} IN (${quotedList(TASK_STATUSES)})`)
   ),
-]);
+]).enableRLS();
 
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, {
@@ -211,7 +211,7 @@ export const gpsZones = pgTable("gps_zones", {
   defaultTaskId: uuid("default_task_id").references(() => tasks.id),
   color: text("color").default("#3B82F6"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-});
+}).enableRLS();
 
 export const gpsZonesRelations = relations(gpsZones, ({ one }) => ({
   project: one(projects, {
@@ -258,7 +258,7 @@ export const evidence = pgTable("evidence", {
     "evidence_type_check",
     sql.raw(`${t.type.name} IN (${quotedList(EVIDENCE_TYPES)})`)
   ),
-]);
+]).enableRLS();
 
 export const evidenceRelations = relations(evidence, ({ one, many }) => ({
   project: one(projects, {
@@ -298,7 +298,7 @@ export const evidenceLinks = pgTable(
       sql.raw(`${t.linkMethod.name} IN (${quotedList(LINK_METHODS)})`)
     ),
   ]
-);
+).enableRLS();
 
 export const evidenceLinksRelations = relations(evidenceLinks, ({ one }) => ({
   evidence: one(evidence, {
@@ -351,7 +351,7 @@ export const reports = pgTable("reports", {
     "reports_status_check",
     sql.raw(`${t.status.name} IN (${quotedList(REPORT_STATUSES)})`)
   ),
-]);
+]).enableRLS();
 
 export const reportsRelations = relations(reports, ({ one }) => ({
   project: one(projects, {
@@ -370,7 +370,7 @@ export const stripeEvents = pgTable("stripe_events", {
   id: text("id").primaryKey(),
   type: text("type").notNull(),
   receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
-});
+}).enableRLS();
 
 // ─── Upload Intents ──────────────────────────────────────────────────────────
 
@@ -395,7 +395,7 @@ export const uploadIntents = pgTable(
     unique("upload_intents_storage_key_unique").on(t.storageKey),
     index("upload_intents_expires_idx").on(t.expiresAt),
   ]
-);
+).enableRLS();
 
 // ─── Audit Log ───────────────────────────────────────────────────────────────
 
@@ -412,7 +412,7 @@ export const auditLog = pgTable("audit_log", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
 }, (t) => [
   index("audit_log_project_created_idx").on(t.projectId, t.createdAt),
-]);
+]).enableRLS();
 
 export const auditLogRelations = relations(auditLog, ({ one }) => ({
   project: one(projects, {

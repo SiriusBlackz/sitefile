@@ -57,6 +57,13 @@
       "when": 1784502817709,
       "tag": "0007_aspiring_the_fallen",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784664575746,
+      "tag": "0008_melted_landau",
+      "breakpoints": true
     }
   ]
 }
