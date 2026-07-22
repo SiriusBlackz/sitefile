@@ -16,24 +16,26 @@ The LinkedIn flagship post ("contractors on a live programme now report through 
 
 **Working end-to-end in prod:** signup (Clerk FAPI healthy, email delivery working since 7/16 E2E) → create project → tasks → browser photo upload (R2 CORS fixed) → link evidence → generate report → download PDF. UptimeRobot monitors `/api/health`.
 
-**Not done, customer-visible:** evidence delete (missing entirely, API + UI); sign-off badge ("DIGITALLY SIGNED" renders for any typed name — credibility risk on a legal-ish page).
+**Not done, customer-visible:** evidence delete (missing entirely, API + UI); sign-off badge ("DIGITALLY SIGNED" renders for any typed name — credibility risk on a legal-ish page). *→ Both shipped 21 Jul, see checklist below.*
 
 **Not needed for a free pilot:** Stripe (app runs free-mode safely with no STRIPE_* vars), Mapbox token, Anthropic key, custom R2 domain, Sentry, PDF encryption.
 
-**Housekeeping owed:** delete test user `sitefile-e2e-9407@maildrop.cc` + its data.
+**Housekeeping owed:** delete test user `sitefile-e2e-9407@maildrop.cc` + its data. *→ Done 21 Jul.*
+
+**Update 22 Jul:** week-of-21-Jul workstream complete (incl. prod smoke test PASSED + unplanned RLS hardening). Prod is clean: 0 users, 0 test data. Pre-pilot cosmetic worth doing before onboarding: rename Clerk Production instance "My Application" → "Sitefile" (Clerk Dashboard → Settings — fixes sign-in card + email sender name; dashboard-only, no API). Known non-blocker: first photo's thumbnail can take ~2 min on a cold Inngest start.
 
 ## The plan
 
 Scoped to the hours that exist: evening/weekend sessions, LinkedIn routines untouched.
 
-### Week of 21 Jul — pilot-ready build (2–3 evening sessions)
+### Week of 21 Jul — pilot-ready build (2–3 evening sessions) ✅ COMPLETE 22 Jul
 
-- [ ] **DB swap verified** — `/api/health` 200, UptimeRobot green. *(done in planning session — verify it stayed green)*
-- [ ] **Evidence delete** — tRPC mutation (soft delete per schema) + UI on evidence card/grid. Audit-logged.
-- [ ] **Sign-off badge fix** — badge only renders with a real signature event (name + explicit confirm + timestamp); otherwise show an "unsigned" state. No fake-signed states on a legal-ish page.
-- [ ] Both verified on localhost → Derian signs off → commit + push (per working agreement).
-- [ ] **Test-user cleanup** — remove `sitefile-e2e-9407@maildrop.cc` from Clerk + DB.
-- [ ] **Full prod smoke test** (Derian, ~10 min, incognito): fresh-email signup → project → tasks → photo upload → link → report → PDF download. This is the "a stranger could use it" gate.
+- [x] **DB swap verified** — `/api/health` 200 re-confirmed 21–22 Jul across deploys.
+- [x] **Evidence delete** — tRPC soft delete (mig 0007 `deleted_at`), audit-logged, filtered everywhere, delete + confirm UI. Commit `a13cdf1`.
+- [x] **Sign-off badge fix** — badge/date only render with a drawn signature; typed name is pre-fill only. Same commit.
+- [x] Committed + pushed on Derian's direct approval (21 Jul); deployed Ready, health 200.
+- [x] **Test-user cleanup** — Clerk user deleted 21 Jul; no DB rows existed (webhook never retried while DB was paused).
+- [x] **Full prod smoke test** — run 22 Jul (headless E2E, Derian delegated): fresh signup → project → task → browser photo upload → link → report → password PDF download + anon-401 check. **PASSED**; all smoke data cleaned. *(Bonus, unplanned: RLS enabled on all 12 tables after a Supabase advisor alert — mig 0008, commit `76af489`, advisor errors cleared.)*
 
 ### Week of 28 Jul — pilot recruitment (Derian, no code)
 

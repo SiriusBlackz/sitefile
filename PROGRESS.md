@@ -1263,24 +1263,65 @@ blocked on support.
 
 ---
 
-## What's Outstanding (2026-07-19)
+### Phase 18 — Pilot-ready ship, RLS hardening, prod smoke gate (2026-07-20 → 22)
+
+97. **Evidence delete + sign-off badge integrity shipped** (commit
+    `a13cdf1`, migration 0007 `deleted_at`). Soft delete mutation,
+    audit-logged; deleted rows filtered from list/count/markers/
+    uploaders/bulkLink, reports and dashboard stats; link/suggest
+    guard against deleted evidence; Delete + confirm dialog in the
+    evidence detail UI. Sign-off page renders the signed badge/date
+    only for a drawn signature — a typed name is pre-fill, never a
+    fake "DIGITALLY SIGNED" state.
+98. **RLS enabled on all 12 public tables** (commit `76af489`,
+    migration 0008) after a Supabase advisor email flagged
+    `rls_disabled_in_public` (ERROR) on every table — the
+    auto-generated PostgREST API + public anon key allowed
+    unauthenticated read/write to all data, bypassing tRPC auth.
+    Deny-all fix (no policies; app connects as the `postgres` table
+    owner, exempt from RLS). Verified three ways: `pg_tables` 12/12
+    rls on; anon-key REST SELECTs return `[]` and INSERT rejected
+    42501; `pnpm smoke` DB checks all pass. Advisor errors cleared
+    (only expected INFO `rls_enabled_no_policy` remains).
+99. **Test-user cleanup done** — `sitefile-e2e-9407@maildrop.cc`
+    deleted from prod Clerk (was the only user; maildrop inboxes are
+    public → password-reset takeover vector). No DB rows ever
+    existed (the paused-DB webhook was never successfully retried).
+    **Gap found:** the Clerk webhook handles `user.created`/`updated`
+    but NOT `user.deleted` — a real user deleting their account
+    leaves orphaned DB rows. Fix pre-scale, not pre-pilot.
+100. **PROD SMOKE TEST PASSED (7/22) — the "a stranger could use it"
+    gate.** Full headless E2E on www.sitefile.app: fresh signup
+    (Clerk testing token + captcha patch) → verification email via
+    custom domain → webhook created org+user → project → task →
+    PNG uploaded from the browser via presigned PUT (R2 CORS 200)
+    → confirm → thumbnail via prod Inngest (~2 min cold start —
+    slow but works) → link to task → report generated to completed
+    → password-protected PDF downloaded (189KB, valid) → wrong
+    password rejected → anonymous PDF 401. All smoke data cleaned
+    after: R2 objects, DB rows (org-cascade), Clerk user — prod
+    back to 0 users, 0 test data. Script techniques logged in
+    session memory (typeExact for Clerk hydration, new-device
+    email-code step on sign-in, `project.create` returns
+    `{project, checkoutUrl}`).
+
+**Lesson bank:** Clerk's hydrating form silently drops typed
+characters in headless automation — always read back the field value
+and retry; when cleaning up multi-run test data, delete by org/parent
+scope rather than by collected ids (a "failed" run may have succeeded
+server-side).
+
+---
+
+## What's Outstanding (2026-07-22)
 
 **Forward roadmap now lives in GO-LIVE-PLAN.md** (weekly workstreams
 Jul→Sep). This list is the tactical remainder.
 
-### Next build session (week of 21 Jul — pilot-ready)
-1. **Evidence delete** — missing entirely (tRPC + UI; soft delete,
-   audit-logged).
-2. **Sign-off badge fix** — "DIGITALLY SIGNED" renders for any typed
-   name with no image/date; credibility risk on a legal-ish page.
-   Both: verify on localhost → user sign-off → commit + push.
-3. **Test-user cleanup** — `sitefile-e2e-9407@maildrop.cc` exists in
-   prod Clerk; its `user.created` webhook failed while DB was paused —
-   check whether Svix retried and created the DB row after restore,
-   then delete Clerk user + any DB rows.
-4. **Full prod smoke test** (user, ~10 min, incognito): fresh-email
-   signup → project → tasks → photo upload → link → report → PDF
-   download. Closes the long-pending Phase 14.C verification.
+### Week of 21 Jul — pilot-ready ✅ (all four done, see Phase 18)
+Evidence delete, sign-off badge fix, test-user cleanup, and the full
+prod smoke test are complete. **Next step is not code: pilot
+recruitment (week of 28 Jul, GO-LIVE-PLAN.md).**
 
 ### To charge the customer (Sep, post-pilot per plan)
 5. **Real Stripe account + prod env vars** — handler wired +
