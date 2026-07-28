@@ -23,11 +23,13 @@ jobs:
     steps:
       - name: Ping Supabase REST API (resets free-tier idle timer)
         run: |
+          # Table endpoint, not the /rest/v1/ root (root needs a secret
+          # key). Deny-all RLS returns 200 with an empty array.
           status=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "apikey: sb_publishable_I_gfVWp3mYhwN7zOHnCckg_pJc86GWv" \
-            "https://pmuvvacjsntbcxefiiff.supabase.co/rest/v1/")
+            "https://pmuvvacjsntbcxefiiff.supabase.co/rest/v1/projects?select=id&limit=1")
           echo "supabase rest status: $status"
-          [ "$status" -lt 500 ]
+          [ "$status" = "200" ]
 
       - name: Ping app health endpoint (DB reachability + uptime signal)
         run: |

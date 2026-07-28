@@ -44,15 +44,19 @@ export async function GET(req: NextRequest) {
   const supabaseKey = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (supabaseUrl && supabaseKey) {
     try {
-      const res = await fetch(`${supabaseUrl}/rest/v1/`, {
-        headers: { apikey: supabaseKey },
-        signal: AbortSignal.timeout(10_000),
-        cache: "no-store",
-      });
+      // A table endpoint, not /rest/v1/ root — the root requires a secret
+      // key. Deny-all RLS makes this return 200 with an empty array, which
+      // is exactly what we want: a successful platform API request.
+      const res = await fetch(
+        `${supabaseUrl}/rest/v1/projects?select=id&limit=1`,
+        {
+          headers: { apikey: supabaseKey },
+          signal: AbortSignal.timeout(10_000),
+          cache: "no-store",
+        }
+      );
       restStatus = res.status;
-      // Any authenticated response (even 4xx from RLS) proves the request
-      // reached the platform API, which is what resets the idle timer.
-      restOk = res.status < 500;
+      restOk = res.ok;
     } catch (err) {
       errorMsg =
         (errorMsg ? `${errorMsg}; ` : "") +
