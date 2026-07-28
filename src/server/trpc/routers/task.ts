@@ -22,6 +22,58 @@ const columnMappingSchema = z.object({
   parent: z.string().nullable(),
 });
 
+type TaskStatusValue = (typeof TASK_STATUSES)[number];
+
+/**
+ * Keep status, progress and actual dates mutually consistent no matter
+ * which field the caller changed: completed ⇒ 100% with actual dates,
+ * not_started ⇒ 0% with no actuals, partial progress ⇒ work has begun.
+ * The form applies the same rules client-side; this is the safety net.
+ */
+function syncTaskState(opts: {
+  status: TaskStatusValue;
+  progressPct: number;
+  actualStart: string | null;
+  actualEnd: string | null;
+  plannedStart: string | null;
+  statusExplicit: boolean;
+  progressExplicit: boolean;
+}): {
+  status: TaskStatusValue;
+  progressPct: number;
+  actualStart: string | null;
+  actualEnd: string | null;
+} {
+  let { status, progressPct, actualStart, actualEnd } = opts;
+  const todayISO = new Date().toISOString().slice(0, 10);
+
+  if (progressPct >= 100) {
+    if (opts.progressExplicit || !opts.statusExplicit || status === "completed") {
+      status = "completed";
+    } else {
+      // Explicitly moved off completed without touching progress — restart
+      progressPct = 0;
+    }
+  } else if (progressPct > 0 && status === "not_started") {
+    status = "in_progress";
+  }
+
+  if (status === "completed") {
+    progressPct = 100;
+    actualStart = actualStart ?? opts.plannedStart ?? todayISO;
+    actualEnd = actualEnd ?? todayISO;
+  } else if (status === "not_started") {
+    progressPct = 0;
+    actualStart = null;
+    actualEnd = null;
+  } else {
+    actualEnd = null;
+    if (progressPct > 0 && !actualStart) actualStart = todayISO;
+  }
+
+  return { status, progressPct, actualStart, actualEnd };
+}
+
 interface FlatTask {
   id: string;
   projectId: string;
@@ -85,6 +137,8 @@ export const taskRouter = createTRPCRouter({
         parentTaskId: z.string().uuid().nullable().optional(),
         plannedStart: z.string().optional(),
         plannedEnd: z.string().optional(),
+        actualStart: z.string().optional(),
+        actualEnd: z.string().optional(),
         status: z.enum(TASK_STATUSES).optional(),
         progressPct: z.number().min(0).max(100).optional(),
       })
@@ -109,6 +163,16 @@ export const taskRouter = createTRPCRouter({
         );
       const nextSort = (maxResult?.max ?? -1) + 1;
 
+      const synced = syncTaskState({
+        status: input.status ?? "not_started",
+        progressPct: input.progressPct ?? 0,
+        actualStart: input.actualStart || null,
+        actualEnd: input.actualEnd || null,
+        plannedStart: input.plannedStart || null,
+        statusExplicit: input.status !== undefined,
+        progressExplicit: input.progressPct !== undefined,
+      });
+
       const [task] = await ctx.db
         .insert(tasks)
         .values({
@@ -118,9 +182,8 @@ export const taskRouter = createTRPCRouter({
           parentTaskId: parentId,
           plannedStart: input.plannedStart || null,
           plannedEnd: input.plannedEnd || null,
-          status: input.status ?? "not_started",
-          progressPct: input.progressPct ?? 0,
           sortOrder: nextSort,
+          ...synced,
         })
         .returning();
       writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "create", entityType: "task", entityId: task.id, metadata: { name: task.name } });
@@ -146,7 +209,14 @@ export const taskRouter = createTRPCRouter({
       // Verify ownership via the task's project
       const existing = await ctx.db.query.tasks.findFirst({
         where: eq(tasks.id, input.id),
-        columns: { projectId: true },
+        columns: {
+          projectId: true,
+          status: true,
+          progressPct: true,
+          actualStart: true,
+          actualEnd: true,
+          plannedStart: true,
+        },
       });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
       await assertProjectAccess(ctx.db, existing.projectId, ctx.orgId, ctx.userId);
@@ -179,9 +249,29 @@ export const taskRouter = createTRPCRouter({
       for (const [key, val] of Object.entries(data)) {
         cleaned[key] = val === "" ? null : val;
       }
+
+      // Merge the partial update over the stored row, then re-sync
+      // status/progress/actual dates so a single-field change (e.g. just
+      // progress → 100) still leaves the task in a consistent state.
+      const merged = {
+        status: (cleaned.status as TaskStatusValue) ?? (existing.status as TaskStatusValue) ?? "not_started",
+        progressPct: (cleaned.progressPct as number) ?? existing.progressPct ?? 0,
+        actualStart:
+          "actualStart" in cleaned ? (cleaned.actualStart as string | null) : existing.actualStart,
+        actualEnd:
+          "actualEnd" in cleaned ? (cleaned.actualEnd as string | null) : existing.actualEnd,
+        plannedStart:
+          "plannedStart" in cleaned ? (cleaned.plannedStart as string | null) : existing.plannedStart,
+      };
+      const synced = syncTaskState({
+        ...merged,
+        statusExplicit: input.status !== undefined,
+        progressExplicit: input.progressPct !== undefined,
+      });
+
       const [task] = await ctx.db
         .update(tasks)
-        .set({ ...cleaned, updatedAt: new Date() })
+        .set({ ...cleaned, ...synced, updatedAt: new Date() })
         .where(eq(tasks.id, id))
         .returning();
       writeAuditLogAsync(ctx.db, { projectId: existing.projectId, userId: ctx.userId, action: "update", entityType: "task", entityId: id });
@@ -292,11 +382,40 @@ export const taskRouter = createTRPCRouter({
     )
     .mutation(async ({ input }) => {
       if (input.kind === "xml") {
-        return { kind: "preview" as const, ...detectAndParse(input.xml) };
+        // Parse failures are user-fixable (wrong file, unsupported export)
+        // — surface the real reason instead of the masked 500.
+        try {
+          return { kind: "preview" as const, ...detectAndParse(input.xml) };
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              err instanceof Error
+                ? err.message
+                : "Could not parse this file as an MS Project or P6 XML export.",
+          });
+        }
       }
       if (input.kind === "pdf") {
         const buf = Buffer.from(input.pdfBase64, "base64");
-        const { tasks, confidence } = await parsePdfBuffer(buf);
+        let parsed;
+        try {
+          parsed = await parsePdfBuffer(buf);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (message.includes("ANTHROPIC_API_KEY")) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "PDF import isn't available yet on this server. Please import an Excel (.xlsx) or MS Project / P6 XML export instead.",
+            });
+          }
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Couldn't read that PDF: ${message}`,
+          });
+        }
+        const { tasks, confidence } = parsed;
         return {
           kind: "preview" as const,
           format: "pdf" as const,
@@ -348,7 +467,18 @@ export const taskRouter = createTRPCRouter({
       let parsedTasks;
       let format: "msproject" | "p6" | "xlsx" | "pdf";
       if (input.source.kind === "xml") {
-        const result = detectAndParse(input.source.xml);
+        let result;
+        try {
+          result = detectAndParse(input.source.xml);
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              err instanceof Error
+                ? err.message
+                : "Could not parse this file as an MS Project or P6 XML export.",
+          });
+        }
         parsedTasks = result.tasks;
         format = result.format;
       } else if (input.source.kind === "xlsx") {

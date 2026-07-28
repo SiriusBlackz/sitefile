@@ -112,7 +112,7 @@ export function ImportDialog({
       }
     },
     onError: (err) => {
-      setError(err.message);
+      setError(friendlyError(err.message));
       setPreview(null);
       setMappingStep(null);
     },
@@ -124,13 +124,36 @@ export function ImportDialog({
       handleClose();
       onImportComplete();
     },
-    onError: (err) => toast.error(err.message),
+    // Keep the error visible in the dialog — a toast alone disappears
+    // before the user can read (or screenshot) it.
+    onError: (err) => setError(friendlyError(err.message)),
   });
+
+  // Vercel rejects request bodies over ~4.5MB with a non-JSON response,
+  // which the tRPC client surfaces as a raw "Unexpected token" parse
+  // error. Catch oversized files before they leave the browser.
+  const MAX_FILE_BYTES = 3 * 1024 * 1024;
+
+  function friendlyError(message: string): string {
+    if (/unexpected token|not valid json|json\.parse|<!doctype|<html/i.test(message)) {
+      return "The server couldn't accept this file — it may be too large. Files must be under 3MB.";
+    }
+    return message;
+  }
 
   function handleFileSelect(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
     setFileName(file.name);
+    if (file.size > MAX_FILE_BYTES) {
+      setError(
+        `"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)}MB — the limit is 3MB. Try exporting a smaller version (e.g. fewer embedded images, or an XML/Excel export instead of PDF).`
+      );
+      setPreview(null);
+      setMappingStep(null);
+      return;
+    }
+    setError("");
 
     const isXlsx = /\.xlsx$/i.test(file.name);
     const isPdf = /\.pdf$/i.test(file.name);
@@ -312,7 +335,7 @@ export function ImportDialog({
             <AlertCircle className="h-5 w-5 text-destructive shrink-0" />
             <div>
               <p className="text-sm font-medium text-destructive">
-                Parse Error
+                Import failed
               </p>
               <p className="text-sm text-muted-foreground">{error}</p>
             </div>
@@ -587,7 +610,11 @@ export function ImportDialog({
                 setError("");
                 setXmlContent("");
                 setXlsxBase64("");
+                setPdfBase64("");
                 setFileName("");
+                setMappingStep(null);
+                setMapping(null);
+                setPreview(null);
               }}
             >
               Try Another File
