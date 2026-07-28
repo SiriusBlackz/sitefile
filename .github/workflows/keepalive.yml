@@ -1,0 +1,37 @@
+# Supabase free-tier keep-alive, redundant with the Vercel cron
+# (/api/cron/db-ping). Supabase pauses free projects after ~7 days
+# without PLATFORM API activity — this hits the REST API directly so
+# the idle timer resets even if the Vercel cron or the app is down.
+#
+# The URL and publishable key are public by design (they ship in any
+# frontend); RLS deny-all means the request returns no data, but it
+# still counts as activity.
+#
+# NB: GitHub disables scheduled workflows after ~60 days without repo
+# activity — any commit re-enables them. Fine while the project is
+# actively developed; revisit if the repo goes quiet.
+name: keepalive
+
+on:
+  schedule:
+    - cron: "23 7 * * *" # daily 07:23 UTC (offset from Vercel's 04:00)
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API (resets free-tier idle timer)
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: sb_publishable_I_gfVWp3mYhwN7zOHnCckg_pJc86GWv" \
+            "https://pmuvvacjsntbcxefiiff.supabase.co/rest/v1/")
+          echo "supabase rest status: $status"
+          [ "$status" -lt 500 ]
+
+      - name: Ping app health endpoint (DB reachability + uptime signal)
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://www.sitefile.app/api/health")
+          echo "health status: $status"
+          [ "$status" = "200" ]
