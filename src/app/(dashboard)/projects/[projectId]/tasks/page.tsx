@@ -73,6 +73,8 @@ export default function TasksPage() {
       parentTaskId: values.parentTaskId || null,
       plannedStart: values.plannedStart || undefined,
       plannedEnd: values.plannedEnd || undefined,
+      actualStart: values.actualStart || undefined,
+      actualEnd: values.actualEnd || undefined,
       status: values.status,
       progressPct: values.progressPct,
     });
@@ -87,6 +89,8 @@ export default function TasksPage() {
       parentTaskId: values.parentTaskId || null,
       plannedStart: values.plannedStart || null,
       plannedEnd: values.plannedEnd || null,
+      actualStart: values.actualStart || null,
+      actualEnd: values.actualEnd || null,
       status: values.status,
       progressPct: values.progressPct,
     });
@@ -99,6 +103,8 @@ export default function TasksPage() {
     description: string | null;
     plannedStart: string | null;
     plannedEnd: string | null;
+    actualStart: string | null;
+    actualEnd: string | null;
     progressPct: number | null;
     status: string | null;
   }) {
@@ -110,6 +116,8 @@ export default function TasksPage() {
         parentTaskId: task.parentTaskId ?? "",
         plannedStart: task.plannedStart ?? "",
         plannedEnd: task.plannedEnd ?? "",
+        actualStart: task.actualStart ?? "",
+        actualEnd: task.actualEnd ?? "",
         status: (task.status as TaskFormValues["status"]) ?? "not_started",
         progressPct: task.progressPct ?? 0,
       },

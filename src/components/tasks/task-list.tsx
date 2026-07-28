@@ -31,6 +31,8 @@ interface TaskItem {
   description: string | null;
   plannedStart: string | null;
   plannedEnd: string | null;
+  actualStart: string | null;
+  actualEnd: string | null;
   progressPct: number | null;
   sortOrder: number | null;
   status: string | null;
@@ -141,7 +143,13 @@ export function TaskList({ tasks, onEdit, onDelete, onReorder }: TaskListProps) 
                 <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                   {(task.plannedStart || task.plannedEnd) && (
                     <span>
-                      {task.plannedStart ?? "?"} → {task.plannedEnd ?? "?"}
+                      Planned {task.plannedStart ?? "?"} → {task.plannedEnd ?? "?"}
+                    </span>
+                  )}
+                  {(task.actualStart || task.actualEnd) && (
+                    <span className="text-green-700 dark:text-green-400">
+                      Actual {task.actualStart ?? "?"} →{" "}
+                      {task.actualEnd ?? "ongoing"}
                     </span>
                   )}
                   <div className="flex items-center gap-1">

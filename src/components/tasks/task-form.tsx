@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -28,14 +29,35 @@ const taskFormSchema = z.object({
   parentTaskId: z.string().optional(),
   plannedStart: z.string().optional(),
   plannedEnd: z.string().optional(),
+  actualStart: z.string().optional(),
+  actualEnd: z.string().optional(),
   status: z.enum(["not_started", "in_progress", "completed", "delayed"]),
   progressPct: z.number().min(0).max(100),
 }).refine(
   (data) => !data.plannedStart || !data.plannedEnd || data.plannedEnd >= data.plannedStart,
   { message: "End date must be after start date", path: ["plannedEnd"] }
+).refine(
+  (data) => !data.actualStart || !data.actualEnd || data.actualEnd >= data.actualStart,
+  { message: "Actual end must be after actual start", path: ["actualEnd"] }
 );
 
 export type TaskFormValues = z.infer<typeof taskFormSchema>;
+
+const EMPTY_VALUES: TaskFormValues = {
+  name: "",
+  description: "",
+  parentTaskId: "",
+  plannedStart: "",
+  plannedEnd: "",
+  actualStart: "",
+  actualEnd: "",
+  status: "not_started",
+  progressPct: 0,
+};
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 interface TaskOption {
   id: string;
@@ -68,20 +90,61 @@ export function TaskFormDialog({
     handleSubmit,
     setValue,
     watch,
+    reset,
+    getValues,
     formState: { errors },
   } = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      parentTaskId: "",
-      plannedStart: "",
-      plannedEnd: "",
-      status: "not_started",
-      progressPct: 0,
-      ...defaultValues,
-    },
+    defaultValues: { ...EMPTY_VALUES, ...defaultValues },
   });
+
+  // The dialog component stays mounted across open/close, so form state
+  // survives between uses — reset to fresh values every time it opens or
+  // the previous task's fields leak into the next one.
+  useEffect(() => {
+    if (open) {
+      reset({ ...EMPTY_VALUES, ...defaultValues });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editTaskId]);
+
+  const status = watch("status");
+
+  // Status ⇄ progress ⇄ dates stay consistent: completed means 100% with
+  // actual dates filled; not started means 0% with no actuals; a partial
+  // percentage means work has begun.
+  function applyStatus(next: TaskFormValues["status"]) {
+    setValue("status", next);
+    const v = getValues();
+    if (next === "completed") {
+      setValue("progressPct", 100);
+      if (!v.actualStart) setValue("actualStart", v.plannedStart || today());
+      if (!v.actualEnd) setValue("actualEnd", today());
+    } else if (next === "not_started") {
+      setValue("progressPct", 0);
+      setValue("actualStart", "");
+      setValue("actualEnd", "");
+    } else {
+      // in_progress / delayed — work has started but isn't finished
+      if (!v.actualStart) setValue("actualStart", today());
+      setValue("actualEnd", "");
+      if (v.progressPct === 100) setValue("progressPct", 0);
+    }
+  }
+
+  function applyProgress(raw: number) {
+    const pct = Number.isFinite(raw) ? Math.min(Math.max(Math.round(raw), 0), 100) : 0;
+    const v = getValues();
+    if (pct === 100 && v.status !== "completed") {
+      applyStatus("completed");
+      setValue("progressPct", 100);
+    } else if (pct > 0 && pct < 100 && (v.status === "not_started" || v.status === "completed")) {
+      applyStatus("in_progress");
+      setValue("progressPct", pct);
+    } else if (pct === 0 && v.status === "completed") {
+      applyStatus("not_started");
+    }
+  }
 
   // Filter out the task being edited AND its descendants from parent options.
   // Without this, the server-side cycle guard catches it but the user sees a
@@ -109,8 +172,8 @@ export function TaskFormDialog({
 
   function handleFormSubmit(values: TaskFormValues) {
     // Don't reset here — on mutation failure the dialog stays open and the
-    // user needs to fix their input, not start over. On success the parent
-    // closes the dialog, which unmounts DialogContent and clears the form.
+    // user needs to fix their input, not start over. Reset happens on the
+    // next open instead.
     onSubmit(values);
   }
 
@@ -145,7 +208,7 @@ export function TaskFormDialog({
           <div className="space-y-2">
             <Label>Parent Task</Label>
             <Select
-              // eslint-disable-next-line react-hooks/incompatible-library -- React Hook Form watch()
+               
               value={watch("parentTaskId") ?? ""}
               onValueChange={(val) =>
                 setValue("parentTaskId", val === "__none__" ? "" : (val ?? ""))
@@ -169,16 +232,13 @@ export function TaskFormDialog({
             <div className="space-y-2">
               <Label htmlFor="task-status">Status</Label>
               <Select
-                value={watch("status")}
+                value={status}
                 onValueChange={(val) =>
-                  setValue(
-                    "status",
-                    (val as TaskFormValues["status"]) ?? "not_started"
-                  )
+                  applyStatus((val as TaskFormValues["status"]) ?? "not_started")
                 }
               >
                 <SelectTrigger>
-                  <span>{getTaskStatusLabel(watch("status"))}</span>
+                  <span>{getTaskStatusLabel(status)}</span>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="not_started">Not Started</SelectItem>
@@ -195,7 +255,10 @@ export function TaskFormDialog({
                 type="number"
                 min={0}
                 max={100}
-                {...register("progressPct", { valueAsNumber: true })}
+                {...register("progressPct", {
+                  valueAsNumber: true,
+                  onBlur: (e) => applyProgress(Number(e.target.value)),
+                })}
               />
             </div>
           </div>
@@ -217,6 +280,32 @@ export function TaskFormDialog({
               )}
             </div>
           </div>
+
+          {status !== "not_started" && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="task-actual-start">Actual Start</Label>
+                <Input
+                  id="task-actual-start"
+                  type="date"
+                  {...register("actualStart")}
+                />
+              </div>
+              {status === "completed" && (
+                <div className="space-y-2">
+                  <Label htmlFor="task-actual-end">Actual End</Label>
+                  <Input
+                    id="task-actual-end"
+                    type="date"
+                    {...register("actualEnd")}
+                  />
+                  {errors.actualEnd && (
+                    <p className="text-sm text-destructive">{errors.actualEnd.message}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2">
             <Button
