@@ -9,6 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -43,7 +44,10 @@ function DemoUserMenu() {
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuLabel>Demo session</DropdownMenuLabel>
+        {/* Base UI GroupLabel throws unless nested inside a Group */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Demo session</DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={switchUser}>
           <LogOut className="mr-2 h-4 w-4" />
