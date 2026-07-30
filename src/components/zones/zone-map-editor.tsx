@@ -35,11 +35,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Trash2 } from "lucide-react";
+import { MapPin, Pencil, PenLine, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface ZoneMapEditorProps {
   projectId: string;
+  /** False when NEXT_PUBLIC_MAPBOX_TOKEN is missing — the zone list still
+   * renders and zones remain editable; only the map canvas is replaced. */
+  mapEnabled: boolean;
 }
 
 interface PendingZone {
@@ -47,7 +50,7 @@ interface PendingZone {
   drawId: string;
 }
 
-export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
+export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const drawRef = useRef<MapboxDraw | null>(null);
@@ -56,6 +59,11 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
   const [zoneColor, setZoneColor] = useState("#3B82F6");
   const [defaultTaskId, setDefaultTaskId] = useState<string>("");
   const [deleteZoneId, setDeleteZoneId] = useState<string | null>(null);
+  const [editZoneId, setEditZoneId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState("#3B82F6");
+  const [editTaskId, setEditTaskId] = useState<string>("");
+  const [isDrawing, setIsDrawing] = useState(false);
   // Incremented every time the map style finishes loading (initial load and
   // any style change) — zones can only be drawn once the style is ready.
   const [styleGen, setStyleGen] = useState(0);
@@ -64,6 +72,14 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
   const utils = trpc.useUtils();
   const { data: zones = [] } = trpc.zone.list.useQuery({ projectId });
   const { data: tasks = [] } = trpc.task.list.useQuery({ projectId });
+
+  // Base UI renders the raw value (a task UUID) in the trigger when the value
+  // is preset and the popup has never mounted — `items` supplies the labels.
+  const taskItems = {
+    "": "None",
+    __none__: "None",
+    ...Object.fromEntries(tasks.map((t) => [t.id, t.name])),
+  };
 
   const createMutation = trpc.zone.create.useMutation({
     onSuccess: () => {
@@ -77,6 +93,15 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
     onError: (err) => toast.error(err.message),
   });
 
+  const updateMutation = trpc.zone.update.useMutation({
+    onSuccess: () => {
+      utils.zone.list.invalidate({ projectId });
+      setEditZoneId(null);
+      toast.success("Zone updated");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   const deleteMutation = trpc.zone.delete.useMutation({
     onSuccess: () => {
       utils.zone.list.invalidate({ projectId });
@@ -86,7 +111,7 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
   });
 
   useEffect(() => {
-    if (!mapContainer.current || mapRef.current) return;
+    if (!mapEnabled || !mapContainer.current || mapRef.current) return;
 
     mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 
@@ -112,7 +137,14 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
     // (which wipes custom sources/layers) — bump styleGen so zones re-draw.
     map.on("style.load", () => setStyleGen((gen) => gen + 1));
 
+    // Mode drops back to simple_select when a polygon is finished or the
+    // user presses Escape — either way the "drawing" hint should clear.
+    map.on("draw.modechange", (e: { mode: string }) => {
+      setIsDrawing(e.mode === "draw_polygon");
+    });
+
     map.on("draw.create", (e: { features: GeoJSON.Feature[] }) => {
+      setIsDrawing(false);
       const feature = e.features[0];
       if (feature?.geometry.type === "Polygon") {
         const geom = feature.geometry as GeoJSON.Polygon;
@@ -136,7 +168,7 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
       mapRef.current = null;
       drawRef.current = null;
     };
-  }, []);
+  }, [mapEnabled]);
 
   // Render existing zones on the map — only after the style has loaded
   // (styleGen > 0); adding sources before then silently fails, and a style
@@ -237,17 +269,85 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
     setZoneName("");
   }
 
+  function startDrawing() {
+    drawRef.current?.changeMode("draw_polygon");
+    setIsDrawing(true);
+  }
+
+  function cancelDrawing() {
+    drawRef.current?.changeMode("simple_select");
+    setIsDrawing(false);
+  }
+
+  function openEditZone(zone: (typeof zones)[number]) {
+    setEditZoneId(zone.id);
+    setEditName(zone.name);
+    setEditColor(zone.color ?? "#3B82F6");
+    setEditTaskId(zone.defaultTaskId ?? "");
+  }
+
+  function handleUpdateZone() {
+    if (!editZoneId || !editName) return;
+    updateMutation.mutate({
+      id: editZoneId,
+      name: editName,
+      color: editColor,
+      defaultTaskId: editTaskId || null,
+    });
+  }
+
   return (
     <div className="flex flex-col gap-4 md:h-[600px] md:flex-row">
-      <div className="min-h-[400px] flex-1 rounded-lg overflow-hidden border">
-        <div ref={mapContainer} className="h-full w-full" />
-      </div>
+      {mapEnabled ? (
+        <div className="min-h-[400px] flex-1 rounded-lg overflow-hidden border">
+          <div ref={mapContainer} className="h-full w-full" />
+        </div>
+      ) : (
+        <div className="flex min-h-[400px] flex-1 items-center justify-center rounded-lg border bg-muted/40 p-6">
+          <div className="max-w-sm space-y-2 text-center text-sm text-muted-foreground">
+            <MapPin className="mx-auto h-8 w-8" />
+            <p className="font-medium text-foreground">Maps unavailable</p>
+            <p>
+              Maps aren&apos;t available right now, so new zones can&apos;t be
+              drawn. Existing zones can still be edited from the list.
+            </p>
+            <details className="text-left text-xs">
+              <summary className="cursor-pointer">For administrators</summary>
+              <p className="mt-2">
+                Set <code>NEXT_PUBLIC_MAPBOX_TOKEN</code> in the environment
+                and redeploy to enable maps.
+              </p>
+            </details>
+          </div>
+        </div>
+      )}
 
       <div className="w-full space-y-3 md:w-72 md:overflow-y-auto">
-        <h3 className="text-sm font-semibold">Zones</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">Zones</h3>
+          {mapEnabled &&
+            (isDrawing ? (
+              <Button variant="outline" size="xs" onClick={cancelDrawing}>
+                Cancel drawing
+              </Button>
+            ) : (
+              <Button size="xs" onClick={startDrawing}>
+                <PenLine className="h-3 w-3" />
+                Draw new zone
+              </Button>
+            ))}
+        </div>
+        {isDrawing && (
+          <p className="rounded-md border border-dashed bg-muted p-2 text-xs text-muted-foreground">
+            Click the map to add corner points, then double-click (or press
+            Enter) to close the zone.
+          </p>
+        )}
         {zones.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Draw a polygon on the map to create a zone.
+            {mapEnabled
+              ? "No zones yet. Click “Draw new zone”, then click the map to outline an area."
+              : "No zones yet. Zones are drawn on the map, which is currently unavailable."}
           </p>
         )}
         {zones.map((zone) => (
@@ -270,6 +370,15 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
             <Button
               variant="ghost"
               size="icon-xs"
+              aria-label={`Edit zone ${zone.name}`}
+              onClick={() => openEditZone(zone)}
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`Delete zone ${zone.name}`}
               onClick={() => setDeleteZoneId(zone.id)}
             >
               <Trash2 className="h-3 w-3" />
@@ -338,6 +447,75 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
               disabled={!zoneName || createMutation.isPending}
             >
               {createMutation.isPending ? "Saving..." : "Create Zone"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editZoneId !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditZoneId(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Zone</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Zone Name *</Label>
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="e.g. Building A Foundation"
+              />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Color</Label>
+                <Input
+                  type="color"
+                  value={editColor}
+                  onChange={(e) => setEditColor(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Default Task</Label>
+                <Select
+                  items={taskItems}
+                  value={editTaskId}
+                  onValueChange={(val) =>
+                    setEditTaskId(val === "__none__" ? "" : (val ?? ""))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {tasks.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {"—".repeat(t.depth)} {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              To change the zone&apos;s shape, delete it and draw a new one.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditZoneId(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUpdateZone}
+              disabled={!editName || updateMutation.isPending}
+            >
+              {updateMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
