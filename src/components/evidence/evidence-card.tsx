@@ -2,6 +2,7 @@
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { formatDate } from "@/lib/format";
 import { MapPin, Calendar, Film, Play, Check } from "lucide-react";
 
 interface LinkedTask {
@@ -12,12 +13,16 @@ interface LinkedTask {
 export interface EvidenceItem {
   id: string;
   publicUrl: string;
+  thumbnailUrl: string | null;
   originalFilename: string | null;
   mimeType: string | null;
   capturedAt: Date | null;
   latitude: number | null;
   longitude: number | null;
   type: string;
+  note: string | null;
+  deviceInfo: string | null;
+  uploader: { id: string; name: string } | null;
   linkedTasks: LinkedTask[];
 }
 
@@ -31,13 +36,7 @@ interface EvidenceCardProps {
 export function EvidenceCard({ item, onClick, selected, onToggleSelect }: EvidenceCardProps) {
   const isVideo = item.type === "video";
   const hasGps = item.latitude != null && item.longitude != null;
-  const capturedDate = item.capturedAt
-    ? new Date(item.capturedAt).toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      })
-    : null;
+  const capturedDate = item.capturedAt ? formatDate(item.capturedAt) : null;
 
   return (
     <Card
@@ -71,10 +70,18 @@ export function EvidenceCard({ item, onClick, selected, onToggleSelect }: Eviden
         ) : (
           /* eslint-disable-next-line @next/next/no-img-element -- user-uploaded R2 content */
           <img
-            src={item.publicUrl}
+            src={item.thumbnailUrl ?? item.publicUrl}
             alt={item.originalFilename ?? "Evidence photo"}
             className="h-full w-full object-cover"
             loading="lazy"
+            onError={(e) => {
+              // Thumbnail missing or unservable — fall back to the original once.
+              const img = e.currentTarget;
+              if (item.thumbnailUrl && !img.dataset.fellBack) {
+                img.dataset.fellBack = "true";
+                img.src = item.publicUrl;
+              }
+            }}
           />
         )}
         {onToggleSelect && (

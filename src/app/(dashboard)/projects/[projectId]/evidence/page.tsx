@@ -6,6 +6,8 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { formatDateTime, labelFor, EVIDENCE_TYPE_LABELS } from "@/lib/format";
 import {
   Select,
   SelectContent,
@@ -54,6 +56,48 @@ function TaskLinkerWithSuggestions({
       linkedTaskIds={linkedTaskIds}
       suggestions={suggestions}
     />
+  );
+}
+
+function EvidenceNoteEditor({
+  evidenceId,
+  initialNote,
+}: {
+  evidenceId: string;
+  initialNote: string | null;
+}) {
+  const utils = trpc.useUtils();
+  const [note, setNote] = useState(initialNote ?? "");
+  const updateNote = trpc.evidence.updateNote.useMutation({
+    onSuccess: () => {
+      toast.success("Note saved");
+      utils.evidence.list.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const dirty = note !== (initialNote ?? "");
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">Note</p>
+      <Textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Add a note..."
+        rows={2}
+      />
+      {dirty && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            onClick={() => updateNote.mutate({ evidenceId, note })}
+            disabled={updateNote.isPending}
+          >
+            {updateNote.isPending ? "Saving..." : "Save note"}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -135,6 +179,12 @@ export default function EvidencePage() {
 
   const items = data?.pages.flatMap((p) => p.items) ?? [];
 
+  // Resolve the detail-dialog item from the freshest list data so that
+  // linking/unlinking/note edits reflect immediately after invalidation.
+  const currentItem = selectedItem
+    ? (items.find((i) => i.id === selectedItem.id) ?? selectedItem)
+    : null;
+
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -200,9 +250,9 @@ export default function EvidencePage() {
   return (
     <div className="space-y-4">
       <ProjectBreadcrumb items={[{ label: "Evidence" }]} />
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-2xl font-bold tracking-tight">Evidence</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {!selectMode ? (
             <>
               <Button
@@ -291,7 +341,15 @@ export default function EvidencePage() {
                 onValueChange={(val) => setTaskFilter(val === "__all__" ? "" : (val ?? ""))}
               >
                 <SelectTrigger className="w-48">
-                  <SelectValue placeholder="All tasks" />
+                  {/* Base UI's SelectValue renders the raw value (a UUID) once
+                      selected, so render the task name ourselves. */}
+                  <SelectValue placeholder="All tasks">
+                    {(val: string | null) =>
+                      val && val !== "__all__"
+                        ? (tasks.find((t) => t.id === val)?.name ?? "All tasks")
+                        : "All tasks"
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all__">All tasks</SelectItem>
@@ -310,7 +368,13 @@ export default function EvidencePage() {
                 onValueChange={(val) => setTypeFilter(val === "__all__" ? "" : (val ?? ""))}
               >
                 <SelectTrigger className="w-36">
-                  <SelectValue placeholder="All types" />
+                  <SelectValue placeholder="All types">
+                    {(val: string | null) =>
+                      val && val !== "__all__"
+                        ? labelFor(EVIDENCE_TYPE_LABELS, val)
+                        : "All types"
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all__">All types</SelectItem>
@@ -370,6 +434,8 @@ export default function EvidencePage() {
         onItemClick={selectMode ? undefined : setSelectedItem}
         selectedIds={selectMode ? selectedIds : undefined}
         onToggleSelect={selectMode ? toggleSelect : undefined}
+        hasActiveFilters={Boolean(hasActiveFilters)}
+        onClearFilters={clearFilters}
       />
 
       {hasNextPage && (
@@ -405,14 +471,14 @@ export default function EvidencePage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {selectedItem?.originalFilename ?? "Evidence Detail"}
+              {currentItem?.originalFilename ?? "Evidence Detail"}
             </DialogTitle>
           </DialogHeader>
-          {selectedItem && (
+          {currentItem && (
             <div className="space-y-4">
-              {selectedItem.type === "video" ? (
+              {currentItem.type === "video" ? (
                 <video
-                  src={selectedItem.publicUrl}
+                  src={currentItem.publicUrl}
                   controls
                   playsInline
                   preload="metadata"
@@ -421,15 +487,50 @@ export default function EvidencePage() {
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element -- user-uploaded R2 content
                 <img
-                  src={selectedItem.publicUrl}
-                  alt={selectedItem.originalFilename ?? ""}
+                  src={currentItem.publicUrl}
+                  alt={currentItem.originalFilename ?? ""}
                   className="w-full rounded-lg"
                 />
               )}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Captured
+                  </p>
+                  <p>{formatDateTime(currentItem.capturedAt)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Uploaded by
+                  </p>
+                  <p>{currentItem.uploader?.name ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Location
+                  </p>
+                  <p>
+                    {currentItem.latitude != null && currentItem.longitude != null
+                      ? `${currentItem.latitude.toFixed(5)}, ${currentItem.longitude.toFixed(5)}`
+                      : "No location data"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Device
+                  </p>
+                  <p>{currentItem.deviceInfo ?? "—"}</p>
+                </div>
+              </div>
+              <EvidenceNoteEditor
+                key={currentItem.id}
+                evidenceId={currentItem.id}
+                initialNote={currentItem.note}
+              />
               <TaskLinkerWithSuggestions
-                evidenceId={selectedItem.id}
+                evidenceId={currentItem.id}
                 projectId={projectId}
-                linkedTaskIds={selectedItem.linkedTasks.map((t) => t.taskId)}
+                linkedTaskIds={currentItem.linkedTasks.map((t) => t.taskId)}
               />
               <div className="flex justify-end border-t pt-3">
                 <Button

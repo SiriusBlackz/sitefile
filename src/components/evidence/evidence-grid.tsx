@@ -1,6 +1,7 @@
 "use client";
 
-import { ImageIcon } from "lucide-react";
+import { ImageIcon, SearchX } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { EvidenceCard, type EvidenceItem } from "./evidence-card";
 
 interface EvidenceGridProps {
@@ -8,10 +9,38 @@ interface EvidenceGridProps {
   onItemClick?: (item: EvidenceItem) => void;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
+  /** True when the list is filtered — switches the empty state message. */
+  hasActiveFilters?: boolean;
+  onClearFilters?: () => void;
 }
 
-export function EvidenceGrid({ items, onItemClick, selectedIds, onToggleSelect }: EvidenceGridProps) {
+export function EvidenceGrid({
+  items,
+  onItemClick,
+  selectedIds,
+  onToggleSelect,
+  hasActiveFilters,
+  onClearFilters,
+}: EvidenceGridProps) {
   if (items.length === 0) {
+    if (hasActiveFilters) {
+      return (
+        <div className="py-12 text-center text-muted-foreground">
+          <SearchX className="mx-auto mb-3 h-8 w-8" />
+          <p>No evidence matches your filters.</p>
+          {onClearFilters && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={onClearFilters}
+            >
+              Clear filters
+            </Button>
+          )}
+        </div>
+      );
+    }
     return (
       <div className="py-12 text-center text-muted-foreground">
         <ImageIcon className="mx-auto mb-3 h-8 w-8" />

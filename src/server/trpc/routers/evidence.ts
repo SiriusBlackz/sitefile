@@ -215,16 +215,18 @@ export const evidenceRouter = createTRPCRouter({
         );
       }
 
-      let evidenceIdsForTask: string[] | null = null;
       if (input.taskId) {
         const links = await ctx.db.query.evidenceLinks.findMany({
           where: eq(evidenceLinks.taskId, input.taskId),
           columns: { evidenceId: true },
         });
-        evidenceIdsForTask = links.map((l) => l.evidenceId);
+        const evidenceIdsForTask = links.map((l) => l.evidenceId);
         if (evidenceIdsForTask.length === 0) {
           return { items: [], nextCursor: null };
         }
+        // Filter in SQL — post-filtering the fetched page in JS silently
+        // dropped matches once the project had more rows than one page.
+        conditions.push(inArray(evidence.id, evidenceIdsForTask));
       }
 
       if (input.cursor) {
@@ -243,6 +245,7 @@ export const evidenceRouter = createTRPCRouter({
         orderBy: [desc(evidence.createdAt)],
         limit: input.limit + 1,
         with: {
+          uploader: { columns: { id: true, name: true } },
           links: {
             with: {
               task: { columns: { id: true, name: true } },
@@ -251,10 +254,6 @@ export const evidenceRouter = createTRPCRouter({
         },
       });
 
-      if (evidenceIdsForTask) {
-        items = items.filter((e) => evidenceIdsForTask!.includes(e.id));
-      }
-
       const hasMore = items.length > input.limit;
       if (hasMore) items = items.slice(0, input.limit);
 
@@ -262,6 +261,7 @@ export const evidenceRouter = createTRPCRouter({
         items: items.map((item) => ({
           ...item,
           publicUrl: getPublicUrl(item.storageKey),
+          thumbnailUrl: item.thumbnailKey ? getPublicUrl(item.thumbnailKey) : null,
           linkedTasks: item.links.map((l) => ({
             taskId: l.task.id,
             taskName: l.task.name,
@@ -269,6 +269,38 @@ export const evidenceRouter = createTRPCRouter({
         })),
         nextCursor: hasMore ? items[items.length - 1].id : null,
       };
+    }),
+
+  updateNote: protectedProcedure
+    .input(
+      z.object({
+        evidenceId: z.string().uuid(),
+        note: z.string().max(2000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const ev = await ctx.db.query.evidence.findFirst({
+        where: eq(evidence.id, input.evidenceId),
+        columns: { projectId: true, deletedAt: true },
+      });
+      if (!ev || ev.deletedAt) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Evidence not found" });
+      }
+      await assertProjectAccess(ctx.db, ev.projectId, ctx.orgId, ctx.userId);
+
+      await ctx.db
+        .update(evidence)
+        .set({ note: input.note.trim() || null })
+        .where(eq(evidence.id, input.evidenceId));
+      writeAuditLogAsync(ctx.db, {
+        projectId: ev.projectId,
+        userId: ctx.userId,
+        action: "update",
+        entityType: "evidence",
+        entityId: input.evidenceId,
+        metadata: { field: "note" },
+      });
+      return { success: true };
     }),
 
   link: protectedProcedure
