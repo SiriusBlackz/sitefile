@@ -40,6 +40,7 @@ function CaptureContent() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const mountedRef = useRef(true);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -194,6 +195,21 @@ function CaptureContent() {
     );
   }
 
+  // Add photos picked from the device photo library — same batch as camera
+  // captures, so the review/upload path is identical.
+  function addLibraryPhotos(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const additions: CapturedPhoto[] = Array.from(files).map((file) => ({
+      id: crypto.randomUUID(),
+      blob: file,
+      previewUrl: URL.createObjectURL(file),
+      timestamp: new Date(file.lastModified || Date.now()),
+      latitude: null,
+      longitude: null,
+    }));
+    setPhotos((prev) => [...prev, ...additions]);
+  }
+
   // Switch camera
   function switchCamera() {
     setFacingMode((prev) =>
@@ -259,6 +275,18 @@ function CaptureContent() {
           aria-label="Live camera feed"
         />
         <canvas ref={canvasRef} className="hidden" />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          aria-label="Upload from photo library"
+          onChange={(e) => {
+            addLibraryPhotos(e.target.files);
+            e.target.value = "";
+          }}
+        />
 
         {/* Capture flash overlay */}
         {captureFlash && (
@@ -309,14 +337,23 @@ function CaptureContent() {
               <div className="text-center" role="alert">
                 <Camera className="h-10 w-10 text-zinc-500 mx-auto mb-3" />
                 <p className="text-zinc-300 font-medium">{cameraError}</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-4"
-                  onClick={() => { setCameraError(null); startCamera(); }}
-                >
-                  Try Again
-                </Button>
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setCameraError(null); startCamera(); }}
+                  >
+                    Try Again
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <ImageIcon className="mr-1 h-4 w-4" />
+                    Upload from Photo Library
+                  </Button>
+                </div>
               </div>
             ) : (
               <p className="text-zinc-400">Starting camera...</p>

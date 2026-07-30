@@ -114,12 +114,19 @@ export function CaptureLauncher({
             {!isLoading && activeProjects.length > 1 && (
               <>
                 <Select value={selected} onValueChange={(v) => setSelected(v ?? "")}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select a project..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent
+                    alignItemWithTrigger={false}
+                    className="max-w-[calc(100vw-2rem)]"
+                  >
                     {activeProjects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
+                      <SelectItem
+                        key={p.id}
+                        value={p.id}
+                        className="*:min-w-0 *:shrink *:whitespace-normal"
+                      >
                         {p.name}
                         {p.reference ? ` (${p.reference})` : ""}
                       </SelectItem>

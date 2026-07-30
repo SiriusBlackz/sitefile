@@ -31,6 +31,17 @@ import {
 } from "@/lib/offline-queue";
 import { usePWA } from "@/lib/use-pwa";
 
+// Image types accepted by evidence.getUploadUrl (kept in sync with the
+// server's ALLOWED_MIME_TYPES — importing the router here would pull server
+// code into the client bundle).
+const UPLOADABLE_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+] as const;
+
 interface ReviewPhoto {
   id: string;
   blob: Blob;
@@ -112,7 +123,7 @@ function ReviewContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: capture URLs at unmount
   }, []);
 
-  const { data: tasks = [] } = trpc.task.list.useQuery(
+  const { data: tasks = [], isLoading: tasksLoading } = trpc.task.list.useQuery(
     { projectId },
     { enabled: !!projectId }
   );
@@ -150,7 +161,17 @@ function ReviewContent() {
   // Upload a single photo
   async function uploadOne(photo: ReviewPhoto) {
     const blob = photo.blob;
-    const filename = `capture-${Date.now()}.jpg`;
+    // Library-picked photos may not be JPEG — honour the blob's real type,
+    // narrowed to the types the upload endpoint accepts.
+    const rawType = UPLOADABLE_IMAGE_TYPES.find((t) => t === blob.type);
+    const mimeType = rawType ?? "image/jpeg";
+    const ext =
+      mimeType === "image/png" ? "png"
+      : mimeType === "image/webp" ? "webp"
+      : mimeType === "image/heic" ? "heic"
+      : mimeType === "image/heif" ? "heif"
+      : "jpg";
+    const filename = `capture-${Date.now()}.${ext}`;
 
     updatePhoto(photo.id, { status: "uploading", progress: 0 });
 
@@ -160,7 +181,7 @@ function ReviewContent() {
         await getUploadUrl.mutateAsync({
           projectId,
           filename,
-          contentType: "image/jpeg",
+          contentType: mimeType,
           fileSizeBytes: blob.size,
         });
 
@@ -182,11 +203,11 @@ function ReviewContent() {
 
         if (isLocal) {
           xhr.open("POST", uploadUrl);
-          xhr.setRequestHeader("Content-Type", "image/jpeg");
+          xhr.setRequestHeader("Content-Type", mimeType);
           xhr.send(blob);
         } else {
           xhr.open("PUT", uploadUrl);
-          xhr.setRequestHeader("Content-Type", "image/jpeg");
+          xhr.setRequestHeader("Content-Type", mimeType);
           xhr.send(blob);
         }
       });
@@ -197,7 +218,7 @@ function ReviewContent() {
         storageKey,
         originalFilename: filename,
         fileSizeBytes: blob.size,
-        mimeType: "image/jpeg",
+        mimeType,
         capturedAt: photo.timestamp,
         latitude: photo.latitude ?? null,
         longitude: photo.longitude ?? null,
@@ -228,12 +249,13 @@ function ReviewContent() {
       // Queue for offline upload — blobs go straight to IndexedDB, no
       // data-URL round-trip required.
       for (const photo of photos) {
+        const mimeType = photo.blob.type || "image/jpeg";
         const item: OfflineCapture = {
           id: photo.id,
           projectId,
           blob: photo.blob,
           filename: `capture-${Date.now()}.jpg`,
-          mimeType: "image/jpeg",
+          mimeType,
           capturedAt: photo.timestamp,
           latitude: photo.latitude,
           longitude: photo.longitude,
@@ -277,7 +299,18 @@ function ReviewContent() {
       {/* Header */}
       <div className="flex items-center gap-3 bg-zinc-900 px-4 py-3">
         <button
-          onClick={() => router.back()}
+          onClick={async () => {
+            const remaining = photos.filter((p) => p.status !== "done").length;
+            if (remaining > 0) {
+              const ok = window.confirm(
+                `Discard ${remaining} photo${remaining !== 1 ? "s" : ""}?`
+              );
+              if (!ok) return;
+              if (sessionId) await clearStashedCapture(sessionId);
+            }
+            router.back();
+          }}
+          aria-label="Back to capture"
           className="rounded-full p-1.5 active:bg-zinc-800"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -369,6 +402,7 @@ function ReviewContent() {
             </label>
             <Select
               value={selected.taskId}
+              disabled={tasksLoading}
               onValueChange={(val) =>
                 updatePhoto(selected.id, {
                   taskId: val === "__none__" ? "" : (val ?? ""),
@@ -376,7 +410,13 @@ function ReviewContent() {
               }
             >
               <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white">
-                <SelectValue placeholder="Select a task..." />
+                {tasksLoading ? (
+                  <span className="flex flex-1 text-left text-zinc-500">
+                    Loading tasks…
+                  </span>
+                ) : (
+                  <SelectValue placeholder="Select a task..." />
+                )}
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">None</SelectItem>
