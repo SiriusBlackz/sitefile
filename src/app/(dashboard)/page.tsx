@@ -35,16 +35,73 @@ const ACTION_LABELS: Record<string, string> = {
   unlink: "unlinked",
   generate: "generated",
   import: "imported",
+  download: "downloaded",
 };
 
 const ENTITY_LABELS: Record<string, string> = {
   project: "project",
   task: "task",
-  evidence: "evidence",
+  evidence: "photo",
   evidence_link: "link",
   report: "report",
   gps_zone: "GPS zone",
+  project_member: "member",
+  subscription: "subscription",
 };
+
+/**
+ * Compose the readable part of an activity sentence, rendered as
+ * "{user} {phrase} {connector} {project link}".
+ */
+function describeActivity(
+  action: string,
+  entityType: string,
+  metadata: Record<string, unknown> | null
+): { phrase: string; connector: string } {
+  const name = typeof metadata?.name === "string" ? metadata.name : null;
+
+  switch (action) {
+    case "add_member":
+      return { phrase: "added a member", connector: "to" };
+    case "remove_member":
+      return { phrase: "removed a member", connector: "from" };
+    case "link":
+      return { phrase: "linked a photo to a task", connector: "in" };
+    case "bulk_link":
+      return { phrase: "linked photos to tasks", connector: "in" };
+    case "unlink":
+      return { phrase: "unlinked a photo from a task", connector: "in" };
+    case "upload":
+      return { phrase: "uploaded a photo", connector: "in" };
+    case "import": {
+      const count = typeof metadata?.count === "number" ? metadata.count : null;
+      return {
+        phrase: count ? `imported ${count} tasks` : "imported the programme",
+        connector: "into",
+      };
+    }
+    case "generate": {
+      const num =
+        typeof metadata?.reportNumber === "number" ? metadata.reportNumber : null;
+      return {
+        phrase: num ? `generated report #${num}` : "generated a report",
+        connector: "for",
+      };
+    }
+    case "subscribe":
+      return { phrase: "started a subscription", connector: "for" };
+    case "payment_failed":
+      return { phrase: "recorded a failed payment", connector: "for" };
+    case "cancel_subscription":
+      return { phrase: "cancelled the subscription", connector: "for" };
+  }
+
+  const verb = ACTION_LABELS[action] ?? action.replace(/_/g, " ");
+  const target = name
+    ? `"${name}"`
+    : `a ${ENTITY_LABELS[entityType] ?? entityType.replace(/_/g, " ")}`;
+  return { phrase: `${verb} ${target}`, connector: "in" };
+}
 
 export default function DashboardPage() {
   const {
@@ -131,36 +188,38 @@ export default function DashboardPage() {
             <CardTitle className="text-base">Projects</CardTitle>
           </CardHeader>
           <CardContent className="px-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-6">Project</TableHead>
-                  <TableHead className="w-[280px]">Progress</TableHead>
-                  <TableHead>Current Task</TableHead>
-                  <TableHead className="pr-6 text-right">Evidence</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rowsLoading
-                  ? [0, 1, 2].map((i) => (
-                      <TableRow key={i}>
-                        <TableCell className="pl-6">
-                          <div className="h-4 w-32 animate-pulse rounded bg-muted" />
-                        </TableCell>
-                        <TableCell>
-                          <div className="h-4 w-full animate-pulse rounded bg-muted" />
-                        </TableCell>
-                        <TableCell>
-                          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
-                        </TableCell>
-                        <TableCell className="pr-6 text-right">
-                          <div className="ml-auto h-4 w-8 animate-pulse rounded bg-muted" />
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  : rows?.map((row) => <ProjectRow key={row.id} row={row} />)}
-              </TableBody>
-            </Table>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6">Project</TableHead>
+                    <TableHead className="w-[280px]">Progress</TableHead>
+                    <TableHead>Current Task</TableHead>
+                    <TableHead className="pr-6 text-right">Evidence</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rowsLoading
+                    ? [0, 1, 2].map((i) => (
+                        <TableRow key={i}>
+                          <TableCell className="pl-6">
+                            <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="h-4 w-full animate-pulse rounded bg-muted" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+                          </TableCell>
+                          <TableCell className="pr-6 text-right">
+                            <div className="ml-auto h-4 w-8 animate-pulse rounded bg-muted" />
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    : rows?.map((row) => <ProjectRow key={row.id} row={row} />)}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -204,28 +263,35 @@ export default function DashboardPage() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
-                        <span className="font-medium">
-                          {entry.user?.name ?? "System"}
-                        </span>{" "}
-                        <span className="text-muted-foreground">
-                          {ACTION_LABELS[entry.action] ?? entry.action}{" "}
-                          {entry.metadata &&
-                          (entry.metadata as Record<string, string>).name
-                            ? `"${(entry.metadata as Record<string, string>).name}"`
-                            : `a ${ENTITY_LABELS[entry.entityType] ?? entry.entityType}`}
-                        </span>
-                        {entry.project && (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            in{" "}
-                            <Link
-                              href={`/projects/${entry.project.id}`}
-                              className="text-primary hover:underline"
-                            >
-                              {entry.project.name}
-                            </Link>
-                          </span>
-                        )}
+                        {(() => {
+                          const { phrase, connector } = describeActivity(
+                            entry.action,
+                            entry.entityType,
+                            (entry.metadata as Record<string, unknown>) ?? null
+                          );
+                          return (
+                            <>
+                              <span className="font-medium">
+                                {entry.user?.name ?? "System"}
+                              </span>{" "}
+                              <span className="text-muted-foreground">
+                                {phrase}
+                              </span>
+                              {entry.project && (
+                                <span className="text-muted-foreground">
+                                  {" "}
+                                  {connector}{" "}
+                                  <Link
+                                    href={`/projects/${entry.project.id}`}
+                                    className="text-primary hover:underline"
+                                  >
+                                    {entry.project.name}
+                                  </Link>
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                       <time className="text-xs text-muted-foreground shrink-0 tabular-nums">
                         {entry.createdAt

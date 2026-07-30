@@ -47,7 +47,7 @@ export const createTRPCRouter = t.router;
 
 export const publicProcedure = t.procedure;
 
-export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
+export const protectedProcedure = t.procedure.use(async ({ ctx, type, next }) => {
   if (!ctx.userId || !ctx.orgId) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
@@ -57,13 +57,16 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
     });
   }
 
-  // Rate limit by user ID
-  const { allowed } = checkRateLimit(`user:${ctx.userId}`, MUTATION_CONFIG);
-  if (!allowed) {
-    throw new TRPCError({
-      code: "TOO_MANY_REQUESTS",
-      message: "Too many requests. Please wait a moment and try again.",
-    });
+  // Rate limit mutations by user ID. Queries pass through unlimited —
+  // ordinary browsing fires many reads and must never blank out pages.
+  if (type === "mutation") {
+    const { allowed } = checkRateLimit(`user:${ctx.userId}`, MUTATION_CONFIG);
+    if (!allowed) {
+      throw new TRPCError({
+        code: "TOO_MANY_REQUESTS",
+        message: "Too many requests. Please wait a moment and try again.",
+      });
+    }
   }
 
   return next({
