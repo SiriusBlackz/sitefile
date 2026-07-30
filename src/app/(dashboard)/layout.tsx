@@ -19,7 +19,8 @@ export default async function DashboardLayout({
     const { auth } = await import("@clerk/nextjs/server");
     const { userId } = await auth();
     if (!userId) {
-      redirect("/sign-in");
+      // Prospects land on the marketing page, not an auth wall.
+      redirect("/welcome");
     }
   }
 
