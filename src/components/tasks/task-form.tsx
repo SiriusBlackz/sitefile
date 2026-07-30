@@ -13,7 +13,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { getTaskStatusLabel } from "@/lib/project-status";
 import {
@@ -170,6 +169,14 @@ export function TaskFormDialog({
     return tasks.filter((t) => !descendantIds.has(t.id));
   })();
 
+  // Base UI's SelectValue renders the raw value (a UUID) for a preselected
+  // parent, so render the parent task's name in the trigger ourselves —
+  // same pattern as the Status select below.
+  const parentTaskId = watch("parentTaskId") ?? "";
+  const selectedParent = parentTaskId
+    ? tasks.find((t) => t.id === parentTaskId)
+    : undefined;
+
   function handleFormSubmit(values: TaskFormValues) {
     // Don't reset here — on mutation failure the dialog stays open and the
     // user needs to fix their input, not start over. Reset happens on the
@@ -208,14 +215,13 @@ export function TaskFormDialog({
           <div className="space-y-2">
             <Label>Parent Task</Label>
             <Select
-               
-              value={watch("parentTaskId") ?? ""}
+              value={parentTaskId || "__none__"}
               onValueChange={(val) =>
                 setValue("parentTaskId", val === "__none__" ? "" : (val ?? ""))
               }
             >
               <SelectTrigger>
-                <SelectValue placeholder="None (top-level)" />
+                <span>{selectedParent?.name ?? "None (top-level)"}</span>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">None (top-level)</SelectItem>

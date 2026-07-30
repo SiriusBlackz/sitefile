@@ -141,9 +141,9 @@ export default function TasksPage() {
   return (
     <div className="space-y-4">
       <ProjectBreadcrumb items={[{ label: "Tasks" }]} />
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-2xl font-bold tracking-tight">Tasks</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* View toggle */}
           <div className="flex items-center rounded-md border bg-muted/50 p-0.5">
             <Button

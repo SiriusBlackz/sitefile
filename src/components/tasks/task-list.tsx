@@ -23,6 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { formatDate, formatDateRange } from "@/lib/format";
 
 interface TaskItem {
   id: string;
@@ -68,7 +69,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
 };
 
 export function TaskList({ tasks, onEdit, onDelete, onReorder }: TaskListProps) {
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<TaskItem | null>(null);
 
   function getSiblings(task: TaskItem) {
     return tasks.filter((t) => t.parentTaskId === task.parentTaskId);
@@ -125,14 +126,16 @@ export function TaskList({ tasks, onEdit, onDelete, onReorder }: TaskListProps) 
           return (
             <div
               key={task.id}
-              className="group flex items-center gap-2 rounded-lg border bg-card px-3 py-2 hover:bg-muted/50"
+              className="group flex items-center gap-2 max-sm:flex-wrap rounded-lg border bg-card px-3 py-2 hover:bg-muted/50"
               style={{ marginLeft: `${task.depth * 24}px` }}
             >
               <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/50" />
 
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium truncate">{task.name}</span>
+                <div className="flex items-center gap-2 max-sm:flex-wrap">
+                  <span className="font-medium truncate max-sm:w-full">
+                    {task.name}
+                  </span>
                   <Badge
                     variant="secondary"
                     className={cn("text-xs shrink-0", status.className)}
@@ -140,16 +143,18 @@ export function TaskList({ tasks, onEdit, onDelete, onReorder }: TaskListProps) 
                     {status.label}
                   </Badge>
                 </div>
-                <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-muted-foreground">
                   {(task.plannedStart || task.plannedEnd) && (
-                    <span>
-                      Planned {task.plannedStart ?? "?"} → {task.plannedEnd ?? "?"}
+                    <span className="whitespace-nowrap">
+                      Planned {formatDateRange(task.plannedStart, task.plannedEnd)}
                     </span>
                   )}
                   {(task.actualStart || task.actualEnd) && (
-                    <span className="text-green-700 dark:text-green-400">
-                      Actual {task.actualStart ?? "?"} →{" "}
-                      {task.actualEnd ?? "ongoing"}
+                    <span className="whitespace-nowrap text-green-700 dark:text-green-400">
+                      Actual{" "}
+                      {task.actualEnd
+                        ? formatDateRange(task.actualStart, task.actualEnd)
+                        : `${formatDate(task.actualStart)} – ongoing`}
                     </span>
                   )}
                   <div className="flex items-center gap-1">
@@ -164,7 +169,7 @@ export function TaskList({ tasks, onEdit, onDelete, onReorder }: TaskListProps) 
                 </div>
               </div>
 
-              <div className="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
+              <div className="flex items-center gap-0.5 max-sm:w-full max-sm:justify-end md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -218,7 +223,7 @@ export function TaskList({ tasks, onEdit, onDelete, onReorder }: TaskListProps) 
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        onClick={() => setDeleteConfirm(task.id)}
+                        onClick={() => setDeleteConfirm(task)}
                         aria-label={`Delete ${task.name}`}
                       />
                     }
@@ -242,7 +247,11 @@ export function TaskList({ tasks, onEdit, onDelete, onReorder }: TaskListProps) 
             <DialogTitle>Delete Task</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Are you sure? Child tasks will be moved up to the parent level.
+            Are you sure you want to delete{" "}
+            <span className="font-medium text-foreground">
+              {deleteConfirm?.name}
+            </span>
+            ? Child tasks will be moved up to the parent level.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
@@ -251,7 +260,7 @@ export function TaskList({ tasks, onEdit, onDelete, onReorder }: TaskListProps) 
             <Button
               variant="destructive"
               onClick={() => {
-                if (deleteConfirm) onDelete(deleteConfirm);
+                if (deleteConfirm) onDelete(deleteConfirm.id);
                 setDeleteConfirm(null);
               }}
             >

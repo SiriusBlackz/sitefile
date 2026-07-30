@@ -30,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { FileUp, AlertCircle, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { formatDate } from "@/lib/format";
 
 interface ImportDialogProps {
   open: boolean;
@@ -289,7 +290,9 @@ export function ImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      {/* flex-col + min-h-0 scroll regions keep the footer visible while
+          long step content scrolls internally instead of clipping. */}
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Import Programme</DialogTitle>
         </DialogHeader>
@@ -344,7 +347,7 @@ export function ImportDialog({
 
         {/* Step 2: column mapping (xlsx only) */}
         {mappingStep && mapping && !preview && (
-          <div className="space-y-4">
+          <div className="space-y-4 min-h-0 overflow-y-auto">
             <div className="text-sm">
               <Badge variant="secondary">Excel</Badge>
               <span className="text-muted-foreground ml-2">
@@ -426,7 +429,7 @@ export function ImportDialog({
 
         {/* Step 3: preview */}
         {preview && (
-          <div className="space-y-4">
+          <div className="space-y-4 min-h-0 overflow-y-auto">
             <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="secondary">
                 {formatLabel[preview.format] ?? preview.format}
@@ -522,7 +525,7 @@ export function ImportDialog({
                               className="h-7 text-xs"
                             />
                           ) : (
-                            (task.plannedStart ?? "—")
+                            formatDate(task.plannedStart)
                           )}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
@@ -540,7 +543,7 @@ export function ImportDialog({
                               className="h-7 text-xs"
                             />
                           ) : (
-                            (task.plannedEnd ?? "—")
+                            formatDate(task.plannedEnd)
                           )}
                         </TableCell>
                         <TableCell className="text-right">

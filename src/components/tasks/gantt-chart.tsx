@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { formatDate } from "@/lib/format";
 import {
   Tooltip,
   TooltipContent,
@@ -61,14 +62,6 @@ function parseDate(d: string): Date {
 
 function daysBetween(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-function formatDate(d: string): string {
-  return new Date(d + "T00:00:00").toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -199,7 +192,7 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
     <TooltipProvider delay={200}>
       <div className="space-y-3">
         {/* Toolbar */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
@@ -221,15 +214,23 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
               In
             </Button>
           </div>
-          {/* Legend */}
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          {/* Legend — progress fill takes the bar's status colour */}
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <span className="inline-block h-2.5 w-6 rounded-sm bg-blue-200 border border-blue-300 dark:bg-blue-900 dark:border-blue-700" />
               Planned
             </span>
             <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-6 rounded-sm bg-blue-500" />
+              In Progress
+            </span>
+            <span className="flex items-center gap-1">
               <span className="inline-block h-2.5 w-6 rounded-sm bg-emerald-500" />
-              Progress
+              Completed
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-6 rounded-sm bg-red-500" />
+              Delayed
             </span>
             <span className="flex items-center gap-1">
               <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
