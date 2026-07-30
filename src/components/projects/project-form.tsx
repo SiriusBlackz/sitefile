@@ -14,6 +14,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  CONTRACT_TYPE_LABELS,
+  REPORTING_FREQUENCY_LABELS,
+  labelFor,
+} from "@/lib/format";
 
 const projectFormSchema = z.object({
   name: z.string().min(1, "Project name is required"),
@@ -63,6 +68,10 @@ export function ProjectForm({
     },
   });
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- React Hook Form watch()
+  const contractType = watch("contractType") ?? "";
+  const reportingFrequency = watch("reportingFrequency") ?? "";
+
   return (
     <Card>
       <CardHeader>
@@ -93,37 +102,60 @@ export function ProjectForm({
             <div className="space-y-2">
               <Label htmlFor="contractType">Contract Type</Label>
               <Select
-                // eslint-disable-next-line react-hooks/incompatible-library -- React Hook Form watch()
-                value={watch("contractType") ?? ""}
+                value={contractType || null}
                 onValueChange={(val) => setValue("contractType", val ?? undefined)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select type" />
+                  <SelectValue placeholder="Select type">
+                    {(val: string | null) =>
+                      val ? labelFor(CONTRACT_TYPE_LABELS, val) : "Select type"
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="design_build">Design & Build</SelectItem>
-                  <SelectItem value="traditional">Traditional</SelectItem>
-                  <SelectItem value="management">Management Contract</SelectItem>
-                  <SelectItem value="jct">JCT</SelectItem>
-                  <SelectItem value="nec">NEC</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  {/* Unknown stored value: keep it selectable so it displays and survives a save untouched */}
+                  {contractType && !(contractType in CONTRACT_TYPE_LABELS) && (
+                    <SelectItem value={contractType}>
+                      {labelFor(CONTRACT_TYPE_LABELS, contractType)}
+                    </SelectItem>
+                  )}
+                  {Object.entries(CONTRACT_TYPE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="reportingFrequency">Reporting Frequency</Label>
               <Select
-                value={watch("reportingFrequency") ?? "monthly"}
+                value={reportingFrequency || "monthly"}
                 onValueChange={(val) => setValue("reportingFrequency", val ?? undefined)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select frequency" />
+                  <SelectValue placeholder="Select frequency">
+                    {(val: string | null) =>
+                      val
+                        ? labelFor(REPORTING_FREQUENCY_LABELS, val)
+                        : "Select frequency"
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="fortnightly">Fortnightly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="quarterly">Quarterly</SelectItem>
+                  {reportingFrequency &&
+                    !(reportingFrequency in REPORTING_FREQUENCY_LABELS) && (
+                      <SelectItem value={reportingFrequency}>
+                        {labelFor(REPORTING_FREQUENCY_LABELS, reportingFrequency)}
+                      </SelectItem>
+                    )}
+                  {Object.entries(REPORTING_FREQUENCY_LABELS).map(
+                    ([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    )
+                  )}
                 </SelectContent>
               </Select>
             </div>

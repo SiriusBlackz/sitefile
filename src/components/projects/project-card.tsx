@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Building2 } from "lucide-react";
 import type { Project } from "@/types/project";
+import { formatDateRange } from "@/lib/format";
 import { getProjectStatusColor, getProjectStatusLabel } from "@/lib/project-status";
 
 export function ProjectCard({ project }: { project: Project }) {
@@ -37,7 +38,7 @@ export function ProjectCard({ project }: { project: Project }) {
           {(project.startDate || project.endDate) && (
             <div className="flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5" />
-              {project.startDate ?? "—"} → {project.endDate ?? "—"}
+              {formatDateRange(project.startDate, project.endDate)}
             </div>
           )}
         </CardContent>

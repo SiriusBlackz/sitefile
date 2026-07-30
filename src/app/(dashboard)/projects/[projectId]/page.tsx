@@ -16,7 +16,9 @@ import {
   ClipboardList,
   ImageIcon,
   ChevronRight,
+  AlertTriangle,
 } from "lucide-react";
+import { formatDateRange } from "@/lib/format";
 import { BillingBanner } from "@/components/projects/billing-banner";
 import { NextStepBanner } from "@/components/projects/next-step-banner";
 import { getProjectStatusColor, getProjectStatusLabel } from "@/lib/project-status";
@@ -58,6 +60,7 @@ export default function ProjectDetailPage() {
 
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.status === "completed").length;
+  const delayedTasks = tasks.filter((t) => t.status === "delayed").length;
   const progressPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
   const totalReports = reportsData?.length ?? 0;
 
@@ -112,7 +115,7 @@ export default function ProjectDetailPage() {
           {(project.startDate || project.endDate) && (
             <span className="flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5" />
-              {project.startDate ?? "—"} to {project.endDate ?? "—"}
+              {formatDateRange(project.startDate, project.endDate)}
             </span>
           )}
         </div>
@@ -130,6 +133,12 @@ export default function ProjectDetailPage() {
                 style={{ width: `${progressPct}%` }}
               />
             </div>
+            {delayedTasks > 0 && (
+              <p className="mt-2 flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-500">
+                <AlertTriangle className="h-3 w-3" />
+                {delayedTasks} delayed
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>

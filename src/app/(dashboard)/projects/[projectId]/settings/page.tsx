@@ -29,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { UserPlus, Trash2 } from "lucide-react";
+import { UserPlus, Trash2, Archive } from "lucide-react";
 
 export default function ProjectSettingsPage() {
   const params = useParams<{ projectId: string }>();
@@ -47,6 +47,7 @@ export default function ProjectSettingsPage() {
   const { data: orgUsers = [] } = trpc.project.orgUsers.useQuery();
 
   const [addUserId, setAddUserId] = useState<string>("");
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<{
     userId: string;
     name: string;
@@ -55,7 +56,20 @@ export default function ProjectSettingsPage() {
   const updateProject = trpc.project.update.useMutation({
     onSuccess: () => {
       toast.success("Project updated");
-      router.push(`/projects/${params.projectId}`);
+      utils.project.get.invalidate({ id: params.projectId });
+      utils.project.list.invalidate();
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const archiveProject = trpc.project.archive.useMutation({
+    onSuccess: () => {
+      toast.success("Project archived");
+      utils.project.list.invalidate();
+      utils.project.get.invalidate({ id: params.projectId });
+      router.push("/projects");
     },
     onError: (error) => {
       toast.error(error.message);
@@ -255,6 +269,54 @@ export default function ProjectSettingsPage() {
           </p>
         </CardContent>
       </Card>
+
+      {/* Danger Zone */}
+      <Card className="border-destructive/40">
+        <CardHeader>
+          <CardTitle className="text-base">Danger Zone</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Archiving removes this project from your active list and cancels
+            its subscription. Evidence and reports are retained.
+          </p>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setArchiveOpen(true)}
+            disabled={project.status === "archived" || archiveProject.isPending}
+          >
+            <Archive className="mr-1.5 h-3.5 w-3.5" />
+            {project.status === "archived" ? "Archived" : "Archive project"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Archive &ldquo;{project.name}&rdquo;?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the project from your active list and cancel its
+              subscription. Evidence, tasks and reports are kept and remain
+              viewable.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => archiveProject.mutate({ id: params.projectId })}
+              disabled={archiveProject.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {archiveProject.isPending ? "Archiving..." : "Archive"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pendingRemoval !== null}

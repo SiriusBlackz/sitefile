@@ -1,15 +1,29 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ProjectCard } from "@/components/projects/project-card";
-import { AlertTriangle, FolderKanban, Plus } from "lucide-react";
+import {
+  AlertTriangle,
+  Archive,
+  ChevronDown,
+  ChevronRight,
+  FolderKanban,
+  Plus,
+} from "lucide-react";
 
 export default function ProjectsPage() {
   const { data: projects, isLoading, error, refetch, isRefetching } =
     trpc.project.list.useQuery();
+  const [showArchived, setShowArchived] = useState(false);
+
+  const activeProjects =
+    projects?.filter((p) => p.status !== "archived") ?? [];
+  const archivedProjects =
+    projects?.filter((p) => p.status === "archived") ?? [];
 
   return (
     <div className="space-y-6">
@@ -52,11 +66,44 @@ export default function ProjectsPage() {
           </Button>
         </div>
       ) : projects && projects.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
-          ))}
-        </div>
+        <>
+          {activeProjects.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {activeProjects.map((project) => (
+                <ProjectCard key={project.id} project={project} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No active projects — all projects are archived.
+            </p>
+          )}
+          {archivedProjects.length > 0 && (
+            <div className="space-y-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={() => setShowArchived((v) => !v)}
+              >
+                {showArchived ? (
+                  <ChevronDown className="mr-1 h-4 w-4" />
+                ) : (
+                  <ChevronRight className="mr-1 h-4 w-4" />
+                )}
+                <Archive className="mr-1.5 h-3.5 w-3.5" />
+                Archived ({archivedProjects.length})
+              </Button>
+              {showArchived && (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 opacity-75">
+                  {archivedProjects.map((project) => (
+                    <ProjectCard key={project.id} project={project} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
       ) : (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
           <FolderKanban className="h-12 w-12 text-muted-foreground" />
