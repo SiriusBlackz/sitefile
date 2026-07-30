@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { ProjectForm, type ProjectFormValues } from "@/components/projects/project-form";
@@ -36,6 +36,108 @@ const MEMBER_ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
   member: "Member",
 };
+
+function ClientLogoCard({
+  projectId,
+  clientName,
+  hasLogo,
+  cacheKey,
+}: {
+  projectId: string;
+  clientName: string | null;
+  hasLogo: boolean;
+  cacheKey: string;
+}) {
+  const utils = trpc.useUtils();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const uploadMutation = trpc.project.uploadClientLogo.useMutation({
+    onSuccess: () => {
+      utils.project.get.invalidate({ id: projectId });
+      toast.success("Client logo uploaded");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const removeMutation = trpc.project.removeClientLogo.useMutation({
+    onSuccess: () => {
+      utils.project.get.invalidate({ id: projectId });
+      toast.success("Client logo removed");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  function handleFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Logo must be under 2MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result;
+      if (typeof result !== "string") return;
+      uploadMutation.mutate({ projectId, imageBase64: result.split(",")[1] ?? "" });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Client Branding</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          {clientName ? `${clientName}'s` : "The client's"} logo appears on the
+          report cover under &ldquo;Prepared for&rdquo;.
+        </p>
+        <div className="flex items-center gap-4">
+          {hasLogo ? (
+            // eslint-disable-next-line @next/next/no-img-element -- small preview of user upload
+            <img
+              src={`/api/uploads/projects/${projectId}/branding/client-logo.png?v=${encodeURIComponent(cacheKey)}`}
+              alt="Client logo"
+              className="h-14 max-w-40 rounded border bg-white object-contain p-1"
+            />
+          ) : (
+            <div className="flex h-14 w-28 items-center justify-center rounded border border-dashed text-xs text-muted-foreground">
+              No logo yet
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={uploadMutation.isPending}
+              onClick={() => fileRef.current?.click()}
+            >
+              {uploadMutation.isPending ? "Uploading..." : hasLogo ? "Replace" : "Upload logo"}
+            </Button>
+            {hasLogo && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={removeMutation.isPending}
+                onClick={() => removeMutation.mutate({ projectId })}
+              >
+                Remove
+              </Button>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(e) => handleFile(e.target.files)}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">PNG, JPEG or WebP, up to 2MB.</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function ProjectSettingsPage() {
   const params = useParams<{ projectId: string }>();
@@ -177,6 +279,14 @@ export default function ProjectSettingsPage() {
         onSubmit={handleSubmit}
         isSubmitting={updateProject.isPending}
         submitLabel="Update Project"
+      />
+
+      {/* Client branding */}
+      <ClientLogoCard
+        projectId={params.projectId}
+        clientName={project.clientName}
+        hasLogo={Boolean(project.clientLogoKey)}
+        cacheKey={project.updatedAt ? String(project.updatedAt) : "0"}
       />
 
       {/* Team Members */}
