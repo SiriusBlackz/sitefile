@@ -10,6 +10,7 @@ import {
 } from "@/server/db/schema";
 import { getReadUrl } from "./storage";
 import { generateBeforeAfterPairs } from "./before-after";
+import { formatDate, formatDateRange } from "@/lib/format";
 import type { db as dbType } from "@/server/db";
 
 // Template imports
@@ -150,10 +151,23 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     },
   });
 
-  // 5. Build report meta
+  // 5. Build report meta. Logo fields store R2 keys — sign them here so
+  // Puppeteer can fetch during render (legacy http URLs pass through).
+  const logoUrl = org.logoUrl
+    ? org.logoUrl.startsWith("http")
+      ? org.logoUrl
+      : await getReadUrl(org.logoUrl)
+    : null;
+  const clientLogoUrl = project.clientLogoKey
+    ? await getReadUrl(project.clientLogoKey)
+    : null;
+
   const meta: ReportMeta = {
     organisationName: org.name,
-    logoUrl: org.logoUrl,
+    logoUrl,
+    clientLogoUrl,
+    brandColor: org.brandColor,
+    companyDetails: org.companyDetails,
     projectName: project.name,
     projectReference: project.reference,
     clientName: project.clientName,
@@ -164,11 +178,15 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     generatedAt: new Date().toISOString(),
   };
 
-  // 6. Executive summary stats
-  const completedTasks = allTasks.filter((t) => t.status === "completed").length;
-  const inProgressTasks = allTasks.filter((t) => t.status === "in_progress").length;
-  const delayedTasks = allTasks.filter((t) => t.status === "delayed").length;
-  const notStartedTasks = allTasks.filter((t) => t.status === "not_started").length;
+  // 6. Executive summary stats — leaf activities only. Counting phase
+  // headings alongside their children double-counts and makes the table
+  // disagree with the narrative.
+  const parentIds = new Set(allTasks.map((t) => t.parentTaskId).filter(Boolean));
+  const leafTasks = allTasks.filter((t) => !parentIds.has(t.id));
+  const completedTasks = leafTasks.filter((t) => t.status === "completed").length;
+  const inProgressTasks = leafTasks.filter((t) => t.status === "in_progress").length;
+  const delayedTasks = leafTasks.filter((t) => t.status === "delayed").length;
+  const notStartedTasks = leafTasks.filter((t) => t.status === "not_started").length;
 
   const avgActual =
     allTasks.length > 0
@@ -200,20 +218,49 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     avgPlanned = counted > 0 ? Math.round(totalPlanned / counted) : avgActual;
   }
 
-  // Key risks: delayed tasks
+  // Latest site note per task from period evidence (newest-first order,
+  // so the first note seen per task is the most recent one).
+  const latestNoteByTask = new Map<string, string>();
+  for (const ev of periodEvidence) {
+    if (!ev.note) continue;
+    for (const link of ev.links) {
+      if (!latestNoteByTask.has(link.task.id)) {
+        latestNoteByTask.set(link.task.id, ev.note);
+      }
+    }
+  }
+
+  // Key risks: delayed tasks, with enough context that the reader's first
+  // question ("why, and how bad?") is answered by the document itself.
   const keyRisks: string[] = [];
-  const delayedTaskList = allTasks.filter((t) => t.status === "delayed");
+  const delayedTaskList = leafTasks.filter((t) => t.status === "delayed");
   for (const t of delayedTaskList.slice(0, 5)) {
-    keyRisks.push(`Task "${t.name}" is delayed`);
+    let risk = `"${t.name}" is flagged as delayed`;
+    if (t.plannedStart && t.plannedEnd) {
+      risk += ` (planned ${formatDateRange(t.plannedStart, t.plannedEnd)})`;
+    }
+    const note = latestNoteByTask.get(t.id);
+    if (note) risk += ` — site note: “${note}”`;
+    keyRisks.push(risk);
   }
   if (avgActual < avgPlanned - 10) {
     keyRisks.push(
       `Overall progress is ${avgPlanned - avgActual}% behind planned schedule`
     );
   }
+  // A flagged delay alongside a positive headline variance looks like a
+  // contradiction unless the report explains it.
+  const allDelaysPreStart =
+    delayedTaskList.length > 0 &&
+    delayedTaskList.every((t) => t.plannedStart && t.plannedStart > input.periodEnd);
+  if (allDelaysPreStart && avgActual >= Math.min(avgPlanned, 100)) {
+    keyRisks.push(
+      "The flagged item(s) above are ahead of their planned start dates — an early warning rather than current programme slippage, which is why overall variance remains positive."
+    );
+  }
 
   const summaryStats: SummaryStats = {
-    totalTasks: allTasks.length,
+    totalTasks: leafTasks.length,
     completedTasks,
     inProgressTasks,
     delayedTasks,
@@ -282,31 +329,69 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     return readUrlCache.get(key) ?? null;
   }
 
+  const taskById = new Map(allTasks.map((t) => [t.id, t]));
+  const taskOrderIndex = new Map<string, number>();
+  flatWithDepth.forEach((t, i) => taskOrderIndex.set(t.id, i));
+
+  async function toGalleryEvidence(ev: (typeof periodEvidence)[number]) {
+    const readUrl = await cachedReadUrl(ev.thumbnailKey ?? ev.storageKey);
+    return {
+      id: ev.id,
+      publicUrl: readUrl ?? "",
+      originalFilename: ev.originalFilename,
+      capturedAt: ev.capturedAt?.toISOString() ?? null,
+      latitude: ev.latitude,
+      longitude: ev.longitude,
+      uploaderName: ev.uploader?.name ?? null,
+      uploaderRole: ev.uploader?.role ?? null,
+      note: ev.note,
+    };
+  }
+
   for (const ev of periodEvidence) {
     for (const link of ev.links) {
       let gt = taskEvidenceMap.get(link.task.id);
       if (!gt) {
-        gt = { id: link.task.id, name: link.task.name, evidence: [] };
+        const task = taskById.get(link.task.id);
+        gt = {
+          id: link.task.id,
+          name: link.task.name,
+          status: task?.status ?? null,
+          progressPct: task?.progressPct ?? null,
+          evidence: [],
+        };
         taskEvidenceMap.set(link.task.id, gt);
       }
-      const readUrl = await cachedReadUrl(ev.thumbnailKey ?? ev.storageKey);
-      gt.evidence.push({
-        id: ev.id,
-        publicUrl: readUrl ?? "",
-        originalFilename: ev.originalFilename,
-        capturedAt: ev.capturedAt?.toISOString() ?? null,
-        latitude: ev.latitude,
-        longitude: ev.longitude,
-        uploaderName: ev.uploader?.name ?? null,
-        uploaderRole: ev.uploader?.role ?? null,
-        note: ev.note,
-      });
+      gt.evidence.push(await toGalleryEvidence(ev));
     }
   }
   for (const gt of taskEvidenceMap.values()) {
+    // Chronological within a task — the reader follows work as it happened
+    gt.evidence.sort((a, b) => (a.capturedAt ?? "").localeCompare(b.capturedAt ?? ""));
     galleryTasks.push(gt);
   }
-  galleryTasks.sort((a, b) => a.name.localeCompare(b.name));
+  // Programme order, not alphabetical — the gallery should read like the plan
+  galleryTasks.sort(
+    (a, b) => (taskOrderIndex.get(a.id) ?? 1e9) - (taskOrderIndex.get(b.id) ?? 1e9)
+  );
+
+  // Photos captured in the period but not yet linked to a task still belong
+  // in an evidence report — grouped last rather than silently dropped.
+  const unlinkedEvidence = periodEvidence.filter((ev) => ev.links.length === 0);
+  if (unlinkedEvidence.length > 0) {
+    const group: GalleryTask = {
+      id: "__unlinked__",
+      name: "Other site photos (not yet linked to a task)",
+      status: null,
+      progressPct: null,
+      evidence: [],
+    };
+    for (const ev of unlinkedEvidence) {
+      group.evidence.push(await toGalleryEvidence(ev));
+    }
+    group.evidence.sort((a, b) => (a.capturedAt ?? "").localeCompare(b.capturedAt ?? ""));
+    galleryTasks.push(group);
+  }
 
   // 9. Before/after pairs
   const beforeAfterPairs = await generateBeforeAfterPairs(
@@ -362,12 +447,16 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     typeMap.set(t, (typeMap.get(t) ?? 0) + 1);
   }
 
-  // 11. Audit trail for this period
+  // 11. Audit trail — period start through report generation, not period
+  // end: uploads and sign-offs for period evidence routinely land after
+  // the period closes, and a summary that excludes them reads as "no
+  // activity" on a report full of evidence.
+  const auditWindowEnd = new Date();
   const auditEntries = await db.query.auditLog.findMany({
     where: and(
       eq(auditLog.projectId, input.projectId),
       gte(auditLog.createdAt, periodStart),
-      lte(auditLog.createdAt, periodEnd)
+      lte(auditLog.createdAt, auditWindowEnd)
     ),
     orderBy: [desc(auditLog.createdAt)],
     limit: 20,
@@ -375,6 +464,20 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       user: { columns: { name: true } },
     },
   });
+
+  // Aggregate counts across the WHOLE period (the entries list is capped)
+  const auditCounts = await db
+    .select({ action: auditLog.action, count: sql<number>`count(*)::int` })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.projectId, input.projectId),
+        gte(auditLog.createdAt, periodStart),
+        lte(auditLog.createdAt, auditWindowEnd)
+      )
+    )
+    .groupBy(auditLog.action);
+  const auditTotal = auditCounts.reduce((s, c) => s + c.count, 0);
 
   const verificationStats: VerificationStats = {
     totalEvidence: periodEvidence.length,
@@ -394,12 +497,93 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       action: e.action,
       entity: e.entityType,
     })),
+    auditActionCounts: auditCounts,
+    auditTotal,
   };
+
+  // 12. Narrative — deterministic prose from the period's facts, so the
+  // report SAYS what happened instead of leaving the reader to infer it
+  // from tiles and bars. Leaf tasks only (computed in section 6).
+  const inPeriodDate = (d: string | null) =>
+    !!d && d >= input.periodStart && d <= input.periodEnd;
+
+  const evidenceCountByTask = new Map<string, number>();
+  for (const ev of periodEvidence) {
+    for (const l of ev.links) {
+      evidenceCountByTask.set(l.task.id, (evidenceCountByTask.get(l.task.id) ?? 0) + 1);
+    }
+  }
+
+  const completedInPeriod = leafTasks.filter(
+    (t) => t.status === "completed" && inPeriodDate(t.actualEnd)
+  );
+  const activeAtEnd = leafTasks.filter((t) => t.status === "in_progress");
+
+  const paragraphs: string[] = [];
+  const periodLabel = formatDateRange(input.periodStart, input.periodEnd);
+
+  const opening: string[] = [];
+  opening.push(`Works at ${project.name} continued through the period ${periodLabel}.`);
+  const openingBits: string[] = [];
+  if (completedInPeriod.length > 0) {
+    openingBits.push(
+      `${completedInPeriod.length} ${completedInPeriod.length === 1 ? "activity was" : "activities were"} completed`
+    );
+  }
+  if (activeAtEnd.length > 0) {
+    openingBits.push(
+      `${activeAtEnd.length} ${activeAtEnd.length === 1 ? "was" : "were"} in progress at the period end`
+    );
+  }
+  if (openingBits.length > 0) {
+    opening.push(`During the period, ${openingBits.join(" and ")}.`);
+  }
+  opening.push(
+    `${periodEvidence.length} item${periodEvidence.length === 1 ? "" : "s"} of site evidence ${periodEvidence.length === 1 ? "was" : "were"} captured.`
+  );
+  paragraphs.push(opening.join(" "));
+
+  if (completedInPeriod.length > 0) {
+    const parts = completedInPeriod.map(
+      (t) => `${t.name}${t.actualEnd ? ` (finished ${formatDate(t.actualEnd)})` : ""}`
+    );
+    paragraphs.push(`Completed in the period: ${joinList(parts)}.`);
+  }
+
+  if (activeAtEnd.length > 0) {
+    const parts = activeAtEnd.map((t) => {
+      const bits: string[] = [`${t.progressPct ?? 0}% complete`];
+      if (inPeriodDate(t.actualStart)) bits.push(`started ${formatDate(t.actualStart)}`);
+      const photos = evidenceCountByTask.get(t.id) ?? 0;
+      if (photos > 0) bits.push(`${photos} photo${photos === 1 ? "" : "s"} this period`);
+      return `${t.name} (${bits.join(", ")})`;
+    });
+    paragraphs.push(`Work continued on ${joinList(parts)}.`);
+  }
+
+  for (const t of delayedTaskList.slice(0, 3)) {
+    let s = `${t.name} has been flagged as delayed`;
+    if (t.plannedStart && t.plannedStart > input.periodEnd) {
+      s += ` ahead of its planned ${formatDateRange(t.plannedStart, t.plannedEnd)} window`;
+    } else if (t.plannedEnd) {
+      s += ` against a planned completion of ${formatDate(t.plannedEnd)}`;
+    }
+    const note = latestNoteByTask.get(t.id);
+    if (note) s += ` — site note: “${note}”`;
+    paragraphs.push(s + ".");
+  }
+
+  if (periodEvidence.length > 0) {
+    paragraphs.push(
+      `Of the ${periodEvidence.length} evidence item${periodEvidence.length === 1 ? "" : "s"} captured this period, ${withGps} carr${withGps === 1 ? "ies" : "y"} GPS positions and ${gpsVerifiedByZone} ${gpsVerifiedByZone === 1 ? "was" : "were"} verified inside defined site zones. Capture timestamps and camera metadata are preserved for every item — see Verification & Metadata.`
+    );
+  }
 
   return {
     meta,
     reportNumber,
     summaryStats,
+    narrative: { paragraphs },
     timelineTasks,
     galleryTasks,
     beforeAfterPairs,
@@ -408,13 +592,23 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   };
 }
 
+/** "A", "A and B", "A, B and C" — caps at 5 items then "and N more". */
+function joinList(items: string[], max = 5): string {
+  const shown = items.slice(0, max);
+  const rest = items.length - shown.length;
+  let joined: string;
+  if (shown.length === 1) joined = shown[0];
+  else joined = `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
+  return rest > 0 ? `${joined} and ${rest} more` : joined;
+}
+
 /**
  * Render report data into a full HTML string.
  */
 export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherReportData>>): Promise<string> {
   // Dynamic import to avoid Turbopack's react-dom/server static analysis block
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { meta, summaryStats, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
+  const { meta, summaryStats, narrative, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
     data;
 
   // Page numbers are computed in ONE pass using the same pagination
@@ -439,7 +633,7 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
     { title: "Programme Timeline", page: timelineStart },
   ];
   if (hasGallery) {
-    tocEntries.push({ title: "Evidence Gallery", page: galleryStartPage });
+    tocEntries.push({ title: "Progress Records", page: galleryStartPage });
   }
   if (hasBeforeAfter) {
     tocEntries.push({ title: "Before & After Comparison", page: beforeAfterStart });
@@ -454,6 +648,7 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
       key: "summary",
       meta,
       stats: summaryStats,
+      narrative,
       startPage: summaryPage,
     }),
     createElement(ProgrammeTimeline, {

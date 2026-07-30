@@ -11,6 +11,9 @@ export interface VerificationStats {
   maxUploadDelay: string;
   evidenceByType: { type: string; count: number }[];
   auditTrailSummary: AuditEntry[];
+  /** Aggregated action counts for the whole period (entries list is capped). */
+  auditActionCounts: { action: string; count: number }[];
+  auditTotal: number;
 }
 
 export interface AuditEntry {
@@ -78,7 +81,7 @@ export function VerificationPage({
       <div className="page">
         <h2>Verification & Metadata</h2>
         <div className="text-sm text-muted" style={{ marginBottom: 20 }}>
-          Data integrity analysis for evidence submitted during the reporting period
+          Data integrity analysis for evidence captured during the reporting period
         </div>
 
         {/* Integrity metrics */}
@@ -136,6 +139,12 @@ export function VerificationPage({
             </tr>
           </tbody>
         </table>
+        <div className="text-xs text-muted" style={{ marginTop: -16, marginBottom: 24, lineHeight: 1.6 }}>
+          Capture timestamps are recorded by the device at the moment a photo
+          is taken and preserved unchanged — the delay between capture and
+          upload does not affect the evidential record of when work was
+          photographed.
+        </div>
 
         {/* Evidence by type */}
         <h3>Evidence Breakdown</h3>
@@ -163,6 +172,29 @@ export function VerificationPage({
           </tbody>
         </table>
 
+        {/* Audit activity summary — aggregate first, then recent entries */}
+        {stats.auditTotal > 0 ? (
+          <div style={{ marginBottom: 12, fontSize: 11 }}>
+            <h3>Audit Trail Summary</h3>
+            <div style={{ lineHeight: 1.7 }}>
+              <strong>{stats.auditTotal}</strong> recorded action
+              {stats.auditTotal !== 1 ? "s" : ""} between the period start and
+              report generation (
+              {stats.auditActionCounts
+                .map((c) => `${c.count} ${c.action.replace(/_/g, " ")}`)
+                .join(", ")}
+              ). Every create, change and deletion on this project is logged
+              with user and timestamp.
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginBottom: 12, fontSize: 11 }}>
+            <h3>Audit Trail Summary</h3>
+            <div className="text-muted">
+              No recorded account activity during this reporting period.
+            </div>
+          </div>
+        )}
         {/* Short audit trail fits under the stats */}
         {inlineAudit && <AuditTable entries={inlineAudit} continued={false} />}
 
@@ -201,11 +233,11 @@ function AuditTable({
           )}
         </h2>
       ) : (
-        <h3>Audit Trail Summary</h3>
+        <h3>Recent Activity</h3>
       )}
       {!continued && (
         <div className="text-xs text-muted" style={{ marginBottom: 8 }}>
-          Recent activity during reporting period (most recent first)
+          Most recent first — the complete log is retained in the audit trail
         </div>
       )}
       <table>

@@ -174,6 +174,26 @@ export function ProgrammeTimeline({
             ))}
           </div>
 
+          {/* Reporting-period shading — ties the chart to this report */}
+          {(() => {
+            const s = dateToPercent(periodStart);
+            const e = dateToPercent(periodEnd);
+            if (e <= s) return null;
+            return (
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${s}%`,
+                  width: `${e - s}%`,
+                  top: headerHeight,
+                  bottom: 0,
+                  background: "#eef2ff",
+                  opacity: 0.55,
+                }}
+              />
+            );
+          })()}
+
           {/* Month gridlines */}
           {months.map((m, i) => (
             <div
@@ -261,26 +281,49 @@ export function ProgrammeTimeline({
                   </div>
                 )}
 
-                {/* Evidence markers (amber dots) */}
+                {/* Evidence markers (amber dots). A dot outside the planned
+                    bar gets a dotted connector to the bar edge so early/late
+                    captures read as anchored data, not rendering strays. */}
                 {task.evidenceDates.map((date, ei) => {
                   const pct = dateToPercent(date);
+                  const barStartPct = task.plannedStart ? dateToPercent(task.plannedStart) : null;
+                  const barEndPct = task.plannedEnd ? dateToPercent(task.plannedEnd) : null;
+                  let connector: { left: number; width: number } | null = null;
+                  if (barStartPct != null && pct < barStartPct) {
+                    connector = { left: pct, width: barStartPct - pct };
+                  } else if (barEndPct != null && pct > barEndPct) {
+                    connector = { left: barEndPct, width: pct - barEndPct };
+                  }
                   return (
-                    <div
-                      key={ei}
-                      style={{
-                        position: "absolute",
-                        left: `${pct}%`,
-                        top: barTop - 2,
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: "#f59e0b",
-                        border: "1.5px solid #fff",
-                        marginLeft: -4,
-                        zIndex: 3,
-                      }}
-                      title={`Evidence: ${date}`}
-                    />
+                    <div key={ei}>
+                      {connector && connector.width > 0.3 && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: `${connector.left}%`,
+                            width: `${connector.width}%`,
+                            top: barTop + barHeight / 2,
+                            borderTop: "1px dotted #f59e0b",
+                            zIndex: 2,
+                          }}
+                        />
+                      )}
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: `${pct}%`,
+                          top: barTop - 2,
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "#f59e0b",
+                          border: "1.5px solid #fff",
+                          marginLeft: -4,
+                          zIndex: 3,
+                        }}
+                        title={`Evidence: ${date}`}
+                      />
+                    </div>
                   );
                 })}
               </div>
@@ -305,11 +348,15 @@ export function ProgrammeTimeline({
         </span>
         <span>
           <span style={{ display: "inline-block", width: 12, height: 8, background: "#10b981", borderRadius: 2, marginRight: 4, verticalAlign: "middle" }} />
-          Actual Progress
+          Progress (green complete, blue in progress, red delayed)
         </span>
         <span>
           <span style={{ display: "inline-block", width: 8, height: 8, background: "#f59e0b", borderRadius: "50%", marginRight: 4, verticalAlign: "middle" }} />
-          Evidence Captured
+          Evidence Captured (dotted line = outside planned dates)
+        </span>
+        <span>
+          <span style={{ display: "inline-block", width: 12, height: 8, background: "#eef2ff", marginRight: 4, verticalAlign: "middle", border: "1px solid #e2e8f0" }} />
+          Reporting Period
         </span>
         <span>
           <span style={{ display: "inline-block", width: 2, height: 10, background: "#ef4444", marginRight: 4, verticalAlign: "middle", opacity: 0.5 }} />

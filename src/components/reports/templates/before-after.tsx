@@ -49,6 +49,24 @@ export function BeforeAfterPage({
               Earliest and latest evidence per task within the same GPS zone
             </div>
           )}
+          {pi === 0 && pairs.length <= 2 && (
+            <div
+              style={{
+                fontSize: 10,
+                color: "#64748b",
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: 6,
+                padding: "10px 14px",
+                marginBottom: 16,
+                lineHeight: 1.6,
+              }}
+            >
+              Pairs are generated automatically once a task has two or more
+              photos captured in the same site zone. Additional comparisons
+              will appear in future reports as evidence accumulates.
+            </div>
+          )}
 
           {page.items.map((pair, idx) => (
             <div

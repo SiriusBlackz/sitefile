@@ -14,13 +14,19 @@ export interface SummaryStats {
   keyRisks: string[];
 }
 
+export interface ReportNarrative {
+  paragraphs: string[];
+}
+
 export function ExecutiveSummary({
   meta,
   stats,
+  narrative,
   startPage,
 }: {
   meta: ReportMeta;
   stats: SummaryStats;
+  narrative: ReportNarrative;
   startPage: number;
 }) {
   const varianceColor =
@@ -31,9 +37,25 @@ export function ExecutiveSummary({
   return (
     <div className="page">
       <h2>Executive Summary</h2>
-      <div className="text-sm text-muted" style={{ marginBottom: 20 }}>
-        Reporting period: {meta.periodStart} to {meta.periodEnd}
+      <div className="text-sm text-muted" style={{ marginBottom: 16 }}>
+        Reporting period: {formatPeriodDate(meta.periodStart)} to{" "}
+        {formatPeriodDate(meta.periodEnd)}
       </div>
+
+      {/* Narrative — what actually happened this period, in prose */}
+      {narrative.paragraphs.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <h3>Progress This Period</h3>
+          {narrative.paragraphs.map((p, i) => (
+            <p
+              key={i}
+              style={{ fontSize: 11, lineHeight: 1.7, color: "#1e293b", margin: "0 0 8px" }}
+            >
+              {p}
+            </p>
+          ))}
+        </div>
+      )}
 
       {/* Progress overview cards */}
       <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
@@ -54,14 +76,17 @@ export function ExecutiveSummary({
           bg={varianceBg}
         />
         <StatCard
-          label="Evidence Items"
-          value={String(stats.totalEvidence)}
+          label="Evidence (This Period)"
+          value={String(stats.evidenceThisPeriod)}
           color="#6366f1"
         />
       </div>
 
       {/* Task breakdown */}
       <h3>Task Status Breakdown</h3>
+      <div className="text-xs text-muted" style={{ marginBottom: 6 }}>
+        Site activities only — phase headings are excluded from the counts.
+      </div>
       <table style={{ marginBottom: 24 }}>
         <thead>
           <tr>
@@ -124,57 +149,12 @@ export function ExecutiveSummary({
         </tfoot>
       </table>
 
-      {/* Progress bar visual */}
-      <h3>Overall Progress</h3>
-      <div style={{ marginBottom: 24 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: 10,
-            marginBottom: 4,
-          }}
-        >
-          <span>Planned: {stats.averagePlannedProgress}%</span>
-          <span>Actual: {stats.averageActualProgress}%</span>
-        </div>
-        <div style={{ position: "relative", height: 24, background: "#f1f5f9", borderRadius: 6, overflow: "hidden" }}>
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              height: "100%",
-              width: `${Math.min(stats.averagePlannedProgress, 100)}%`,
-              background: "#bfdbfe",
-              borderRadius: 6,
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              height: "100%",
-              width: `${Math.min(stats.averageActualProgress, 100)}%`,
-              background: "#10b981",
-              borderRadius: 6,
-              opacity: 0.85,
-            }}
-          />
-        </div>
-        <div style={{ display: "flex", gap: 16, fontSize: 9, color: "#64748b", marginTop: 6 }}>
-          <span>■ Planned</span>
-          <span style={{ color: "#10b981" }}>■ Actual</span>
-        </div>
-      </div>
-
       {/* Evidence summary */}
       <h3>Evidence Summary</h3>
-      <div style={{ marginBottom: 24, fontSize: 11 }}>
-        <strong>{stats.evidenceThisPeriod}</strong> new evidence items uploaded during this
-        reporting period, from a total of <strong>{stats.totalEvidence}</strong> project evidence
-        items.
+      <div style={{ marginBottom: 20, fontSize: 11 }}>
+        <strong>{stats.evidenceThisPeriod}</strong> evidence item
+        {stats.evidenceThisPeriod !== 1 ? "s" : ""} captured during this reporting period;{" "}
+        <strong>{stats.totalEvidence}</strong> held on the project to date.
       </div>
 
       {/* Key risks */}
@@ -192,6 +172,14 @@ export function ExecutiveSummary({
       <PageFooter meta={meta} pageNum={startPage} />
     </div>
   );
+}
+
+function formatPeriodDate(iso: string): string {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function StatCard({

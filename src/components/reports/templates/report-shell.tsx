@@ -10,6 +10,9 @@ import type { ReactNode } from "react";
 export interface ReportMeta {
   organisationName: string;
   logoUrl: string | null;
+  clientLogoUrl?: string | null;
+  brandColor?: string | null;
+  companyDetails?: string | null;
   projectName: string;
   projectReference: string | null;
   clientName?: string | null;
@@ -20,7 +23,11 @@ export interface ReportMeta {
   generatedAt: string;
 }
 
-const baseStyles = `
+const DEFAULT_BRAND = "#3b82f6";
+
+const baseStyles = (brand: string) => `
+  :root { --brand: ${brand}; }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
@@ -44,7 +51,11 @@ const baseStyles = `
   }
 
   h1 { font-size: 28px; font-weight: 700; line-height: 1.2; color: #0f172a; }
-  h2 { font-size: 20px; font-weight: 600; line-height: 1.3; color: #0f172a; margin-bottom: 12px; }
+  h2 {
+    font-size: 20px; font-weight: 600; line-height: 1.3; color: #0f172a;
+    margin-bottom: 12px; padding-bottom: 6px;
+    border-bottom: 2px solid var(--brand);
+  }
   h3 { font-size: 14px; font-weight: 600; line-height: 1.4; color: #334155; margin-bottom: 8px; }
 
   .text-muted { color: #64748b; }
@@ -133,19 +144,22 @@ const baseStyles = `
 `;
 
 export function ReportShell({
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- passed for type consistency, used by callers
   meta,
   children,
 }: {
   meta: ReportMeta;
   children: ReactNode;
 }) {
+  const brand =
+    meta.brandColor && /^#[0-9a-fA-F]{6}$/.test(meta.brandColor)
+      ? meta.brandColor
+      : DEFAULT_BRAND;
   return (
     <html lang="en">
       {/* eslint-disable-next-line @next/next/no-head-element -- Puppeteer static HTML, not a Next.js page */}
       <head>
         <meta charSet="utf-8" />
-        <style dangerouslySetInnerHTML={{ __html: baseStyles }} />
+        <style dangerouslySetInnerHTML={{ __html: baseStyles(brand) }} />
       </head>
       <body>{children}</body>
     </html>
