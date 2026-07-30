@@ -409,7 +409,7 @@ function ReviewContent() {
                 })
               }
             >
-              <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white">
+              <SelectTrigger className="w-full bg-zinc-900 border-zinc-800 text-white">
                 {tasksLoading ? (
                   <span className="flex flex-1 text-left text-zinc-500">
                     Loading tasks…
@@ -421,7 +421,14 @@ function ReviewContent() {
               <SelectContent>
                 <SelectItem value="__none__">None</SelectItem>
                 {tasks.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
+                  <SelectItem
+                    key={t.id}
+                    value={t.id}
+                    // Long task names must stay distinguishable at 390px: the
+                    // item text wrapper is nowrap + shrink-0 by default, which
+                    // hard-clips mid-letter inside the popup.
+                    className="[&>div]:min-w-0 [&>div]:shrink [&>div]:whitespace-normal"
+                  >
                     {"—".repeat(t.depth)} {t.name}
                   </SelectItem>
                 ))}

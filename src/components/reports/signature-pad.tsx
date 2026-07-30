@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Eraser, Check } from "lucide-react";
 
@@ -12,7 +12,8 @@ interface SignaturePadProps {
 export function SignaturePad({ onSave, onCancel }: SignaturePadProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
-  const hasDrawnRef = useRef(false);
+  // State (not a ref) so the Save button enables/disables as the user draws.
+  const [hasDrawn, setHasDrawn] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -53,7 +54,7 @@ export function SignaturePad({ onSave, onCancel }: SignaturePadProps) {
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       isDrawingRef.current = true;
-      hasDrawnRef.current = true;
+      setHasDrawn(true);
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
       if (!ctx) return;
@@ -88,12 +89,12 @@ export function SignaturePad({ onSave, onCancel }: SignaturePadProps) {
     const rect = canvas.getBoundingClientRect();
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, rect.width, rect.height);
-    hasDrawnRef.current = false;
+    setHasDrawn(false);
   }
 
   function handleSave() {
     const canvas = canvasRef.current;
-    if (!canvas || !hasDrawnRef.current) return;
+    if (!canvas || !hasDrawn) return;
     const dataUrl = canvas.toDataURL("image/png");
     onSave(dataUrl);
   }
@@ -112,7 +113,9 @@ export function SignaturePad({ onSave, onCancel }: SignaturePadProps) {
         />
       </div>
       <p className="text-xs text-muted-foreground text-center">
-        Draw your signature above
+        {hasDrawn
+          ? "Draw your signature above"
+          : "Draw your signature above to enable Save"}
       </p>
       <div className="flex items-center justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={clearCanvas} type="button">
@@ -122,7 +125,7 @@ export function SignaturePad({ onSave, onCancel }: SignaturePadProps) {
         <Button variant="ghost" size="sm" onClick={onCancel} type="button">
           Cancel
         </Button>
-        <Button size="sm" onClick={handleSave} type="button">
+        <Button size="sm" onClick={handleSave} disabled={!hasDrawn} type="button">
           <Check className="mr-1 h-3.5 w-3.5" />
           Save
         </Button>
