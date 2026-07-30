@@ -1,16 +1,21 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import {
   Settings,
   ListTodo,
   Camera,
+  Upload,
   Map,
   FileText,
+  FileQuestion,
   Calendar,
   Building2,
   ClipboardList,
@@ -23,11 +28,35 @@ import { BillingBanner } from "@/components/projects/billing-banner";
 import { NextStepBanner } from "@/components/projects/next-step-banner";
 import { getProjectStatusColor, getProjectStatusLabel } from "@/lib/project-status";
 
+// Error codes meaning "this project isn't reachable" — don't retry, show not-found.
+const UNREACHABLE_CODES = new Set(["NOT_FOUND", "FORBIDDEN", "BAD_REQUEST"]);
+
+// Coarse pointer ≈ touch device (phone/tablet). SSR snapshot is false (desktop).
+const coarsePointerQuery = "(pointer: coarse)";
+function subscribeCoarsePointer(callback: () => void) {
+  const mq = window.matchMedia(coarsePointerQuery);
+  mq.addEventListener("change", callback);
+  return () => mq.removeEventListener("change", callback);
+}
+
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
-  const { data: project, isLoading } = trpc.project.get.useQuery({
-    id: params.projectId,
-  });
+
+  // Desktop browsers have no camera flow — point the primary action at the
+  // evidence upload instead.
+  const isTouch = useSyncExternalStore(
+    subscribeCoarsePointer,
+    () => window.matchMedia(coarsePointerQuery).matches,
+    () => false
+  );
+
+  const { data: project, isLoading, error } = trpc.project.get.useQuery(
+    { id: params.projectId },
+    {
+      retry: (failureCount, err) =>
+        !UNREACHABLE_CODES.has(err.data?.code ?? "") && failureCount < 3,
+    }
+  );
   const { data: tasks = [] } = trpc.task.list.useQuery(
     { projectId: params.projectId },
     { enabled: !!params.projectId }
@@ -41,7 +70,22 @@ export default function ProjectDetailPage() {
     { enabled: !!params.projectId }
   );
 
-  if (isLoading) {
+  if (error || (!isLoading && !project)) {
+    return (
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 text-center">
+        <FileQuestion className="h-12 w-12 text-muted-foreground" />
+        <h2 className="text-xl font-semibold">Project not found</h2>
+        <p className="text-sm text-muted-foreground">
+          This project doesn&apos;t exist or you don&apos;t have access to it.
+        </p>
+        <Link href="/" className={cn(buttonVariants())}>
+          Back to Projects
+        </Link>
+      </div>
+    );
+  }
+
+  if (isLoading || !project) {
     return (
       <div className="space-y-4">
         <div className="h-8 w-64 animate-pulse rounded bg-muted" />
@@ -54,10 +98,6 @@ export default function ProjectDetailPage() {
     );
   }
 
-  if (!project) {
-    return <p className="text-muted-foreground">Project not found.</p>;
-  }
-
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.status === "completed").length;
   const delayedTasks = tasks.filter((t) => t.status === "delayed").length;
@@ -68,7 +108,10 @@ export default function ProjectDetailPage() {
     {
       label: "Work",
       items: [
-        { href: `/capture?projectId=${project.id}`, label: "Capture Photos", icon: Camera, description: "Take site photos" },
+        // Camera capture only works on touch devices — desktop gets the upload flow.
+        isTouch
+          ? { href: `/capture?projectId=${project.id}`, label: "Capture Photos", icon: Camera, description: "Take site photos" }
+          : { href: `/projects/${project.id}/evidence`, label: "Upload Photos", icon: Upload, description: "Add photos from your computer" },
         { href: `/projects/${project.id}/tasks`, label: "Tasks", icon: ListTodo, description: `${totalTasks} tasks, ${completedTasks} done` },
         { href: `/projects/${project.id}/evidence`, label: "Evidence", icon: ImageIcon, description: "Photos & videos" },
       ],
@@ -178,7 +221,7 @@ export default function ProjectDetailPage() {
           <div className="grid gap-2 md:grid-cols-3">
             {section.items.map((item) => (
               <Link
-                key={item.href}
+                key={item.label}
                 href={item.href}
                 className="group flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent"
               >

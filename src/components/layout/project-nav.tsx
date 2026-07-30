@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { trpc } from "@/lib/trpc";
 import {
   LayoutDashboard,
   ListTodo,
   ImageIcon,
   Map,
   FileText,
+  ClipboardList,
   Settings,
 } from "lucide-react";
 
@@ -18,12 +20,31 @@ const navItems = [
   { href: "/evidence", label: "Evidence", icon: ImageIcon },
   { href: "/zones", label: "Zones", icon: Map },
   { href: "/reports", label: "Reports", icon: FileText },
+  { href: "/audit", label: "Audit Log", icon: ClipboardList },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
+
+// Error codes meaning "this project isn't reachable" — don't retry, don't show tabs.
+const UNREACHABLE_CODES = new Set(["NOT_FOUND", "FORBIDDEN", "BAD_REQUEST"]);
 
 export function ProjectNav({ projectId }: { projectId: string }) {
   const pathname = usePathname();
   const base = `/projects/${projectId}`;
+
+  // Shares the react-query cache entry with the overview page's project.get
+  // call, so this adds no extra request on the happy path.
+  const { error } = trpc.project.get.useQuery(
+    { id: projectId },
+    {
+      retry: (failureCount, err) =>
+        !UNREACHABLE_CODES.has(err.data?.code ?? "") && failureCount < 3,
+    }
+  );
+
+  // Nonexistent/inaccessible project: tabs would all dead-end, so render none.
+  if (error && UNREACHABLE_CODES.has(error.data?.code ?? "")) {
+    return null;
+  }
 
   return (
     <nav className="flex gap-1 overflow-x-auto border-b pb-px mb-6">
