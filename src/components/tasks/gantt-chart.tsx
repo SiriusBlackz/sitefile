@@ -60,9 +60,23 @@ function parseDate(d: string): Date {
   return new Date(d + "T00:00:00");
 }
 
+// Local-time ISO date (YYYY-MM-DD). Never use toISOString() for date-only
+// values here: it converts to UTC, so during BST a local midnight becomes
+// 23:00 the previous day and every gridline/label drifts one day off the bars.
+function toIsoLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function daysBetween(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
 }
+
+// Minimum horizontal room per header label before we start skipping days —
+// "28 Jul" at 10px needs ~40px, plus breathing space so labels never touch.
+const MIN_LABEL_PX = 48;
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -99,7 +113,7 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
     }
 
     if (allDates.length === 0) {
-      const today = new Date().toISOString().split("T")[0];
+      const today = toIsoLocal(new Date());
       return { timelineStart: today, timelineEnd: today, totalDays: 30 };
     }
 
@@ -111,8 +125,8 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
     const padEnd = new Date(parseDate(maxDate));
     padEnd.setDate(padEnd.getDate() + 7);
 
-    const startIso = padStart.toISOString().split("T")[0];
-    const endIso = padEnd.toISOString().split("T")[0];
+    const startIso = toIsoLocal(padStart);
+    const endIso = toIsoLocal(padEnd);
     return {
       timelineStart: startIso,
       timelineEnd: endIso,
@@ -128,21 +142,26 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
     return days * dayWidth;
   }, [timelineStart, dayWidth]);
 
-  // Generate header markers
+  // Generate header markers. Positions come straight from the cursor Date
+  // via daysBetween — same local-midnight arithmetic the bars use — so
+  // gridlines/labels can never drift a day off the bars across BST.
   const headerMarkers = useMemo(() => {
     const markers: { label: string; px: number }[] = [];
     const start = parseDate(timelineStart);
     const end = parseDate(timelineEnd);
+    const pxFor = (d: Date) => daysBetween(start, d) * dayWidth;
 
     if (zoom === "days") {
+      // Thin labels at high density: skip days so adjacent labels always
+      // get at least MIN_LABEL_PX of room and stay legible.
+      const step = Math.max(1, Math.ceil(MIN_LABEL_PX / dayWidth));
       const cursor = new Date(start);
       while (cursor <= end) {
-        const iso = cursor.toISOString().split("T")[0];
         markers.push({
           label: cursor.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
-          px: dateToPx(iso),
+          px: pxFor(cursor),
         });
-        cursor.setDate(cursor.getDate() + 1);
+        cursor.setDate(cursor.getDate() + step);
       }
     } else if (zoom === "weeks") {
       const cursor = new Date(start);
@@ -150,10 +169,9 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
       const day = cursor.getDay();
       cursor.setDate(cursor.getDate() + ((8 - day) % 7));
       while (cursor <= end) {
-        const iso = cursor.toISOString().split("T")[0];
         markers.push({
           label: cursor.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
-          px: dateToPx(iso),
+          px: pxFor(cursor),
         });
         cursor.setDate(cursor.getDate() + 7);
       }
@@ -162,19 +180,18 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
       cursor.setDate(1);
       if (cursor < start) cursor.setMonth(cursor.getMonth() + 1);
       while (cursor <= end) {
-        const iso = cursor.toISOString().split("T")[0];
         markers.push({
           label: cursor.toLocaleDateString("en-GB", { month: "short", year: "2-digit" }),
-          px: dateToPx(iso),
+          px: pxFor(cursor),
         });
         cursor.setMonth(cursor.getMonth() + 1);
       }
     }
     return markers;
-  }, [timelineStart, timelineEnd, zoom, dateToPx]);
+  }, [timelineStart, timelineEnd, zoom, dayWidth]);
 
   // Today line
-  const todayIso = new Date().toISOString().split("T")[0];
+  const todayIso = toIsoLocal(new Date());
   const todayPx = dateToPx(todayIso);
   const showToday = todayPx >= 0 && todayPx <= chartWidth;
 

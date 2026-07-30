@@ -90,8 +90,23 @@ export function ImportDialog({
   const [preview, setPreview] = useState<PreviewData | null>(null);
 
   const [clearExisting, setClearExisting] = useState(false);
+  // Two-step confirm: clearing tasks cascades away every evidence-to-task
+  // link, so when the project has linked evidence the first Import click
+  // only reveals the link count and asks again.
+  const [confirmClear, setConfirmClear] = useState(false);
   const [error, setError] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Evidence-to-task link count, derived client-side from the Gantt markers
+  // API (each marker row is a task+date group with a link count).
+  const { data: evidenceMarkers = [] } = trpc.evidence.markers.useQuery(
+    { projectId },
+    { enabled: open }
+  );
+  const linkedEvidenceCount = evidenceMarkers.reduce(
+    (sum, m) => sum + m.count,
+    0
+  );
 
   const previewMutation = trpc.task.previewImport.useMutation({
     onSuccess: (data) => {
@@ -201,6 +216,10 @@ export function ImportDialog({
   }
 
   function handleImport() {
+    if (clearExisting && linkedEvidenceCount > 0 && !confirmClear) {
+      setConfirmClear(true);
+      return;
+    }
     if (xmlContent) {
       importMutation.mutate({
         projectId,
@@ -237,6 +256,7 @@ export function ImportDialog({
     setPreview(null);
     setError("");
     setClearExisting(false);
+    setConfirmClear(false);
     onOpenChange(false);
   }
 
@@ -587,18 +607,42 @@ export function ImportDialog({
               </Table>
             </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="clear-existing"
-                checked={clearExisting}
-                onChange={(e) => setClearExisting(e.target.checked)}
-                className="h-4 w-4 rounded border-border"
-              />
-              <Label htmlFor="clear-existing" className="text-sm font-normal">
-                Clear existing tasks before importing
-              </Label>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="clear-existing"
+                  checked={clearExisting}
+                  onChange={(e) => {
+                    setClearExisting(e.target.checked);
+                    if (!e.target.checked) setConfirmClear(false);
+                  }}
+                  className="h-4 w-4 rounded border-border"
+                />
+                <Label htmlFor="clear-existing" className="text-sm font-normal">
+                  Clear existing tasks before importing
+                </Label>
+              </div>
+              <p className="pl-6 text-xs text-muted-foreground">
+                Deletes every current task and permanently removes their
+                evidence-to-task links. Photos stay in the evidence library but
+                lose their task links.
+              </p>
             </div>
+
+            {clearExisting && confirmClear && (
+              <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                <p>
+                  Clearing existing tasks will permanently remove{" "}
+                  <strong>
+                    {linkedEvidenceCount} evidence-to-task link
+                    {linkedEvidenceCount === 1 ? "" : "s"}
+                  </strong>{" "}
+                  in this project. Click the button again to confirm.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -633,11 +677,16 @@ export function ImportDialog({
           )}
           {preview && (
             <Button
+              variant={clearExisting && confirmClear ? "destructive" : "default"}
               onClick={handleImport}
               disabled={importMutation.isPending}
             >
               {importMutation.isPending
                 ? "Importing..."
+                : clearExisting && confirmClear
+                ? `Delete ${linkedEvidenceCount} Link${
+                    linkedEvidenceCount === 1 ? "" : "s"
+                  } & Import`
                 : `Import ${preview.tasks.length} Tasks`}
             </Button>
           )}

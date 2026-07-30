@@ -31,7 +31,10 @@ const taskFormSchema = z.object({
   actualStart: z.string().optional(),
   actualEnd: z.string().optional(),
   status: z.enum(["not_started", "in_progress", "completed", "delayed"]),
-  progressPct: z.number().min(0).max(100),
+  progressPct: z
+    .number({ message: "Enter a progress value between 0 and 100" })
+    .min(0, "Progress must be between 0 and 100")
+    .max(100, "Progress must be between 0 and 100"),
 }).refine(
   (data) => !data.plannedStart || !data.plannedEnd || data.plannedEnd >= data.plannedStart,
   { message: "End date must be after start date", path: ["plannedEnd"] }
@@ -132,7 +135,11 @@ export function TaskFormDialog({
   }
 
   function applyProgress(raw: number) {
-    const pct = Number.isFinite(raw) ? Math.min(Math.max(Math.round(raw), 0), 100) : 0;
+    // Leave out-of-range/invalid input as typed so the inline validation
+    // error can surface on submit, instead of silently clamping it away
+    // (which also flipped status as a side effect).
+    if (!Number.isFinite(raw) || raw < 0 || raw > 100) return;
+    const pct = Math.round(raw);
     const v = getValues();
     if (pct === 100 && v.status !== "completed") {
       applyStatus("completed");
@@ -190,7 +197,13 @@ export function TaskFormDialog({
         <DialogHeader>
           <DialogTitle>{editTaskId ? "Edit Task" : "Add Task"}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
+        {/* noValidate: surface zod errors inline instead of relying on the
+            native bubble, which some browsers suppress in dialogs. */}
+        <form
+          onSubmit={handleSubmit(handleFormSubmit)}
+          className="space-y-4"
+          noValidate
+        >
           <div className="space-y-2">
             <Label htmlFor="task-name">Task Name *</Label>
             <Input
@@ -266,6 +279,11 @@ export function TaskFormDialog({
                   onBlur: (e) => applyProgress(Number(e.target.value)),
                 })}
               />
+              {errors.progressPct && (
+                <p className="text-sm text-destructive">
+                  {errors.progressPct.message}
+                </p>
+              )}
             </div>
           </div>
 
