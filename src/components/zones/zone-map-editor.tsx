@@ -6,6 +6,7 @@ import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import { trpc } from "@/lib/trpc";
+import { getPolygonBounds } from "@/lib/geo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,6 +56,10 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
   const [zoneColor, setZoneColor] = useState("#3B82F6");
   const [defaultTaskId, setDefaultTaskId] = useState<string>("");
   const [deleteZoneId, setDeleteZoneId] = useState<string | null>(null);
+  // Incremented every time the map style finishes loading (initial load and
+  // any style change) — zones can only be drawn once the style is ready.
+  const [styleGen, setStyleGen] = useState(0);
+  const didFitBoundsRef = useRef(false);
 
   const utils = trpc.useUtils();
   const { data: zones = [] } = trpc.zone.list.useQuery({ projectId });
@@ -103,6 +108,10 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
     map.addControl(draw);
     map.addControl(new mapboxgl.NavigationControl(), "top-right");
 
+    // "style.load" fires on initial load and whenever the style is replaced
+    // (which wipes custom sources/layers) — bump styleGen so zones re-draw.
+    map.on("style.load", () => setStyleGen((gen) => gen + 1));
+
     map.on("draw.create", (e: { features: GeoJSON.Feature[] }) => {
       const feature = e.features[0];
       if (feature?.geometry.type === "Polygon") {
@@ -129,10 +138,12 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
     };
   }, []);
 
-  // Render existing zones on the map
+  // Render existing zones on the map — only after the style has loaded
+  // (styleGen > 0); adding sources before then silently fails, and a style
+  // change wipes them, so this re-runs on every style.load.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || styleGen === 0) return;
 
     // Remove old zone layers
     for (const zone of zones) {
@@ -176,7 +187,32 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
         },
       });
     }
-  }, [zones]);
+
+    // Centre the map on the project's zones once, on first draw; keep the
+    // default UK view when the project has no zones yet.
+    if (zones.length > 0 && !didFitBoundsRef.current) {
+      didFitBoundsRef.current = true;
+      let minLng = Infinity,
+        minLat = Infinity,
+        maxLng = -Infinity,
+        maxLat = -Infinity;
+      for (const zone of zones) {
+        const polygon = zone.polygon as GeoJSON.Polygon;
+        const { sw, ne } = getPolygonBounds(polygon.coordinates);
+        if (sw[0] < minLng) minLng = sw[0];
+        if (sw[1] < minLat) minLat = sw[1];
+        if (ne[0] > maxLng) maxLng = ne[0];
+        if (ne[1] > maxLat) maxLat = ne[1];
+      }
+      map.fitBounds(
+        [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        { padding: 48, maxZoom: 17, animate: false }
+      );
+    }
+  }, [zones, styleGen]);
 
   function handleCreateZone() {
     if (!pendingZone || !zoneName) return;
@@ -202,12 +238,12 @@ export function ZoneMapEditor({ projectId }: ZoneMapEditorProps) {
   }
 
   return (
-    <div className="flex gap-4 h-[600px]">
-      <div className="flex-1 rounded-lg overflow-hidden border">
+    <div className="flex flex-col gap-4 md:h-[600px] md:flex-row">
+      <div className="min-h-[400px] flex-1 rounded-lg overflow-hidden border">
         <div ref={mapContainer} className="h-full w-full" />
       </div>
 
-      <div className="w-72 space-y-3 overflow-y-auto">
+      <div className="w-full space-y-3 md:w-72 md:overflow-y-auto">
         <h3 className="text-sm font-semibold">Zones</h3>
         {zones.length === 0 && (
           <p className="text-sm text-muted-foreground">

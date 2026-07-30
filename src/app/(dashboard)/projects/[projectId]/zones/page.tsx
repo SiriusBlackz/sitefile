@@ -21,14 +21,14 @@ const ZoneMapEditor = dynamic(
   }
 );
 
-const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
-const hasMapboxToken =
-  typeof window !== "undefined" &&
-  mapboxToken.length > 0 &&
-  !/placeholder/i.test(mapboxToken);
-
 export default function ZonesPage() {
   const { projectId } = useParams<{ projectId: string }>();
+
+  // NEXT_PUBLIC_* vars are statically inlined at build time, so this check is
+  // identical on server and client — no window guard, no hydration mismatch.
+  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+  const hasMapboxToken =
+    mapboxToken.length > 0 && !/placeholder/i.test(mapboxToken);
 
   if (!hasMapboxToken) {
     return (
@@ -39,27 +39,21 @@ export default function ZonesPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <MapPin className="h-5 w-5" />
-              Mapbox Not Configured
+              Maps Unavailable
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
-              GPS zones use Mapbox to draw polygons on a satellite map. To
-              enable, set <code>NEXT_PUBLIC_MAPBOX_TOKEN</code> in{" "}
-              <code>.env.local</code> and restart the dev server.
+              Maps aren&apos;t available right now. Site zones will appear here
+              once maps are enabled.
             </p>
-            <p>
-              Free Mapbox tokens are available at{" "}
-              <a
-                href="https://account.mapbox.com/auth/signup/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-foreground underline underline-offset-2"
-              >
-                account.mapbox.com
-              </a>
-              .
-            </p>
+            <details className="text-xs">
+              <summary className="cursor-pointer">For administrators</summary>
+              <p className="mt-2">
+                Set <code>NEXT_PUBLIC_MAPBOX_TOKEN</code> in the environment and
+                redeploy to enable maps.
+              </p>
+            </details>
           </CardContent>
         </Card>
       </div>
