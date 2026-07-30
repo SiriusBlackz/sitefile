@@ -29,11 +29,20 @@ const SIGNATURE_ROLES = [
   { role: "client" as const, label: "Client" },
 ];
 
+/** Local YYYY-MM-DD for <input type="date"> values (not display). */
+function toInputDate(d: Date): string {
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
 interface GenerateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
   onGenerated: () => void;
+  /** period_end of the last completed report, if any (YYYY-MM-DD). */
+  lastPeriodEnd?: string | null;
 }
 
 export function GenerateDialog({
@@ -41,9 +50,25 @@ export function GenerateDialog({
   onOpenChange,
   projectId,
   onGenerated,
+  lastPeriodEnd,
 }: GenerateDialogProps) {
-  const [periodStart, setPeriodStart] = useState("");
-  const [periodEnd, setPeriodEnd] = useState("");
+  // Default period: day after the last completed report through today, or
+  // the current month to date when no reports exist. Computed once per mount
+  // (the parent remounts the dialog on each open via a key) and used by the
+  // dirty check in requestClose.
+  const [defaults] = useState(() => {
+    const today = new Date();
+    let start: Date;
+    if (lastPeriodEnd) {
+      start = new Date(`${lastPeriodEnd}T00:00:00`);
+      start.setDate(start.getDate() + 1);
+    } else {
+      start = new Date(today.getFullYear(), today.getMonth(), 1);
+    }
+    return { start: toInputDate(start), end: toInputDate(today) };
+  });
+  const [periodStart, setPeriodStart] = useState(defaults.start);
+  const [periodEnd, setPeriodEnd] = useState(defaults.end);
   const [password, setPassword] = useState("");
   const [signatures, setSignatures] = useState<SignatureInput[]>([]);
   const [drawingRole, setDrawingRole] = useState<string | null>(null);
@@ -58,12 +83,24 @@ export function GenerateDialog({
   });
 
   function handleClose() {
-    setPeriodStart("");
-    setPeriodEnd("");
+    setPeriodStart(defaults.start);
+    setPeriodEnd(defaults.end);
     setPassword("");
     setSignatures([]);
     setDrawingRole(null);
     onOpenChange(false);
+  }
+
+  // Escape / backdrop click / X / Cancel all route through here so
+  // entered setup (including drawn signatures) is never silently lost.
+  function requestClose() {
+    const isDirty =
+      periodStart !== defaults.start ||
+      periodEnd !== defaults.end ||
+      password !== "" ||
+      signatures.some((s) => s.name.trim() || s.title.trim() || s.imageDataUrl);
+    if (isDirty && !window.confirm("Discard report setup?")) return;
+    handleClose();
   }
 
   function handleGenerate() {
@@ -113,7 +150,12 @@ export function GenerateDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) requestClose();
+      }}
+    >
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Generate Progress Report</DialogTitle>
@@ -219,16 +261,23 @@ export function GenerateDialog({
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setDrawingRole(role)}
-                      type="button"
-                      disabled={!sig?.name}
-                    >
-                      <Pen className="mr-1 h-3.5 w-3.5" />
-                      Draw Signature
-                    </Button>
+                    <div className="space-y-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDrawingRole(role)}
+                        type="button"
+                        disabled={!sig?.name}
+                      >
+                        <Pen className="mr-1 h-3.5 w-3.5" />
+                        Draw Signature
+                      </Button>
+                      {!sig?.name && (
+                        <p className="text-xs text-muted-foreground">
+                          Enter a name above to enable signature drawing.
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               );
@@ -237,7 +286,7 @@ export function GenerateDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
+          <Button variant="outline" onClick={requestClose}>
             Cancel
           </Button>
           <Button

@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Download, Loader2, FileText, Lock } from "lucide-react";
 import { toast } from "sonner";
+import { formatDate } from "@/lib/format";
 
 interface Report {
   id: string;
@@ -52,7 +53,15 @@ export function ReportList({ reports }: ReportListProps) {
         id: report.id,
         password,
       });
-      window.open(result.url, "_blank");
+      // Programmatic anchor click (same-origin URL + download attribute):
+      // popup blockers (Safari) silently eat window.open after an async
+      // round-trip, but anchor-initiated downloads are never blocked.
+      const anchor = document.createElement("a");
+      anchor.href = result.url;
+      anchor.download = result.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
       setPwPrompt(null);
       setDownloadPassword("");
     } catch (err) {
@@ -96,64 +105,62 @@ export function ReportList({ reports }: ReportListProps) {
 
   return (
     <>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Report #</TableHead>
-            <TableHead>Period</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Protected</TableHead>
-            <TableHead>Generated</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {reports.map((report) => (
-            <TableRow key={report.id}>
-              <TableCell className="font-medium">#{report.reportNumber}</TableCell>
-              <TableCell>
-                {report.periodStart} — {report.periodEnd}
-              </TableCell>
-              <TableCell>
-                <span role="status" aria-live="polite">
-                  <StatusBadge status={report.status ?? "generating"} />
-                </span>
-              </TableCell>
-              <TableCell>
-                {report.hasPassword ? (
-                  <Lock className="h-4 w-4 text-amber-500" />
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {report.createdAt
-                  ? new Date(report.createdAt).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })
-                  : "—"}
-              </TableCell>
-              <TableCell className="text-right">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={report.status !== "completed" || loadingId === report.id}
-                  onClick={() => handleDownload(report)}
-                >
-                  {loadingId === report.id ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <Download className="mr-1 h-3 w-3" />
-                  )}
-                  Download
-                </Button>
-              </TableCell>
+      {/* Horizontal scroll container so the Actions column stays reachable
+          on narrow (mobile) viewports. */}
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Report #</TableHead>
+              <TableHead>Period</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Protected</TableHead>
+              <TableHead>Generated</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {reports.map((report) => (
+              <TableRow key={report.id}>
+                <TableCell className="font-medium">#{report.reportNumber}</TableCell>
+                <TableCell>
+                  {formatDate(report.periodStart)} — {formatDate(report.periodEnd)}
+                </TableCell>
+                <TableCell>
+                  <span role="status" aria-live="polite">
+                    <StatusBadge status={report.status ?? "generating"} />
+                  </span>
+                </TableCell>
+                <TableCell>
+                  {report.hasPassword ? (
+                    <Lock className="h-4 w-4 text-amber-500" />
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {formatDate(report.createdAt)}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={report.status !== "completed" || loadingId === report.id}
+                    onClick={() => handleDownload(report)}
+                  >
+                    {loadingId === report.id ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Download className="mr-1 h-3 w-3" />
+                    )}
+                    Download
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
 
       <Dialog
         open={!!pwPrompt}

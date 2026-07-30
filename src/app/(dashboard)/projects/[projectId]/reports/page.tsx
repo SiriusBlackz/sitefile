@@ -13,6 +13,8 @@ import { toast } from "sonner";
 export default function ReportsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [generateOpen, setGenerateOpen] = useState(false);
+  // Bumped on each open so GenerateDialog remounts with fresh default dates.
+  const [generateKey, setGenerateKey] = useState(0);
   const utils = trpc.useUtils();
   // Report ids seen as "generating", so we can toast when they finish.
   const generatingIdsRef = useRef<Set<string>>(new Set());
@@ -63,7 +65,12 @@ export default function ReportsPage() {
       <ProjectBreadcrumb items={[{ label: "Reports" }]} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Reports</h2>
-        <Button onClick={() => setGenerateOpen(true)}>
+        <Button
+          onClick={() => {
+            setGenerateKey((k) => k + 1);
+            setGenerateOpen(true);
+          }}
+        >
           <FileText className="mr-1 h-4 w-4" />
           Generate Report
         </Button>
@@ -72,10 +79,17 @@ export default function ReportsPage() {
       <ReportList reports={reports} />
 
       <GenerateDialog
+        key={generateKey}
         open={generateOpen}
         onOpenChange={setGenerateOpen}
         projectId={projectId}
         onGenerated={() => utils.report.list.invalidate({ projectId })}
+        lastPeriodEnd={reports
+          .filter((r) => r.status === "completed")
+          .reduce<string | null>(
+            (max, r) => (max === null || r.periodEnd > max ? r.periodEnd : max),
+            null
+          )}
       />
     </div>
   );
