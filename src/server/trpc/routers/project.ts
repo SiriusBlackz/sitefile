@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, ne, or, isNull, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
 import { projects, organisations, projectMembers, users } from "@/server/db/schema";
@@ -14,45 +14,70 @@ import {
 } from "@/server/services/stripe";
 
 export const projectRouter = createTRPCRouter({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    // Admins see every project in the org. Non-admin members only see the
-    // projects they've been added to via project_members. This matches the
-    // membership check enforced by every other router (task, evidence, zone,
-    // report) so the project list never shows a project the user can't open.
-    let result: typeof projects.$inferSelect[];
-    if (ctx.dbUser.role === "admin") {
-      result = await ctx.db.query.projects.findMany({
-        where: eq(projects.orgId, ctx.orgId),
-        orderBy: [desc(projects.createdAt)],
-      });
-    } else {
-      const rows = await ctx.db
-        .select()
-        .from(projects)
-        .innerJoin(
-          projectMembers,
-          eq(projectMembers.projectId, projects.id)
-        )
-        .where(
-          and(
-            eq(projects.orgId, ctx.orgId),
-            eq(projectMembers.userId, ctx.userId)
+  list: protectedProcedure
+    .input(
+      z
+        .object({
+          status: z.enum(PROJECT_STATUSES).optional(),
+          includeArchived: z.boolean().optional(),
+        })
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const demoMode = process.env.DEMO_MODE === "true";
+
+      // Optional server-side filtering: `status` narrows to a single status;
+      // `includeArchived: false` excludes archived projects. No input returns
+      // everything (existing behavior for pickers like capture/command palette).
+      const statusFilter = input?.status
+        ? demoMode && input.status === "active"
+          ? // Demo mode surfaces pending_payment projects as active (mapped
+            // below), so an "active" filter must match them too.
+            inArray(projects.status, ["active", "pending_payment"])
+          : eq(projects.status, input.status)
+        : input?.includeArchived === false
+          ? or(ne(projects.status, "archived"), isNull(projects.status))
+          : undefined;
+
+      // Admins see every project in the org. Non-admin members only see the
+      // projects they've been added to via project_members. This matches the
+      // membership check enforced by every other router (task, evidence, zone,
+      // report) so the project list never shows a project the user can't open.
+      let result: typeof projects.$inferSelect[];
+      if (ctx.dbUser.role === "admin") {
+        result = await ctx.db.query.projects.findMany({
+          where: and(eq(projects.orgId, ctx.orgId), statusFilter),
+          orderBy: [desc(projects.createdAt)],
+        });
+      } else {
+        const rows = await ctx.db
+          .select()
+          .from(projects)
+          .innerJoin(
+            projectMembers,
+            eq(projectMembers.projectId, projects.id)
           )
-        )
-        .orderBy(desc(projects.createdAt));
-      result = rows.map((r) => r.projects);
-    }
+          .where(
+            and(
+              eq(projects.orgId, ctx.orgId),
+              eq(projectMembers.userId, ctx.userId),
+              statusFilter
+            )
+          )
+          .orderBy(desc(projects.createdAt));
+        result = rows.map((r) => r.projects);
+      }
 
-    // In demo mode, treat pending_payment as active
-    if (process.env.DEMO_MODE === "true") {
-      return result.map((p) => ({
-        ...p,
-        status: p.status === "pending_payment" ? "active" : p.status,
-      }));
-    }
+      // In demo mode, treat pending_payment as active
+      if (process.env.DEMO_MODE === "true") {
+        return result.map((p) => ({
+          ...p,
+          status: p.status === "pending_payment" ? "active" : p.status,
+        }));
+      }
 
-    return result;
-  }),
+      return result;
+    }),
 
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
@@ -227,6 +252,25 @@ export const projectRouter = createTRPCRouter({
     }),
 
   // ─── Member Management ──────────────────────────────────────────────────────
+
+  /**
+   * The signed-in user's own profile plus their organisation name. Used by
+   * the Account page and the settings team picker (to exclude yourself).
+   * Never exposes clerk/internal ids beyond the db user id.
+   */
+  currentUser: protectedProcedure.query(async ({ ctx }) => {
+    const org = await ctx.db.query.organisations.findFirst({
+      where: eq(organisations.id, ctx.orgId),
+      columns: { name: true },
+    });
+    return {
+      id: ctx.dbUser.id,
+      name: ctx.dbUser.name,
+      email: ctx.dbUser.email,
+      role: ctx.dbUser.role,
+      orgName: org?.name ?? null,
+    };
+  }),
 
   orgUsers: protectedProcedure.query(async ({ ctx }) => {
     const orgUsers = await ctx.db.query.users.findMany({

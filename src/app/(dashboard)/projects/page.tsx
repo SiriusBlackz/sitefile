@@ -16,14 +16,21 @@ import {
 } from "lucide-react";
 
 export default function ProjectsPage() {
-  const { data: projects, isLoading, error, refetch, isRefetching } =
-    trpc.project.list.useQuery();
+  // Server-driven split: two filtered queries instead of fetching everything
+  // and slicing on the client.
+  const {
+    data: activeProjects = [],
+    isLoading: activeLoading,
+    error,
+    refetch,
+    isRefetching,
+  } = trpc.project.list.useQuery({ includeArchived: false });
+  const { data: archivedProjects = [], isLoading: archivedLoading } =
+    trpc.project.list.useQuery({ status: "archived" });
   const [showArchived, setShowArchived] = useState(false);
 
-  const activeProjects =
-    projects?.filter((p) => p.status !== "archived") ?? [];
-  const archivedProjects =
-    projects?.filter((p) => p.status === "archived") ?? [];
+  const isLoading = activeLoading || archivedLoading;
+  const hasProjects = activeProjects.length > 0 || archivedProjects.length > 0;
 
   return (
     <div className="space-y-6">
@@ -65,7 +72,7 @@ export default function ProjectsPage() {
             {isRefetching ? "Retrying…" : "Retry"}
           </Button>
         </div>
-      ) : projects && projects.length > 0 ? (
+      ) : hasProjects ? (
         <>
           {activeProjects.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
