@@ -23,20 +23,64 @@ export interface TaskSuggestion {
   reasons: string[];
 }
 
+// Signal weights (points out of 100). GPS-zone containment is the
+// strongest signal, a date-window match is medium, recency is weak.
+const ZONE_POINTS = 60;
+const TIME_ACTUAL_POINTS = 45;
+const TIME_PLANNED_POINTS = 30;
+const TIME_STARTED_POINTS = 15;
+const RECENCY_POINTS = { week: 15, fortnight: 10, month: 5 };
+
+// Caps: confidence must reflect the strongest signal present, so weak
+// signals alone can never produce a confident-looking suggestion.
+const MAX_CONFIDENCE = 0.9; // heuristics are never certain — no 100%s
+const NO_ZONE_CAP = 0.55; // time/recency only
+const RECENCY_ONLY_CAP = 0.25;
+const MIN_CONFIDENCE = 0.3;
+
+interface TaskScore {
+  name: string;
+  reasons: string[];
+  zonePoints: number;
+  timePoints: number;
+  recencyPoints: number;
+}
+
 export async function suggestTasks(
   db: DB,
   evidence: EvidenceInput
 ): Promise<TaskSuggestion[]> {
-  const scores = new Map<string, { score: number; name: string; reasons: string[] }>();
+  const scores = new Map<string, TaskScore>();
 
-  function addScore(taskId: string, taskName: string, points: number, reason: string) {
-    const existing = scores.get(taskId) ?? { score: 0, name: taskName, reasons: [] };
-    existing.score += points;
-    existing.reasons.push(reason);
+  function entryFor(taskId: string, taskName: string): TaskScore {
+    const existing = scores.get(taskId) ?? {
+      name: taskName,
+      reasons: [],
+      zonePoints: 0,
+      timePoints: 0,
+      recencyPoints: 0,
+    };
     scores.set(taskId, existing);
+    return existing;
   }
 
-  // 1. GPS match (max 50 points)
+  const projectTasks = await db.query.tasks.findMany({
+    where: eq(tasks.projectId, evidence.projectId),
+    columns: {
+      id: true,
+      name: true,
+      parentTaskId: true,
+      plannedStart: true,
+      plannedEnd: true,
+      actualStart: true,
+      actualEnd: true,
+    },
+  });
+  const parentIds = new Set(
+    projectTasks.map((t) => t.parentTaskId).filter((id): id is string => id != null)
+  );
+
+  // 1. GPS-zone containment — strong signal
   if (evidence.latitude != null && evidence.longitude != null) {
     const zones = await db.query.gpsZones.findMany({
       where: eq(gpsZones.projectId, evidence.projectId),
@@ -49,54 +93,46 @@ export async function suggestTasks(
 
     for (const zone of zones) {
       const polygon = zone.polygon as { type: string; coordinates: number[][][] };
-      if (pointInPolygon(point, polygon.coordinates)) {
-        if (zone.defaultTask) {
-          addScore(
-            zone.defaultTask.id,
-            zone.defaultTask.name,
-            50,
-            `GPS zone: ${zone.name}`
-          );
-        }
+      if (pointInPolygon(point, polygon.coordinates) && zone.defaultTask) {
+        const entry = entryFor(zone.defaultTask.id, zone.defaultTask.name);
+        entry.zonePoints = Math.max(entry.zonePoints, ZONE_POINTS);
+        entry.reasons.push(`Photo taken inside the ${zone.name} zone`);
       }
     }
   }
 
-  // 2. Time match (max 30 points)
+  // 2. Date-window match — medium signal. Parent/phase tasks are skipped:
+  // their windows span everything beneath them, so they'd match almost
+  // any photo without telling the user anything useful.
   if (evidence.capturedAt) {
     const capturedDate = evidence.capturedAt.toISOString().split("T")[0];
 
-    const projectTasks = await db.query.tasks.findMany({
-      where: eq(tasks.projectId, evidence.projectId),
-      columns: {
-        id: true,
-        name: true,
-        plannedStart: true,
-        plannedEnd: true,
-        actualStart: true,
-        actualEnd: true,
-      },
-    });
-
     for (const task of projectTasks) {
+      if (parentIds.has(task.id)) continue;
       // Prefer actual dates over planned dates
       const startDate = task.actualStart ?? task.plannedStart;
       const endDate = task.actualEnd ?? task.plannedEnd;
+      const usesActual = task.actualStart != null || task.actualEnd != null;
 
       if (startDate && endDate) {
         if (capturedDate >= startDate && capturedDate <= endDate) {
-          const isActual = task.actualStart || task.actualEnd;
-          addScore(task.id, task.name, 30, isActual ? "Active during capture (actual)" : "Active during capture date");
+          const entry = entryFor(task.id, task.name);
+          entry.timePoints = usesActual ? TIME_ACTUAL_POINTS : TIME_PLANNED_POINTS;
+          entry.reasons.push(
+            usesActual
+              ? "Taken while this task was underway on site"
+              : "Taken during this task's planned dates"
+          );
         }
-      } else if (startDate && !endDate) {
-        if (capturedDate >= startDate) {
-          addScore(task.id, task.name, 15, "Started before capture date");
-        }
+      } else if (startDate && capturedDate >= startDate) {
+        const entry = entryFor(task.id, task.name);
+        entry.timePoints = TIME_STARTED_POINTS;
+        entry.reasons.push("Task had started by the capture date");
       }
     }
   }
 
-  // 3. Recency boost (max 20 points)
+  // 3. Recency — weak signal (evidence recently linked to the task)
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -109,38 +145,50 @@ export async function suggestTasks(
   });
 
   // Group by task, find most recent link per task
-  const taskLastLinked = new Map<string, Date>();
+  const taskLastLinked = new Map<string, { name: string; lastLinked: Date }>();
   for (const link of recentLinks) {
     if (link.task.projectId !== evidence.projectId) continue;
     if (!taskLastLinked.has(link.task.id)) {
-      taskLastLinked.set(link.task.id, link.createdAt!);
+      taskLastLinked.set(link.task.id, {
+        name: link.task.name,
+        lastLinked: link.createdAt!,
+      });
     }
   }
 
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-  for (const [taskId, lastLinked] of taskLastLinked) {
-    // Need task name — look it up from recentLinks
-    const linkEntry = recentLinks.find((l) => l.task.id === taskId);
-    if (!linkEntry) continue;
-
-    let points = 0;
+  for (const [taskId, { name, lastLinked }] of taskLastLinked) {
+    const entry = entryFor(taskId, name);
     if (lastLinked >= sevenDaysAgo) {
-      points = 20;
+      entry.recencyPoints = RECENCY_POINTS.week;
+      entry.reasons.push("Recently worked on — photos linked in the last week");
     } else if (lastLinked >= fourteenDaysAgo) {
-      points = 10;
+      entry.recencyPoints = RECENCY_POINTS.fortnight;
+      entry.reasons.push("Recently worked on — photos linked in the last two weeks");
     } else {
-      points = 5;
+      entry.recencyPoints = RECENCY_POINTS.month;
+      entry.reasons.push("Recently worked on — photos linked in the last month");
     }
-    addScore(taskId, linkEntry.task.name, points, "Recently linked evidence");
   }
 
-  // Normalize, filter by minimum threshold, and sort
-  const MIN_CONFIDENCE = 0.4;
+  // Combine: the strongest signal sets the baseline; weaker signals only
+  // nudge it up (quarter weight) so stacked weak signals can't imitate a
+  // strong one. Cap by the best signal class present.
   const suggestions: TaskSuggestion[] = [];
   for (const [taskId, data] of scores) {
-    const confidence = Math.min(data.score / 100, 1.0);
+    const points = [data.zonePoints, data.timePoints, data.recencyPoints];
+    const strongest = Math.max(...points);
+    if (strongest === 0) continue;
+    const rest = points.reduce((sum, p) => sum + p, 0) - strongest;
+    let confidence = Math.min((strongest + 0.25 * rest) / 100, MAX_CONFIDENCE);
+    if (data.zonePoints === 0) {
+      confidence = Math.min(
+        confidence,
+        data.timePoints === 0 ? RECENCY_ONLY_CAP : NO_ZONE_CAP
+      );
+    }
     if (confidence >= MIN_CONFIDENCE) {
       suggestions.push({
         taskId,

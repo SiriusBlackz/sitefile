@@ -1,7 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -34,6 +45,10 @@ export function TaskLinker({
 }: TaskLinkerProps) {
   const utils = trpc.useUtils();
   const { data: tasks = [] } = trpc.task.list.useQuery({ projectId });
+  const [unlinkTarget, setUnlinkTarget] = useState<{
+    taskId: string;
+    name: string;
+  } | null>(null);
 
   const linkMutation = trpc.evidence.link.useMutation({
     onSuccess: () => {
@@ -46,6 +61,7 @@ export function TaskLinker({
   const unlinkMutation = trpc.evidence.unlink.useMutation({
     onSuccess: () => {
       utils.evidence.list.invalidate();
+      setUnlinkTarget(null);
       toast.success("Task unlinked");
     },
     onError: (err) => toast.error(err.message),
@@ -73,14 +89,8 @@ export function TaskLinker({
   }
 
   function handleUnlink(taskId: string) {
-    const taskName = linkedTasks.find((t) => t.id === taskId)?.name ?? "task";
-    toast(`Unlink "${taskName}"?`, {
-      action: {
-        label: "Confirm",
-        onClick: () => unlinkMutation.mutate({ evidenceId, taskId }),
-      },
-      duration: 5000,
-    });
+    const taskName = linkedTasks.find((t) => t.id === taskId)?.name ?? "this task";
+    setUnlinkTarget({ taskId, name: taskName });
   }
 
   function confidenceColor(c: number) {
@@ -122,7 +132,7 @@ export function TaskLinker({
             {activeSuggestions.map((s) => (
               <button
                 key={s.taskId}
-                className="flex w-full items-center gap-2 rounded-md border p-2 text-left text-sm hover:bg-muted/50 transition-colors"
+                className="flex w-full items-start gap-2 rounded-md border p-2 text-left text-sm hover:bg-muted/50 transition-colors"
                 onClick={() =>
                   handleLink(s.taskId, "ai_suggested", s.confidence)
                 }
@@ -133,9 +143,13 @@ export function TaskLinker({
                 >
                   {Math.round(s.confidence * 100)}%
                 </Badge>
-                <span className="truncate">{s.taskName}</span>
-                <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                  {s.reasons[0]}
+                <span className="min-w-0">
+                  <span className="block truncate">{s.taskName}</span>
+                  {s.reasons.length > 0 && (
+                    <span className="block text-xs text-muted-foreground">
+                      {s.reasons.join(" · ")}
+                    </span>
+                  )}
                 </span>
               </button>
             ))}
@@ -167,6 +181,37 @@ export function TaskLinker({
           </Select>
         </div>
       )}
+
+      <AlertDialog
+        open={unlinkTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setUnlinkTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Unlink &ldquo;{unlinkTarget?.name}&rdquo;?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This photo will no longer appear under {unlinkTarget?.name ?? "this task"} in
+              the gallery or reports. You can re-link it at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!unlinkTarget) return;
+                unlinkMutation.mutate({ evidenceId, taskId: unlinkTarget.taskId });
+              }}
+              disabled={unlinkMutation.isPending}
+            >
+              {unlinkMutation.isPending ? "Unlinking..." : "Unlink"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

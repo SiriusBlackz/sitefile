@@ -18,6 +18,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -454,6 +455,10 @@ export default function EvidencePage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Upload Evidence</DialogTitle>
+            <DialogDescription>
+              Photos (JPEG, PNG, WebP, HEIC) and videos (MP4, MOV, WebM), up
+              to 100 MB per file.
+            </DialogDescription>
           </DialogHeader>
           <UploadQueue
             projectId={projectId}

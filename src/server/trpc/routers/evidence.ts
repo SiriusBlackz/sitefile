@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, desc, lte, gte, sql, inArray, ilike, or, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
-import { evidence, evidenceLinks, users, uploadIntents } from "@/server/db/schema";
+import { evidence, evidenceLinks, users, uploadIntents, tasks } from "@/server/db/schema";
 import { EVIDENCE_TYPES, LINK_METHODS } from "@/server/db/enums";
 import { getUploadUrl, getPublicUrl, statStoredObject } from "@/server/services/storage";
 import { suggestTasks } from "@/server/services/ai-linker";
@@ -216,8 +216,32 @@ export const evidenceRouter = createTRPCRouter({
       }
 
       if (input.taskId) {
+        // Roll up parent/phase tasks: evidence links point at leaf tasks,
+        // so filtering by a parent must include every descendant's links.
+        const projectTasks = await ctx.db.query.tasks.findMany({
+          where: eq(tasks.projectId, input.projectId),
+          columns: { id: true, parentTaskId: true },
+        });
+        const childrenByParent = new Map<string, string[]>();
+        for (const t of projectTasks) {
+          if (!t.parentTaskId) continue;
+          const siblings = childrenByParent.get(t.parentTaskId) ?? [];
+          siblings.push(t.id);
+          childrenByParent.set(t.parentTaskId, siblings);
+        }
+        const filterTaskIds = new Set<string>([input.taskId]);
+        const queue = [input.taskId];
+        while (queue.length > 0) {
+          const current = queue.pop()!;
+          for (const childId of childrenByParent.get(current) ?? []) {
+            if (!filterTaskIds.has(childId)) {
+              filterTaskIds.add(childId);
+              queue.push(childId);
+            }
+          }
+        }
         const links = await ctx.db.query.evidenceLinks.findMany({
-          where: eq(evidenceLinks.taskId, input.taskId),
+          where: inArray(evidenceLinks.taskId, [...filterTaskIds]),
           columns: { evidenceId: true },
         });
         const evidenceIdsForTask = links.map((l) => l.evidenceId);
