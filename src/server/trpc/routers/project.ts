@@ -6,6 +6,7 @@ import { projects, organisations, projectMembers, users } from "@/server/db/sche
 import { PROJECT_MEMBER_ROLES, PROJECT_STATUSES } from "@/server/db/enums";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
+import { getPublicUrl, uploadToStorage } from "@/server/services/storage";
 import {
   getOrCreateCustomer,
   createCheckoutSession,
@@ -385,6 +386,57 @@ export const projectRouter = createTRPCRouter({
         metadata: { removedUserId: input.userId },
       });
 
+      return { success: true };
+    }),
+
+  uploadClientLogo: adminProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        // ~2MB binary as base64; logos are small and this avoids R2 CORS
+        imageBase64: z.string().min(10).max(2_800_000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const sharp = (await import("sharp")).default;
+      let png: Buffer;
+      try {
+        png = await sharp(Buffer.from(input.imageBase64, "base64"))
+          .resize(512, 512, { fit: "inside", withoutEnlargement: true })
+          .png()
+          .toBuffer();
+      } catch {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That file couldn't be read as an image. Use a PNG, JPEG or WebP logo.",
+        });
+      }
+      const key = `projects/${input.projectId}/branding/client-logo.png`;
+      await uploadToStorage(key, png, "image/png");
+      await ctx.db
+        .update(projects)
+        .set({ clientLogoKey: key, updatedAt: new Date() })
+        .where(eq(projects.id, input.projectId));
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.projectId,
+        userId: ctx.userId,
+        action: "update",
+        entityType: "project",
+        entityId: input.projectId,
+        metadata: { field: "clientLogo" },
+      });
+      return { clientLogoUrl: getPublicUrl(key) };
+    }),
+
+  removeClientLogo: adminProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      await ctx.db
+        .update(projects)
+        .set({ clientLogoKey: null, updatedAt: new Date() })
+        .where(eq(projects.id, input.projectId));
       return { success: true };
     }),
 });

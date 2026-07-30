@@ -64,6 +64,13 @@
       "when": 1784664575746,
       "tag": "0008_melted_landau",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785448619684,
+      "tag": "0009_gigantic_sugar_man",
+      "breakpoints": true
     }
   ]
 }

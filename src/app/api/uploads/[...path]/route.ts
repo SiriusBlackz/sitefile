@@ -41,15 +41,21 @@ export async function GET(
 
   const storageKey = segments.join("/");
 
-  // Only allow the canonical evidence layout: projects/<uuid>/evidence/<uuid>/<file>
-  if (segments.length < 4 || segments[0] !== "projects" || !UUID_RE.test(segments[1])) {
+  // Allowed layouts:
+  //   projects/<uuid>/evidence/<uuid>/<file>   (evidence media)
+  //   projects/<uuid>/branding/<file>          (client logo)
+  //   orgs/<uuid>/<file>                       (organisation logo)
+  const isOrgAsset = segments[0] === "orgs" && segments.length >= 3 && UUID_RE.test(segments[1]);
+  const isProjectAsset =
+    segments[0] === "projects" && segments.length >= 4 && UUID_RE.test(segments[1]);
+  if (!isOrgAsset && !isProjectAsset) {
     return json(400, { error: "Invalid path" });
   }
-  if (segments[2] === "reports") {
+  if (isProjectAsset && segments[2] === "reports") {
     // Force report downloads through the dedicated, auth+password-aware route.
     return json(403, { error: "Use /api/reports/[id]/pdf" });
   }
-  if (segments[2] !== "evidence") {
+  if (isProjectAsset && segments[2] !== "evidence" && segments[2] !== "branding") {
     return json(400, { error: "Invalid path" });
   }
 
@@ -67,15 +73,22 @@ export async function GET(
     return json(401, { error: "Not signed in" });
   }
 
-  const projectId = segments[1];
-  try {
-    await assertProjectAccess(db, projectId, resolved.orgId, resolved.userId);
-  } catch (e) {
-    if (e instanceof TRPCError) {
-      const status = e.code === "NOT_FOUND" ? 404 : 403;
-      return json(status, { error: "Access denied" });
+  if (isOrgAsset) {
+    // Org assets are only served to members of that organisation.
+    if (segments[1] !== resolved.orgId) {
+      return json(403, { error: "Access denied" });
     }
-    throw e;
+  } else {
+    const projectId = segments[1];
+    try {
+      await assertProjectAccess(db, projectId, resolved.orgId, resolved.userId);
+    } catch (e) {
+      if (e instanceof TRPCError) {
+        const status = e.code === "NOT_FOUND" ? 404 : 403;
+        return json(status, { error: "Access denied" });
+      }
+      throw e;
+    }
   }
 
   const data = await fetchFromStorage(storageKey);

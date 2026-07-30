@@ -6,6 +6,7 @@ import { zoneRouter } from "./zone";
 import { reportRouter } from "./report";
 import { auditRouter } from "./audit";
 import { dashboardRouter } from "./dashboard";
+import { orgRouter } from "./org";
 
 export const appRouter = createTRPCRouter({
   project: projectRouter,
@@ -14,6 +15,7 @@ export const appRouter = createTRPCRouter({
   zone: zoneRouter,
   report: reportRouter,
   audit: auditRouter,
+  org: orgRouter,
   dashboard: dashboardRouter,
 });
 
