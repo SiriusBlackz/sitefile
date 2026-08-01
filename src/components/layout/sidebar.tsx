@@ -73,6 +73,11 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <div className="flex items-center gap-3 px-4 pb-2 text-[11px] text-muted-foreground/70">
+        <Link href="/support" className="hover:text-foreground">Support</Link>
+        <Link href="/privacy" className="hover:text-foreground">Privacy</Link>
+        <Link href="/terms" className="hover:text-foreground">Terms</Link>
+      </div>
       <div className="border-t p-3 flex items-center justify-between gap-2">
         <OfflineQueueIndicator />
         <div className="flex items-center gap-1">
