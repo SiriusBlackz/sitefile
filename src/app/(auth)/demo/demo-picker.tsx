@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
-import { HardHat, User } from "lucide-react";
+import { User } from "lucide-react";
+import { SitefileMark } from "@/components/layout/sitefile-mark";
 
 const DEMO_USERS = [
   {
@@ -29,8 +30,8 @@ export function DemoPicker() {
     <div className="flex min-h-screen items-center justify-center bg-zinc-950 p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600">
-            <HardHat className="h-6 w-6 text-white" />
+          <div className="mx-auto h-12 w-12">
+            <SitefileMark size={48} />
           </div>
           <h1 className="text-2xl font-bold text-white">Sitefile Demo</h1>
           <p className="text-zinc-400">

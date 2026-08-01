@@ -1,9 +1,9 @@
 /**
- * Generate PWA icons from an SVG template.
+ * Generate PWA icons from the Sitefile S-Strata mark.
  * Run: npx tsx scripts/generate-icons.ts
  *
- * Creates PNG icons at all required sizes using a canvas-free SVG approach.
- * For production, replace with actual designed icons.
+ * Emits SVG icons at every size the manifest references (SVG scales, but
+ * per-size files keep the manifest contract stable), plus apple-touch-icon.
  */
 import { writeFileSync } from "fs";
 import { join } from "path";
@@ -11,28 +11,20 @@ import { join } from "path";
 const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
 
 function generateSvg(size: number): string {
-  const pad = Math.round(size * 0.12);
-  const inner = size - pad * 2;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${Math.round(size * 0.18)}" fill="#0f172a"/>
-  <g transform="translate(${pad},${pad})">
-    <rect x="${inner * 0.15}" y="${inner * 0.55}" width="${inner * 0.7}" height="${inner * 0.35}" rx="${inner * 0.04}" fill="#3b82f6"/>
-    <path d="M${inner * 0.5},${inner * 0.12} L${inner * 0.82},${inner * 0.48} L${inner * 0.18},${inner * 0.48} Z" fill="#3b82f6"/>
-    <rect x="${inner * 0.38}" y="${inner * 0.32}" width="${inner * 0.24}" height="${inner * 0.08}" rx="${inner * 0.02}" fill="#0f172a"/>
-    <text x="${inner * 0.5}" y="${inner * 0.78}" text-anchor="middle" font-family="Arial,sans-serif" font-weight="700" font-size="${inner * 0.16}" fill="white">SP</text>
-  </g>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#2563eb"/>
+  <rect x="22" y="14" width="28" height="9" rx="4.5" fill="#fff"/>
+  <rect x="14" y="27.5" width="36" height="9" rx="4.5" fill="#bfdbfe"/>
+  <rect x="14" y="41" width="28" height="9" rx="4.5" fill="#fff"/>
 </svg>`;
 }
 
 const outDir = join(process.cwd(), "public", "icons");
 
 for (const size of sizes) {
-  const svg = generateSvg(size);
-  writeFileSync(join(outDir, `icon-${size}x${size}.svg`), svg);
+  writeFileSync(join(outDir, `icon-${size}x${size}.svg`), generateSvg(size));
   console.log(`Generated icon-${size}x${size}.svg`);
 }
 
-// Also generate apple-touch-icon (180x180)
 writeFileSync(join(outDir, "apple-touch-icon.svg"), generateSvg(180));
 console.log("Generated apple-touch-icon.svg");
-console.log("Done. For production, replace SVGs with designed PNG icons.");

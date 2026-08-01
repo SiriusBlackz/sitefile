@@ -8,10 +8,10 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   LayoutDashboard,
   FolderKanban,
-  HardHat,
   Menu,
   UserRound,
 } from "lucide-react";
+import { SitefileMark } from "./sitefile-mark";
 import { useState } from "react";
 import { OfflineQueueIndicator } from "./offline-queue-indicator";
 import { ThemeToggle } from "./theme-toggle";
@@ -38,7 +38,7 @@ export function MobileNav() {
         </SheetTrigger>
         <SheetContent side="left" className="w-64 p-0">
           <div className="flex h-14 items-center gap-2 border-b px-4">
-            <HardHat className="h-6 w-6 text-primary" />
+            <SitefileMark size={24} />
             <span className="text-lg font-semibold">Sitefile</span>
           </div>
           <div className="px-2 pt-2">
@@ -69,7 +69,7 @@ export function MobileNav() {
         </SheetContent>
       </Sheet>
       <div className="flex items-center gap-2 ml-2">
-        <HardHat className="h-5 w-5 text-primary" />
+        <SitefileMark size={20} />
         <span className="font-semibold">Sitefile</span>
       </div>
       <div className="ml-auto flex items-center gap-1">

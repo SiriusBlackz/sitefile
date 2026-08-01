@@ -1,9 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
-  <rect width="72" height="72" rx="13" fill="#0f172a"/>
-  <g transform="translate(9,9)">
-    <rect x="8.1" y="29.700000000000003" width="37.8" height="18.9" rx="2.16" fill="#3b82f6"/>
-    <path d="M27,6.4799999999999995 L44.279999999999994,25.919999999999998 L9.719999999999999,25.919999999999998 Z" fill="#3b82f6"/>
-    <rect x="20.52" y="17.28" width="12.959999999999999" height="4.32" rx="1.08" fill="#0f172a"/>
-    <text x="27" y="42.120000000000005" text-anchor="middle" font-family="Arial,sans-serif" font-weight="700" font-size="8.64" fill="white">SP</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#2563eb"/>
+  <rect x="22" y="14" width="28" height="9" rx="4.5" fill="#fff"/>
+  <rect x="14" y="27.5" width="36" height="9" rx="4.5" fill="#bfdbfe"/>
+  <rect x="14" y="41" width="28" height="9" rx="4.5" fill="#fff"/>
 </svg>

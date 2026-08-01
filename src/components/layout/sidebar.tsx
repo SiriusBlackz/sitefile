@@ -8,9 +8,9 @@ import { buttonVariants } from "@/components/ui/button";
 import {
   LayoutDashboard,
   FolderKanban,
-  HardHat,
   UserRound,
 } from "lucide-react";
+import { SitefileMark } from "./sitefile-mark";
 import { OfflineQueueIndicator } from "./offline-queue-indicator";
 import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
@@ -47,7 +47,7 @@ export function Sidebar() {
           </>
         ) : (
           <>
-            <HardHat className="h-6 w-6 text-primary" />
+            <SitefileMark size={26} />
             <span className="text-lg font-semibold">Sitefile</span>
           </>
         )}

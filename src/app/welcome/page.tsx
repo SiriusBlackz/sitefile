@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import {
-  HardHat,
   Camera,
   Link2,
   FileText,
@@ -12,6 +11,7 @@ import {
   Lock,
   Smartphone,
 } from "lucide-react";
+import { SitefileMark } from "@/components/layout/sitefile-mark";
 const btn =
   "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const btnPrimary = `${btn} bg-primary text-primary-foreground shadow hover:bg-primary/90`;
@@ -81,7 +81,7 @@ export default function WelcomePage() {
       {/* Nav */}
       <header className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <div className="flex items-center gap-2">
-          <HardHat className="h-6 w-6 text-primary" />
+          <SitefileMark size={26} />
           <span className="text-lg font-semibold">Sitefile</span>
         </div>
         <nav className="flex items-center gap-2">
@@ -210,7 +210,7 @@ export default function WelcomePage() {
       <footer className="border-t">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-8 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
-            <HardHat className="h-4 w-4" />
+            <SitefileMark size={16} />
             <span>Sitefile</span>
           </div>
           <span>© {new Date().getFullYear()} Sitefile</span>
