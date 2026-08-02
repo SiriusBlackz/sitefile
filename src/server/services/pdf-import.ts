@@ -139,6 +139,8 @@ export async function parsePdfBuffer(buf: Buffer): Promise<PdfParseResult> {
         raw.parentSourceRef == null ? null : String(raw.parentSourceRef),
       plannedStart: raw.plannedStart == null ? null : String(raw.plannedStart),
       plannedEnd: raw.plannedEnd == null ? null : String(raw.plannedEnd),
+      actualStart: null,
+      actualEnd: null,
       progressPct: clampPct(raw.progressPct),
       sortOrder: i,
     };

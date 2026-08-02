@@ -45,6 +45,8 @@ interface ParsedTaskPreview {
   parentSourceRef: string | null;
   plannedStart: string | null;
   plannedEnd: string | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
   progressPct: number;
   sortOrder: number;
 }
@@ -78,8 +80,10 @@ export function ImportDialog({
   projectId,
   onImportComplete,
 }: ImportDialogProps) {
-  // Source data — only one of (xmlContent, xlsxBase64, pdfBase64) is set at a time.
-  const [xmlContent, setXmlContent] = useState<string>("");
+  // Source data — only one of (clientFormat, xlsxBase64, pdfBase64) is set
+  // at a time. XML is parsed IN THE BROWSER so large real-world exports
+  // never travel to the server — only the extracted tasks do.
+  const [clientFormat, setClientFormat] = useState<"msproject" | "p6" | null>(null);
   const [xlsxBase64, setXlsxBase64] = useState<string>("");
   const [pdfBase64, setPdfBase64] = useState<string>("");
   const [fileName, setFileName] = useState<string>("");
@@ -134,10 +138,13 @@ export function ImportDialog({
     },
   });
 
+  const [importedCount, setImportedCount] = useState<number | null>(null);
+
   const importMutation = trpc.task.import.useMutation({
     onSuccess: (data) => {
-      toast.success(`Imported ${data.imported} tasks`);
-      handleClose();
+      // Explicit completion step — the dialog confirms what happened and
+      // waits for Done rather than vanishing under the user.
+      setImportedCount(data.imported);
       onImportComplete();
     },
     // Keep the error visible in the dialog — a toast alone disappears
@@ -145,34 +152,62 @@ export function ImportDialog({
     onError: (err) => setError(friendlyError(err.message)),
   });
 
-  // Vercel rejects request bodies over ~4.5MB with a non-JSON response,
-  // which the tRPC client surfaces as a raw "Unexpected token" parse
-  // error. Catch oversized files before they leave the browser.
-  const MAX_FILE_BYTES = 3 * 1024 * 1024;
+  // Excel/PDF still travel to the server (Excel needs the mapping flow,
+  // PDF needs Claude), so they keep a size cap under Vercel's 4.5MB body
+  // limit. XML has no cap — it is parsed right here in the browser.
+  const MAX_SERVER_FILE_BYTES = 3 * 1024 * 1024;
 
   function friendlyError(message: string): string {
     if (/unexpected token|not valid json|json\.parse|<!doctype|<html/i.test(message)) {
-      return "The server couldn't accept this file — it may be too large. Files must be under 3MB.";
+      return "The server had a problem processing this file — it may have timed out. Try again in a moment; if it keeps happening, tell us at support@sitefile.app.";
     }
     return message;
+  }
+
+  async function parseXmlLocally(file: File) {
+    try {
+      const xml = await file.text();
+      const { detectAndParse } = await import("@/lib/programme-parse");
+      const result = detectAndParse(xml);
+      setClientFormat(result.format === "p6" ? "p6" : "msproject");
+      setPreview({ format: result.format, tasks: result.tasks });
+      setMappingStep(null);
+      setError("");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not parse this file as an MS Project or P6 XML export."
+      );
+      setPreview(null);
+      setMappingStep(null);
+    }
   }
 
   function handleFileSelect(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
     setFileName(file.name);
-    if (file.size > MAX_FILE_BYTES) {
+    setError("");
+
+    const isXlsx = /\.xlsx$/i.test(file.name);
+    const isPdf = /\.pdf$/i.test(file.name);
+
+    if (!isXlsx && !isPdf) {
+      // XML: parsed client-side, no size limit
+      void parseXmlLocally(file);
+      return;
+    }
+
+    if (file.size > MAX_SERVER_FILE_BYTES) {
       setError(
-        `"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)}MB — the limit is 3MB. Try exporting a smaller version (e.g. fewer embedded images, or an XML/Excel export instead of PDF).`
+        `"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)}MB — the limit for ${isPdf ? "PDF" : "Excel"} files is 3MB. ${isPdf ? "Try a lighter export (fewer embedded images), or an XML export of the same programme." : "Try removing embedded images or exporting the data sheet alone."}`
       );
       setPreview(null);
       setMappingStep(null);
       return;
     }
-    setError("");
 
-    const isXlsx = /\.xlsx$/i.test(file.name);
-    const isPdf = /\.pdf$/i.test(file.name);
     const reader = new FileReader();
     if (isXlsx) {
       reader.onload = (e) => {
@@ -183,7 +218,7 @@ export function ImportDialog({
         previewMutation.mutate({ kind: "xlsx-inspect", xlsxBase64: b64 });
       };
       reader.readAsDataURL(file);
-    } else if (isPdf) {
+    } else {
       reader.onload = (e) => {
         const result = e.target?.result;
         if (typeof result !== "string") return;
@@ -192,13 +227,6 @@ export function ImportDialog({
         previewMutation.mutate({ kind: "pdf", pdfBase64: b64 });
       };
       reader.readAsDataURL(file);
-    } else {
-      reader.onload = (e) => {
-        const xml = e.target?.result as string;
-        setXmlContent(xml);
-        previewMutation.mutate({ kind: "xml", xml });
-      };
-      reader.readAsText(file);
     }
   }
 
@@ -220,11 +248,12 @@ export function ImportDialog({
       setConfirmClear(true);
       return;
     }
-    if (xmlContent) {
+    if (clientFormat && preview) {
+      const tasksToImport = preview.tasks.map((t, i) => ({ ...t, sortOrder: i }));
       importMutation.mutate({
         projectId,
         clearExisting,
-        source: { kind: "xml", xml: xmlContent },
+        source: { kind: "tasks", format: clientFormat, tasks: tasksToImport },
       });
     } else if (xlsxBase64 && mapping) {
       importMutation.mutate({
@@ -247,7 +276,8 @@ export function ImportDialog({
   }
 
   function handleClose() {
-    setXmlContent("");
+    setImportedCount(null);
+    setClientFormat(null);
     setXlsxBase64("");
     setPdfBase64("");
     setFileName("");
@@ -318,7 +348,7 @@ export function ImportDialog({
         </DialogHeader>
 
         {/* Step 1: file picker */}
-        {!mappingStep && !preview && !error && (
+        {!mappingStep && !preview && !error && !previewMutation.isPending && importedCount === null && (
           <div className="space-y-3">
             <div
               className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
@@ -344,29 +374,66 @@ export function ImportDialog({
         )}
 
         {previewMutation.isPending && (
-          <div className="py-8 text-center text-muted-foreground">
-            {pdfBase64
-              ? "Extracting from PDF... this can take 10-30 seconds."
-              : xlsxBase64
-              ? "Reading spreadsheet..."
-              : "Parsing XML..."}
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <div className="text-sm font-medium">
+              {pdfBase64
+                ? "Reading the programme with AI…"
+                : xlsxBase64
+                  ? "Reading spreadsheet…"
+                  : "Parsing XML…"}
+            </div>
+            {pdfBase64 && (
+              <div className="text-xs text-muted-foreground">
+                {fileName} — this usually takes 30–60 seconds. Keep this
+                window open.
+              </div>
+            )}
           </div>
         )}
 
-        {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-            <AlertCircle className="h-5 w-5 text-destructive shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-destructive">
-                Import failed
-              </p>
-              <p className="text-sm text-muted-foreground">{error}</p>
+        {error &&
+          (/visual programme/i.test(error) ? (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
+              <AlertCircle className="h-5 w-5 shrink-0 text-amber-600" />
+              <div>
+                <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                  This file needs a different route
+                </p>
+                <p className="text-sm text-muted-foreground">{error}</p>
+              </div>
             </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+              <AlertCircle className="h-5 w-5 text-destructive shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-destructive">
+                  Import failed
+                </p>
+                <p className="text-sm text-muted-foreground">{error}</p>
+              </div>
+            </div>
+          ))}
+
+        {/* Success — explicit completion step */}
+        {importedCount !== null && (
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+              <span className="text-2xl text-green-600 dark:text-green-400">✓</span>
+            </div>
+            <div className="text-base font-semibold">
+              {importedCount} tasks imported
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Your programme is loaded — dates, hierarchy and progress
+              included. Next: add photos in the Evidence tab and link them to
+              these tasks.
+            </p>
           </div>
         )}
 
         {/* Step 2: column mapping (xlsx only) */}
-        {mappingStep && mapping && !preview && (
+        {mappingStep && mapping && !preview && importedCount === null && (
           <div className="space-y-4 min-h-0 overflow-y-auto">
             <div className="text-sm">
               <Badge variant="secondary">Excel</Badge>
@@ -448,7 +515,7 @@ export function ImportDialog({
         )}
 
         {/* Step 3: preview */}
-        {preview && (
+        {preview && importedCount === null && (
           <div className="space-y-4 min-h-0 overflow-y-auto">
             <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="secondary">
@@ -647,15 +714,17 @@ export function ImportDialog({
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
-            Cancel
-          </Button>
+          {importedCount === null && (
+            <Button variant="outline" onClick={handleClose}>
+              Cancel
+            </Button>
+          )}
           {error && (
             <Button
               variant="outline"
               onClick={() => {
                 setError("");
-                setXmlContent("");
+                setClientFormat(null);
                 setXlsxBase64("");
                 setPdfBase64("");
                 setFileName("");
@@ -675,7 +744,10 @@ export function ImportDialog({
               {previewMutation.isPending ? "Reading..." : "Preview tasks"}
             </Button>
           )}
-          {preview && (
+          {importedCount !== null && (
+            <Button onClick={handleClose}>Done</Button>
+          )}
+          {preview && importedCount === null && (
             <Button
               variant={clearExisting && confirmClear ? "destructive" : "default"}
               onClick={handleImport}

@@ -13,6 +13,18 @@ import { parsePdfBuffer } from "@/server/services/pdf-import";
 import { assertProjectAccess, assertTaskInProject } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 
+const parsedTaskSchema = z.object({
+  sourceRef: z.string(),
+  name: z.string().min(1),
+  parentSourceRef: z.string().nullable(),
+  plannedStart: z.string().nullable(),
+  plannedEnd: z.string().nullable(),
+  actualStart: z.string().nullable().optional(),
+  actualEnd: z.string().nullable().optional(),
+  progressPct: z.number(),
+  sortOrder: z.number(),
+});
+
 const columnMappingSchema = z.object({
   name: z.string().min(1),
   plannedStart: z.string().nullable(),
@@ -445,17 +457,14 @@ export const taskRouter = createTRPCRouter({
           }),
           z.object({
             kind: z.literal("pdf"),
-            tasks: z.array(
-              z.object({
-                sourceRef: z.string(),
-                name: z.string().min(1),
-                parentSourceRef: z.string().nullable(),
-                plannedStart: z.string().nullable(),
-                plannedEnd: z.string().nullable(),
-                progressPct: z.number(),
-                sortOrder: z.number(),
-              })
-            ),
+            tasks: z.array(parsedTaskSchema),
+          }),
+          // Client-parsed programmes (XML parsed in the browser so large
+          // real-world exports never travel to the server).
+          z.object({
+            kind: z.literal("tasks"),
+            format: z.enum(["msproject", "p6", "xlsx", "pdf"]),
+            tasks: z.array(parsedTaskSchema).min(1).max(5000),
           }),
         ]),
       })
@@ -485,12 +494,15 @@ export const taskRouter = createTRPCRouter({
         const buf = Buffer.from(input.source.xlsxBase64, "base64");
         parsedTasks = await parseExcelWithMapping(buf, input.source.mapping);
         format = "xlsx";
-      } else {
+      } else if (input.source.kind === "pdf") {
         // PDF: client-edited tasks come back as a structured array.
         // The Claude extraction happened in previewImport; the user
         // may have tweaked the rows before committing.
         parsedTasks = input.source.tasks;
         format = "pdf";
+      } else {
+        parsedTasks = input.source.tasks;
+        format = input.source.format;
       }
 
       return ctx.db.transaction(async (tx) => {
@@ -505,6 +517,8 @@ export const taskRouter = createTRPCRouter({
             ? refToId.get(pt.parentSourceRef) ?? null
             : null;
 
+          const actualStart = ("actualStart" in pt ? pt.actualStart : null) ?? null;
+          const actualEnd = ("actualEnd" in pt ? pt.actualEnd : null) ?? null;
           const [inserted] = await tx
             .insert(tasks)
             .values({
@@ -513,10 +527,17 @@ export const taskRouter = createTRPCRouter({
               parentTaskId,
               plannedStart: pt.plannedStart,
               plannedEnd: pt.plannedEnd,
-              progressPct: pt.progressPct,
+              actualStart,
+              actualEnd,
+              progressPct: actualEnd ? 100 : pt.progressPct,
               sortOrder: pt.sortOrder,
               sourceRef: pt.sourceRef,
-              status: pt.progressPct >= 100 ? "completed" : pt.progressPct > 0 ? "in_progress" : "not_started",
+              status:
+                actualEnd || pt.progressPct >= 100
+                  ? "completed"
+                  : actualStart || pt.progressPct > 0
+                    ? "in_progress"
+                    : "not_started",
             })
             .returning();
 
