@@ -21,6 +21,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -464,6 +465,9 @@ export default function EvidencePage() {
             projectId={projectId}
             onUploadComplete={handleUploadComplete}
           />
+          <DialogFooter>
+            <Button onClick={() => setUploadOpen(false)}>Done</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
