@@ -85,6 +85,26 @@ export function VerificationPage({
         </div>
 
         {/* Integrity metrics */}
+        {stats.totalEvidence === 0 ? (
+          <div
+            style={{
+              margin: "8px 0 24px",
+              padding: "16px 18px",
+              border: "1px solid #e2e8f0",
+              borderRadius: 8,
+              background: "#f8fafc",
+              fontSize: 11,
+              color: "#64748b",
+              lineHeight: 1.6,
+            }}
+          >
+            No evidence was captured during this reporting period, so there is
+            no metadata to verify. Photos taken through Sitefile carry GPS
+            position and capture time automatically and will appear here in
+            future reports.
+          </div>
+        ) : (
+          <>
         <h3>Data Integrity</h3>
         <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
           <IntegrityCard
@@ -171,6 +191,8 @@ export function VerificationPage({
             ))}
           </tbody>
         </table>
+          </>
+        )}
 
         {/* Audit activity summary — aggregate first, then recent entries */}
         {stats.auditTotal > 0 ? (

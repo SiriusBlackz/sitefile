@@ -103,7 +103,7 @@ export const projectRouter = createTRPCRouter({
     .input(
       z
         .object({
-          name: z.string().min(1, "Project name is required"),
+          name: z.string().trim().min(1, "Project name is required"),
           reference: z.string().optional(),
           clientName: z.string().optional(),
           contractType: z.string().optional(),
@@ -174,7 +174,7 @@ export const projectRouter = createTRPCRouter({
       z
         .object({
           id: z.string().uuid(),
-          name: z.string().min(1).optional(),
+          name: z.string().trim().min(1).optional(),
           reference: z.string().optional(),
           clientName: z.string().optional(),
           contractType: z.string().optional(),

@@ -15,7 +15,7 @@ import { writeAuditLogAsync } from "@/server/services/audit";
 
 const parsedTaskSchema = z.object({
   sourceRef: z.string(),
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
   parentSourceRef: z.string().nullable(),
   plannedStart: z.string().nullable(),
   plannedEnd: z.string().nullable(),
@@ -144,7 +144,7 @@ export const taskRouter = createTRPCRouter({
     .input(
       z.object({
         projectId: z.string().uuid(),
-        name: z.string().min(1, "Task name is required"),
+        name: z.string().trim().min(1, "Task name is required"),
         description: z.string().optional(),
         parentTaskId: z.string().uuid().nullable().optional(),
         plannedStart: z.string().optional(),
@@ -206,7 +206,7 @@ export const taskRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string().uuid(),
-        name: z.string().min(1).optional(),
+        name: z.string().trim().min(1).optional(),
         description: z.string().nullable().optional(),
         parentTaskId: z.string().uuid().nullable().optional(),
         plannedStart: z.string().nullable().optional(),

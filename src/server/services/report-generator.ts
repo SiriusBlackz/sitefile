@@ -243,10 +243,37 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     if (note) risk += ` — site note: “${note}”`;
     keyRisks.push(risk);
   }
-  if (avgActual < avgPlanned - 10) {
+  // Overdue detection: activities past their planned finish and not done.
+  // This is the list a client actually asks about — name them.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const overdue = leafTasks.filter(
+    (t) =>
+      t.status !== "completed" &&
+      t.status !== "delayed" && // already listed above
+      t.plannedEnd &&
+      t.plannedEnd < todayStr
+  );
+  for (const t of overdue.slice(0, 3)) {
     keyRisks.push(
-      `Overall progress is ${avgPlanned - avgActual}% behind planned schedule`
+      `"${t.name}" is past its planned finish (due ${formatDate(t.plannedEnd)}, currently ${t.progressPct ?? 0}%)`
     );
+  }
+  if (overdue.length > 3) {
+    keyRisks.push(
+      `${overdue.length - 3} further ${overdue.length - 3 === 1 ? "activity is" : "activities are"} past their planned finish dates`
+    );
+  }
+
+  if (avgActual < avgPlanned - 10) {
+    if (avgPlanned >= 100) {
+      keyRisks.push(
+        `The programme's planned completion date has passed with overall progress at ${avgActual}% — re-baseline the programme, or update task progress if work is further along than recorded`
+      );
+    } else {
+      keyRisks.push(
+        `Overall progress is ${avgPlanned - avgActual}% behind planned schedule`
+      );
+    }
   }
   // A flagged delay alongside a positive headline variance looks like a
   // contradiction unless the report explains it.
@@ -519,6 +546,19 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   );
   const activeAtEnd = leafTasks.filter((t) => t.status === "in_progress");
 
+  // Programmes reuse task names across phases ("MAG", "Site Survey works")
+  // — qualify duplicates with their parent so the narrative stays readable.
+  const nameCounts = new Map<string, number>();
+  for (const t of leafTasks) {
+    nameCounts.set(t.name, (nameCounts.get(t.name) ?? 0) + 1);
+  }
+  const taskByIdNarr = new Map(allTasks.map((t) => [t.id, t]));
+  const displayName = (t: (typeof leafTasks)[number]): string => {
+    if ((nameCounts.get(t.name) ?? 0) <= 1) return t.name;
+    const parent = t.parentTaskId ? taskByIdNarr.get(t.parentTaskId) : null;
+    return parent ? `${parent.name} — ${t.name}` : t.name;
+  };
+
   const paragraphs: string[] = [];
   const periodLabel = formatDateRange(input.periodStart, input.periodEnd);
 
@@ -531,8 +571,10 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     );
   }
   if (activeAtEnd.length > 0) {
+    // Include the noun when it isn't already carried by the completed clause
+    const noun = completedInPeriod.length > 0 ? "" : activeAtEnd.length === 1 ? "activity " : "activities ";
     openingBits.push(
-      `${activeAtEnd.length} ${activeAtEnd.length === 1 ? "was" : "were"} in progress at the period end`
+      `${activeAtEnd.length} ${noun}${activeAtEnd.length === 1 ? "was" : "were"} in progress at the period end`
     );
   }
   if (openingBits.length > 0) {
@@ -545,7 +587,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
 
   if (completedInPeriod.length > 0) {
     const parts = completedInPeriod.map(
-      (t) => `${t.name}${t.actualEnd ? ` (finished ${formatDate(t.actualEnd)})` : ""}`
+      (t) => `${displayName(t)}${t.actualEnd ? ` (finished ${formatDate(t.actualEnd)})` : ""}`
     );
     paragraphs.push(`Completed in the period: ${joinList(parts)}.`);
   }
@@ -556,7 +598,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       if (inPeriodDate(t.actualStart)) bits.push(`started ${formatDate(t.actualStart)}`);
       const photos = evidenceCountByTask.get(t.id) ?? 0;
       if (photos > 0) bits.push(`${photos} photo${photos === 1 ? "" : "s"} this period`);
-      return `${t.name} (${bits.join(", ")})`;
+      return `${displayName(t)} (${bits.join(", ")})`;
     });
     paragraphs.push(`Work continued on ${joinList(parts)}.`);
   }

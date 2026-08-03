@@ -85,7 +85,7 @@ export function parseMSProjectXML(xml: string): ParsedTask[] {
   for (let i = 0; i < rawTasks.length; i++) {
     const t = rawTasks[i];
     const uid = String(t.UID ?? i);
-    const name = String(t.Name ?? "Unnamed Task");
+    const name = String(t.Name ?? "Unnamed Task").trim() || "Unnamed Task";
     const level = Number(t.OutlineLevel ?? 0);
     const pct = clampPct(t.PercentComplete);
     const actualStart = toDateString(t.ActualStart);
@@ -153,7 +153,7 @@ export function parseP6XML(xml: string): ParsedTask[] {
     const pct = clampPct(a.PercentComplete ?? a.PhysicalPercentComplete);
     return {
       sourceRef: String(a.Id ?? a.ObjectId ?? a.ActivityId ?? i),
-      name: String(a.Name ?? a.ActivityName ?? "Unnamed Activity"),
+      name: String(a.Name ?? a.ActivityName ?? "Unnamed Activity").trim() || "Unnamed Activity",
       parentSourceRef: a.ParentObjectId ? String(a.ParentObjectId) : null,
       plannedStart: toDateString(a.PlannedStartDate ?? a.StartDate),
       plannedEnd: toDateString(a.PlannedFinishDate ?? a.FinishDate),

@@ -182,6 +182,13 @@ export function GenerateDialog({
               />
             </div>
           </div>
+          {periodStart && periodEnd && periodStart === periodEnd && (
+            <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              This covers a single day. A first report to a client usually
+              covers the project so far — consider setting the start date back
+              to the start of works.
+            </p>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="report-password">Download password (optional)</Label>
