@@ -48,15 +48,15 @@ const TOUR = [
   {
     kicker: "Evidence",
     title: "Every photo accounted for",
-    body: "Photos land in one gallery — GPS-tagged, timestamped, linked to the right task. Filter by activity or phase, annotate from site, and nothing lives on someone's phone anymore.",
+    body: "Photos land in one gallery — GPS-tagged, timestamped, linked to the right task. Filter by activity or phase, add notes from site, and nothing lives on someone's phone anymore.",
     img: "/marketing/app-evidence.png",
     alt: "Sitefile evidence gallery",
     flip: true,
   },
   {
     kicker: "Site zones",
-    title: "Draw your site once — photos verify themselves",
-    body: "Outline your site areas on the map. Every photo taken inside a zone is automatically verified against it, and the right task is suggested before anyone has to think about it.",
+    title: "Draw your site once — photos check themselves in",
+    body: "Outline your site areas on the map. Every GPS-tagged photo is automatically checked against your zones, and the right task is suggested before anyone has to think about it.",
     img: "/marketing/app-zones.png",
     alt: "Sitefile GPS zones map editor",
   },
@@ -194,18 +194,18 @@ export default function WelcomePage() {
             {[
               {
                 icon: MapPin,
-                title: "GPS-verified",
+                title: "GPS on every photo",
                 body: "Every photo records where it was taken and is checked against your site zones automatically.",
               },
               {
                 icon: History,
-                title: "Tamper-evident",
-                body: "Capture timestamps and camera metadata are preserved unchanged; every action is audit-logged.",
+                title: "Preserved, not edited",
+                body: "Capture timestamps and camera metadata are kept exactly as the device recorded them, and every action is audit-logged.",
               },
               {
                 icon: Lock,
                 title: "Controlled sharing",
-                body: "Reports are password-protected PDFs. Your client sees exactly what you send — nothing else.",
+                body: "Reports go out as PDFs you can encrypt with a password. Your client sees exactly what you send — nothing else.",
               },
               {
                 icon: ShieldCheck,

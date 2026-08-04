@@ -16,15 +16,20 @@ export function MarketingNav() {
           <span className="text-lg font-semibold">Sitefile</span>
         </Link>
         <nav className="flex items-center gap-1 sm:gap-2">
-          <Link href="/welcome#how" className={`${btnGhost} hidden h-9 px-3 sm:inline-flex`}>
-            How it works
-          </Link>
-          <Link href="/welcome#pricing" className={`${btnGhost} hidden h-9 px-3 sm:inline-flex`}>
-            Pricing
-          </Link>
-          <Link href="/support" className={`${btnGhost} hidden h-9 px-3 sm:inline-flex`}>
-            Support
-          </Link>
+          {/* Wrapper (not per-link `hidden`) because btnGhost's base
+              inline-flex is emitted after .hidden in the compiled CSS and
+              wins the display cascade — per-link hiding never applied. */}
+          <div className="hidden items-center gap-1 sm:flex sm:gap-2">
+            <Link href="/welcome#how" className={`${btnGhost} h-9 px-3`}>
+              How it works
+            </Link>
+            <Link href="/welcome#pricing" className={`${btnGhost} h-9 px-3`}>
+              Pricing
+            </Link>
+            <Link href="/support" className={`${btnGhost} h-9 px-3`}>
+              Support
+            </Link>
+          </div>
           <Link href="/sign-in" className={`${btnGhost} h-9 px-3`}>
             Sign in
           </Link>

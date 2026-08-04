@@ -27,7 +27,8 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
         Project data is stored in the EU (Frankfurt); photos and reports in
         secure cloud object storage. Your company&apos;s data is isolated —
         only members of your organisation can access your projects. Reports
-        are shared by you, as password-protected PDFs. Full details are in the{" "}
+        are shared by you as PDFs — password-protected and encrypted if you
+        choose. Full details are in the{" "}
         <Link href="/privacy" className="text-primary hover:underline">
           privacy policy
         </Link>
@@ -37,7 +38,7 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "What happens to photo GPS and timestamps?",
-    a: "They're recorded by the device at the moment of capture and preserved unchanged. Photos taken inside your drawn site zones are automatically verified against them, and every report includes a verification section showing GPS and metadata rates.",
+    a: "They're preserved exactly as your device records them. Photos with GPS are automatically checked against your drawn site zones, and every report includes a verification section showing GPS and metadata rates.",
   },
   {
     q: "Does it work with poor signal on site?",
