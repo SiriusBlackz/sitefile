@@ -5,6 +5,7 @@ import {
   timestamp,
   date,
   integer,
+  boolean,
   real,
   doublePrecision,
   bigint,
@@ -176,6 +177,11 @@ export const tasks = pgTable("tasks", {
   progressPct: integer("progress_pct").default(0),
   sortOrder: integer("sort_order").default(0),
   sourceRef: text("source_ref"),
+  // Contract milestones drive the report's Key Dates table. Set by
+  // programme import (MS Project / P6 mark them explicitly) or by hand;
+  // zero-duration tasks are additionally treated as milestones at
+  // report time without needing this flag.
+  isMilestone: boolean("is_milestone").default(false).notNull(),
   status: text("status").default("not_started"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),

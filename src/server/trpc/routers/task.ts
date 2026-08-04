@@ -23,6 +23,7 @@ const parsedTaskSchema = z.object({
   actualEnd: z.string().nullable().optional(),
   progressPct: z.number(),
   sortOrder: z.number(),
+  isMilestone: z.boolean().optional(),
 });
 
 const columnMappingSchema = z.object({
@@ -153,6 +154,7 @@ export const taskRouter = createTRPCRouter({
         actualEnd: z.string().optional(),
         status: z.enum(TASK_STATUSES).optional(),
         progressPct: z.number().min(0).max(100).optional(),
+        isMilestone: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -195,6 +197,7 @@ export const taskRouter = createTRPCRouter({
           plannedStart: input.plannedStart || null,
           plannedEnd: input.plannedEnd || null,
           sortOrder: nextSort,
+          isMilestone: input.isMilestone ?? false,
           ...synced,
         })
         .returning();
@@ -215,6 +218,7 @@ export const taskRouter = createTRPCRouter({
         actualEnd: z.string().nullable().optional(),
         status: z.enum(TASK_STATUSES).optional(),
         progressPct: z.number().min(0).max(100).optional(),
+        isMilestone: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -532,6 +536,7 @@ export const taskRouter = createTRPCRouter({
               progressPct: actualEnd ? 100 : pt.progressPct,
               sortOrder: pt.sortOrder,
               sourceRef: pt.sourceRef,
+              isMilestone: ("isMilestone" in pt ? pt.isMilestone : false) ?? false,
               status:
                 actualEnd || pt.progressPct >= 100
                   ? "completed"

@@ -17,6 +17,7 @@ export interface ParsedTask {
   actualEnd: string | null;
   progressPct: number;
   sortOrder: number;
+  isMilestone?: boolean;
 }
 
 export type ProgrammeFormat = "msproject" | "p6" | "xlsx" | "pdf";
@@ -102,6 +103,11 @@ export function parseMSProjectXML(xml: string): ParsedTask[] {
 
     parentStack.push({ uid, level });
 
+    // MS Project marks milestones explicitly (<Milestone>1</Milestone>,
+    // sometimes serialised as "true").
+    const milestoneVal = String(t.Milestone ?? "").toLowerCase();
+    const isMilestone = milestoneVal === "1" || milestoneVal === "true";
+
     result.push({
       sourceRef: uid,
       name,
@@ -112,6 +118,7 @@ export function parseMSProjectXML(xml: string): ParsedTask[] {
       actualEnd,
       progressPct: reconcileProgress(pct, actualStart, actualEnd),
       sortOrder: result.length,
+      isMilestone,
     });
   }
 
@@ -151,6 +158,10 @@ export function parseP6XML(xml: string): ParsedTask[] {
     const actualStart = toDateString(a.ActualStartDate ?? a.ActualStart);
     const actualEnd = toDateString(a.ActualFinishDate ?? a.ActualFinish);
     const pct = clampPct(a.PercentComplete ?? a.PhysicalPercentComplete);
+    // P6 milestone activity types: "Start Milestone" / "Finish Milestone"
+    // (XER exports abbreviate to TT_Mile / TT_FinMile).
+    const typeStr = String(a.Type ?? a.ActivityType ?? "").toLowerCase();
+    const isMilestone = typeStr.includes("milestone") || typeStr.includes("mile");
     return {
       sourceRef: String(a.Id ?? a.ObjectId ?? a.ActivityId ?? i),
       name: String(a.Name ?? a.ActivityName ?? "Unnamed Activity").trim() || "Unnamed Activity",
@@ -161,6 +172,7 @@ export function parseP6XML(xml: string): ParsedTask[] {
       actualEnd,
       progressPct: reconcileProgress(pct, actualStart, actualEnd),
       sortOrder: i,
+      isMilestone,
     };
   });
 }

@@ -38,6 +38,7 @@ import {
 } from "@/components/reports/templates/verification";
 import { SignOffPage } from "@/components/reports/templates/sign-off";
 import { TableOfContents, type TocEntry } from "@/components/reports/templates/table-of-contents";
+import { KeyDatesPage, type KeyDateEntry } from "@/components/reports/templates/key-dates";
 
 type DB = typeof dbType;
 
@@ -285,6 +286,68 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       "The flagged item(s) above are ahead of their planned start dates — an early warning rather than current programme slippage, which is why overall variance remains positive."
     );
   }
+
+  // 6b. Key Dates & Milestones — explicitly flagged tasks plus
+  // zero-duration activities (the planner's convention for milestones
+  // when the format has no explicit flag). Variance is measured against
+  // the same clamped "as of" date as planned progress, so regenerating a
+  // past period reproduces the same table.
+  const dataDateStr = now.toISOString().slice(0, 10);
+  const DAY_MS = 86_400_000;
+  const diffDays = (a: string, b: string) =>
+    Math.round(
+      (new Date(a + "T00:00:00Z").getTime() - new Date(b + "T00:00:00Z").getTime()) / DAY_MS
+    );
+  const seenMilestones = new Set<string>();
+  const allKeyDates: KeyDateEntry[] = allTasks
+    .filter(
+      (t) =>
+        (t.isMilestone ||
+          (t.plannedStart && t.plannedEnd && t.plannedStart === t.plannedEnd)) &&
+        (t.plannedEnd || t.plannedStart)
+    )
+    .map((t) => {
+      const planned = (t.plannedEnd ?? t.plannedStart)!;
+      const actual =
+        t.actualEnd ?? (t.status === "completed" ? t.actualStart : null);
+      let state: KeyDateEntry["state"];
+      let varianceDays: number;
+      if (actual) {
+        state = "actualised";
+        varianceDays = diffDays(actual, planned);
+      } else if (planned < dataDateStr) {
+        state = "overdue";
+        varianceDays = diffDays(dataDateStr, planned);
+      } else {
+        state = "forecast";
+        varianceDays = 0;
+      }
+      return { name: t.name, planned, actual, state, varianceDays };
+    })
+    // Large programmes repeat identical milestones across WBS branches.
+    .filter((e) => {
+      const key = `${e.name}|${e.planned}`;
+      if (seenMilestones.has(key)) return false;
+      seenMilestones.add(key);
+      return true;
+    });
+
+  // The table is one page. When a programme carries more milestones than
+  // fit, keep the ones closest to the data date — recent actuals and
+  // near-term forecasts are what a reader wants; a table of ancient
+  // history is not.
+  const KEY_DATES_MAX = 16;
+  let keyDates = allKeyDates;
+  if (keyDates.length > KEY_DATES_MAX) {
+    keyDates = [...allKeyDates]
+      .sort(
+        (a, b) =>
+          Math.abs(diffDays(a.planned, dataDateStr)) -
+          Math.abs(diffDays(b.planned, dataDateStr))
+      )
+      .slice(0, KEY_DATES_MAX);
+  }
+  keyDates.sort((a, b) => (a.planned < b.planned ? -1 : a.planned > b.planned ? 1 : 0));
 
   const summaryStats: SummaryStats = {
     totalTasks: leafTasks.length,
@@ -625,6 +688,9 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     meta,
     reportNumber,
     summaryStats,
+    keyDates,
+    keyDatesTotal: allKeyDates.length,
+    dataDate: dataDateStr,
     narrative: { paragraphs },
     timelineTasks,
     galleryTasks,
@@ -650,7 +716,7 @@ function joinList(items: string[], max = 5): string {
 export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherReportData>>): Promise<string> {
   // Dynamic import to avoid Turbopack's react-dom/server static analysis block
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { meta, summaryStats, narrative, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
+  const { meta, summaryStats, keyDates, keyDatesTotal, dataDate, narrative, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
     data;
 
   // Page numbers are computed in ONE pass using the same pagination
@@ -658,9 +724,11 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   // Page 1 = cover, page 2 = TOC, then content; empty sections skipped.
   const hasGallery = galleryTasks.length > 0;
   const hasBeforeAfter = beforeAfterPairs.length > 0;
+  const hasKeyDates = keyDates.length > 0;
 
   const summaryPage = 3;
-  const timelineStart = 4;
+  const keyDatesPage = summaryPage + 1;
+  const timelineStart = keyDatesPage + (hasKeyDates ? 1 : 0);
   const timelinePages = timelinePageCount(timelineTasks.length);
   const galleryStartPage = timelineStart + timelinePages;
   const galleryPageCount = paginateGallery(galleryTasks).length;
@@ -672,8 +740,11 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   // Build TOC entries
   const tocEntries: TocEntry[] = [
     { title: "Executive Summary", page: summaryPage },
-    { title: "Programme Timeline", page: timelineStart },
   ];
+  if (hasKeyDates) {
+    tocEntries.push({ title: "Key Dates & Milestones", page: keyDatesPage });
+  }
+  tocEntries.push({ title: "Programme Timeline", page: timelineStart });
   if (hasGallery) {
     tocEntries.push({ title: "Progress Records", page: galleryStartPage });
   }
@@ -693,6 +764,18 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
       narrative,
       startPage: summaryPage,
     }),
+    ...(hasKeyDates
+      ? [
+          createElement(KeyDatesPage, {
+            key: "keydates",
+            meta,
+            entries: keyDates,
+            totalCount: keyDatesTotal,
+            dataDate,
+            startPage: keyDatesPage,
+          }),
+        ]
+      : []),
     createElement(ProgrammeTimeline, {
       key: "timeline",
       meta,
