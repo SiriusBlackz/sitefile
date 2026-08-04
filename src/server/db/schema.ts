@@ -333,6 +333,10 @@ export const reports = pgTable("reports", {
   periodEnd: date("period_end", { mode: "string" }).notNull(),
   pdfStorageKey: text("pdf_storage_key"),
   passwordHash: text("password_hash"),
+  // Short-lived AES-256-GCM wrapping of the report password so the Inngest
+  // worker can encrypt the PDF without the plaintext transiting Inngest.
+  // Set at generate time, cleared on completion/failure.
+  passwordCiphertext: text("password_ciphertext"),
   reportData: jsonb("report_data"),
   status: text("status").default("generating"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),

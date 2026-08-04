@@ -54,6 +54,12 @@ const envSchema = z.object({
   // without taking Clerk down.
   REPORT_TOKEN_SECRET: z.string().optional(),
 
+  // Key wrapping report passwords between generate-time and the Inngest
+  // worker (32 bytes, hex or base64). Falls back to an HKDF derivation of
+  // CLERK_SECRET_KEY at use time if unset; declared here so a deliberate
+  // rotation is possible without taking Clerk down.
+  REPORT_PASSWORD_KEY: z.string().optional(),
+
   // Vercel Cron secret. Set in Vercel project settings; Vercel injects it
   // as `Authorization: Bearer ${CRON_SECRET}` on cron-triggered requests.
   // Optional — if unset, the cron route accepts any caller (fine for dev,

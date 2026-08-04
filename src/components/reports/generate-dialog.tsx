@@ -191,7 +191,7 @@ export function GenerateDialog({
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="report-password">Download password (optional)</Label>
+            <Label htmlFor="report-password">Report password (optional)</Label>
             <Input
               id="report-password"
               type="password"
@@ -200,8 +200,9 @@ export function GenerateDialog({
               placeholder="Leave blank for no password"
             />
             <p className="text-xs text-muted-foreground">
-              If set, this password will be required to download the report.
-              Note: this gates the download URL; it does not encrypt the PDF file itself.
+              If set, the PDF itself is encrypted — this password is needed to
+              download the report from Sitefile and to open the file wherever
+              it&apos;s sent. It can&apos;t be recovered later, so keep a note of it.
             </p>
           </div>
 

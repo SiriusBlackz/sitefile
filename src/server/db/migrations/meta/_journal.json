@@ -71,6 +71,13 @@
       "when": 1785448619684,
       "tag": "0009_gigantic_sugar_man",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785871566641,
+      "tag": "0010_legal_nitro",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,8 @@ import {
   htmlToPdf,
 } from "@/server/services/report-generator";
 import { uploadToStorage } from "@/server/services/storage";
+import { decryptReportPassword } from "@/server/services/report-password-crypto";
+import { encryptPdfBuffer } from "@/server/services/pdf-encrypt";
 
 export const generateReport = inngest.createFunction(
   {
@@ -21,7 +23,7 @@ export const generateReport = inngest.createFunction(
         console.error(`[generate-report] All retries exhausted for report ${reportId}`);
         await db
           .update(reports)
-          .set({ status: "failed" })
+          .set({ status: "failed", passwordCiphertext: null })
           .where(eq(reports.id, reportId));
       }
     },
@@ -47,7 +49,7 @@ export const generateReport = inngest.createFunction(
     const result = await step.run("generate-and-store", async () => {
       const existing = await db.query.reports.findFirst({
         where: eq(reports.id, reportId),
-        columns: { reportNumber: true },
+        columns: { reportNumber: true, passwordCiphertext: true },
       });
       if (!existing) {
         throw new Error(`Report ${reportId} not found — was it deleted?`);
@@ -61,7 +63,16 @@ export const generateReport = inngest.createFunction(
         reportNumber: existing.reportNumber,
       });
       const html = await renderReportHTML(reportData);
-      const pdfBuffer = await htmlToPdf(html);
+      let pdfBuffer = await htmlToPdf(html);
+
+      // Passworded reports get the file itself encrypted (AES-256), so the
+      // password is required wherever the PDF is opened — not just at the
+      // download gate. Ciphertext is NOT cleared here: this step may retry
+      // and must be able to re-read it. update-record / onFailure clear it.
+      if (existing.passwordCiphertext) {
+        const password = decryptReportPassword(existing.passwordCiphertext);
+        pdfBuffer = await encryptPdfBuffer(pdfBuffer, password);
+      }
 
       // R2 in prod, .local-uploads/ in dev. Vercel's /tmp is
       // per-invocation, so filesystem writes are only viable for local
@@ -86,6 +97,7 @@ export const generateReport = inngest.createFunction(
         .set({
           status: "completed",
           pdfStorageKey: result.storageKey,
+          passwordCiphertext: null,
           reportData: {
             stats: result.stats,
             meta: result.meta,

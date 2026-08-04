@@ -7,6 +7,7 @@ import { inngest } from "@/server/inngest/client";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 import { signReportToken } from "@/server/services/report-tokens";
+import { encryptReportPassword } from "@/server/services/report-password-crypto";
 import bcrypt from "bcryptjs";
 
 export const reportRouter = createTRPCRouter({
@@ -89,6 +90,11 @@ export const reportRouter = createTRPCRouter({
       const passwordHash = input.password
         ? await bcrypt.hash(input.password, 10)
         : null;
+      // Wrapped plaintext for the Inngest worker to encrypt the PDF with;
+      // cleared once generation completes or fails.
+      const passwordCiphertext = input.password
+        ? encryptReportPassword(input.password)
+        : null;
 
       // Reap stale in-flight rows first. A row stuck in "generating"
       // (Inngest lost the event, onFailure itself failed, app never
@@ -98,7 +104,7 @@ export const reportRouter = createTRPCRouter({
       const STALE_GENERATING_MS = 15 * 60 * 1000;
       await ctx.db
         .update(reports)
-        .set({ status: "failed" })
+        .set({ status: "failed", passwordCiphertext: null })
         .where(
           and(
             eq(reports.projectId, input.projectId),
@@ -132,6 +138,7 @@ export const reportRouter = createTRPCRouter({
               periodStart: input.periodStart,
               periodEnd: input.periodEnd,
               passwordHash,
+              passwordCiphertext,
               status: "generating",
             })
             .returning();
@@ -180,7 +187,7 @@ export const reportRouter = createTRPCRouter({
         console.error("[report.generate] Failed to queue report generation:", err);
         await ctx.db
           .update(reports)
-          .set({ status: "failed" })
+          .set({ status: "failed", passwordCiphertext: null })
           .where(eq(reports.id, report.id));
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",

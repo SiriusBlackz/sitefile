@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
 import { writeFileSync } from "fs";
 
 async function main() {
