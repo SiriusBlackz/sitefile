@@ -39,12 +39,25 @@ export const reportRouter = createTRPCRouter({
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      // Same allowlist as `list`: passwordHash is offline-crackable and
+      // reportData can carry legacy inline PDF bytes.
       const report = await ctx.db.query.reports.findFirst({
         where: eq(reports.id, input.id),
+        columns: {
+          id: true,
+          projectId: true,
+          reportNumber: true,
+          periodStart: true,
+          periodEnd: true,
+          status: true,
+          passwordHash: true,
+          createdAt: true,
+        },
       });
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
       await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
-      return report;
+      const { passwordHash, ...row } = report;
+      return { ...row, hasPassword: passwordHash != null };
     }),
 
   generate: protectedProcedure
@@ -177,7 +190,8 @@ export const reportRouter = createTRPCRouter({
       }
 
       writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "generate", entityType: "report", entityId: report.id, metadata: { reportNumber, periodStart: input.periodStart, periodEnd: input.periodEnd } });
-      return report;
+      // Never return the full row: it carries passwordHash.
+      return { id: report.id, reportNumber, status: report.status };
     }),
 
   download: protectedProcedure
