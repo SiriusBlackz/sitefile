@@ -39,6 +39,7 @@ import {
 import { SignOffPage } from "@/components/reports/templates/sign-off";
 import { TableOfContents, type TocEntry } from "@/components/reports/templates/table-of-contents";
 import { KeyDatesPage, type KeyDateEntry } from "@/components/reports/templates/key-dates";
+import { LookaheadPage, type LookaheadEntry } from "@/components/reports/templates/lookahead";
 
 type DB = typeof dbType;
 
@@ -348,6 +349,88 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       .slice(0, KEY_DATES_MAX);
   }
   keyDates.sort((a, b) => (a.planned < b.planned ? -1 : a.planned > b.planned ? 1 : 0));
+
+  // 6c. Lookahead — what the reader should expect on site next period,
+  // derived from the programme. The window mirrors the reporting period
+  // length, starting the day after the period closes (a monthly report
+  // gets a one-month lookahead, a weekly report a one-week one).
+  const addDays = (iso: string, days: number) =>
+    new Date(new Date(iso + "T00:00:00Z").getTime() + days * DAY_MS)
+      .toISOString()
+      .slice(0, 10);
+  const periodLenDays = diffDays(input.periodEnd, input.periodStart) + 1;
+  const lookaheadStart = addDays(input.periodEnd, 1);
+  const lookaheadEnd = addDays(input.periodEnd, periodLenDays);
+
+  const isMilestoneTask = (t: (typeof allTasks)[number]) =>
+    t.isMilestone ||
+    (!!t.plannedStart && !!t.plannedEnd && t.plannedStart === t.plannedEnd);
+
+  const lookaheadRaw: LookaheadEntry[] = [];
+  for (const t of allTasks) {
+    if (!isMilestoneTask(t)) continue;
+    const planned = t.plannedEnd ?? t.plannedStart;
+    const actual = t.actualEnd ?? (t.status === "completed" ? t.actualStart : null);
+    if (planned && !actual && planned >= lookaheadStart && planned <= lookaheadEnd) {
+      lookaheadRaw.push({
+        name: t.name,
+        plannedStart: planned,
+        plannedEnd: planned,
+        progressPct: null,
+        kind: "milestone",
+        late: false,
+      });
+    }
+  }
+  for (const t of leafTasks) {
+    if (isMilestoneTask(t) || t.status === "completed") continue;
+    const started =
+      t.status === "in_progress" || (t.progressPct ?? 0) > 0 || !!t.actualStart;
+    const base = {
+      name: t.name,
+      plannedStart: t.plannedStart,
+      plannedEnd: t.plannedEnd,
+      progressPct: t.progressPct ?? 0,
+    };
+    if (started) {
+      // Due to finish inside the window — or already past its finish and
+      // expected to carry over (flagged, not hidden).
+      if (t.plannedEnd && t.plannedEnd <= lookaheadEnd) {
+        lookaheadRaw.push({
+          ...base,
+          kind: "complete",
+          late: t.plannedEnd < lookaheadStart,
+        });
+      } else {
+        lookaheadRaw.push({ ...base, kind: "continue", late: false });
+      }
+    } else if (t.plannedStart && t.plannedStart <= lookaheadEnd) {
+      lookaheadRaw.push({
+        ...base,
+        kind: "start",
+        late: t.plannedStart < lookaheadStart,
+      });
+    }
+  }
+
+  // Same dedup as key dates — programmes repeat rows across WBS branches.
+  const seenLookahead = new Set<string>();
+  const allLookahead = lookaheadRaw.filter((e) => {
+    const key = `${e.name}|${e.plannedStart}|${e.plannedEnd}`;
+    if (seenLookahead.has(key)) return false;
+    seenLookahead.add(key);
+    return true;
+  });
+
+  // One page: earliest-due first, capped; the template footnotes the rest.
+  const LOOKAHEAD_MAX = 16;
+  const dueDate = (e: LookaheadEntry) =>
+    (e.kind === "start" ? e.plannedStart : (e.plannedEnd ?? e.plannedStart)) ??
+    "9999-12-31";
+  allLookahead.sort(
+    (a, b) => dueDate(a).localeCompare(dueDate(b)) || a.name.localeCompare(b.name)
+  );
+  const lookahead = allLookahead.slice(0, LOOKAHEAD_MAX);
 
   const summaryStats: SummaryStats = {
     totalTasks: leafTasks.length,
@@ -691,6 +774,9 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     keyDates,
     keyDatesTotal: allKeyDates.length,
     dataDate: dataDateStr,
+    lookahead,
+    lookaheadTotal: allLookahead.length,
+    lookaheadWindow: { start: lookaheadStart, end: lookaheadEnd },
     narrative: { paragraphs },
     timelineTasks,
     galleryTasks,
@@ -716,7 +802,7 @@ function joinList(items: string[], max = 5): string {
 export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherReportData>>): Promise<string> {
   // Dynamic import to avoid Turbopack's react-dom/server static analysis block
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { meta, summaryStats, keyDates, keyDatesTotal, dataDate, narrative, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
+  const { meta, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, narrative, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
     data;
 
   // Page numbers are computed in ONE pass using the same pagination
@@ -725,12 +811,14 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const hasGallery = galleryTasks.length > 0;
   const hasBeforeAfter = beforeAfterPairs.length > 0;
   const hasKeyDates = keyDates.length > 0;
+  const hasLookahead = lookahead.length > 0;
 
   const summaryPage = 3;
   const keyDatesPage = summaryPage + 1;
   const timelineStart = keyDatesPage + (hasKeyDates ? 1 : 0);
   const timelinePages = timelinePageCount(timelineTasks.length);
-  const galleryStartPage = timelineStart + timelinePages;
+  const lookaheadPage = timelineStart + timelinePages;
+  const galleryStartPage = lookaheadPage + (hasLookahead ? 1 : 0);
   const galleryPageCount = paginateGallery(galleryTasks).length;
   const beforeAfterStart = galleryStartPage + galleryPageCount;
   const beforeAfterPageCount = hasBeforeAfter ? Math.ceil(beforeAfterPairs.length / 2) : 0;
@@ -745,6 +833,9 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
     tocEntries.push({ title: "Key Dates & Milestones", page: keyDatesPage });
   }
   tocEntries.push({ title: "Programme Timeline", page: timelineStart });
+  if (hasLookahead) {
+    tocEntries.push({ title: "Lookahead — Next Period", page: lookaheadPage });
+  }
   if (hasGallery) {
     tocEntries.push({ title: "Progress Records", page: galleryStartPage });
   }
@@ -784,6 +875,19 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
       periodEnd: meta.periodEnd,
       startPage: timelineStart,
     }),
+    ...(hasLookahead
+      ? [
+          createElement(LookaheadPage, {
+            key: "lookahead",
+            meta,
+            entries: lookahead,
+            totalCount: lookaheadTotal,
+            windowStart: lookaheadWindow.start,
+            windowEnd: lookaheadWindow.end,
+            startPage: lookaheadPage,
+          }),
+        ]
+      : []),
     createElement(EvidenceGalleryPage, {
       key: "gallery",
       meta,
