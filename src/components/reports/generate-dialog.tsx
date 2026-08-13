@@ -12,9 +12,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Pen, X } from "lucide-react";
 import { SignaturePad } from "./signature-pad";
+import {
+  REPORT_SECTION_KEYS,
+  REPORT_SECTION_LABELS,
+  defaultSectionsForFrequency,
+  type ReportSections,
+} from "@/lib/report-sections";
+import { REPORTING_FREQUENCY_LABELS } from "@/lib/format";
 
 interface SignatureInput {
   role: "contractor" | "project_manager" | "client";
@@ -72,6 +80,13 @@ export function GenerateDialog({
   const [password, setPassword] = useState("");
   const [signatures, setSignatures] = useState<SignatureInput[]>([]);
   const [drawingRole, setDrawingRole] = useState<string | null>(null);
+  // Section recipe: defaults follow the project's reporting frequency
+  // (weekly/fortnightly get the lean pack); overrides are per-run only.
+  const [sectionOverrides, setSectionOverrides] = useState<Partial<ReportSections>>({});
+  const { data: project } = trpc.project.get.useQuery({ id: projectId });
+  const frequency = project?.reportingFrequency ?? null;
+  const recipeDefaults = defaultSectionsForFrequency(frequency);
+  const sections: ReportSections = { ...recipeDefaults, ...sectionOverrides };
 
   const generateMutation = trpc.report.generate.useMutation({
     onSuccess: () => {
@@ -88,6 +103,7 @@ export function GenerateDialog({
     setPassword("");
     setSignatures([]);
     setDrawingRole(null);
+    setSectionOverrides({});
     onOpenChange(false);
   }
 
@@ -98,6 +114,9 @@ export function GenerateDialog({
       periodStart !== defaults.start ||
       periodEnd !== defaults.end ||
       password !== "" ||
+      REPORT_SECTION_KEYS.some(
+        (key) => sections[key] !== recipeDefaults[key]
+      ) ||
       signatures.some((s) => s.name.trim() || s.title.trim() || s.imageDataUrl);
     if (isDirty && !window.confirm("Discard report setup?")) return;
     handleClose();
@@ -127,6 +146,9 @@ export function GenerateDialog({
       periodStart,
       periodEnd,
       password: password || undefined,
+      // Send the fully resolved set, not just overrides — the server
+      // falls back to its own recipe, and this pins what the user saw.
+      sections,
       signatures: validSignatures.length > 0 ? validSignatures : undefined,
     });
   }
@@ -189,6 +211,36 @@ export function GenerateDialog({
               to the start of works.
             </p>
           )}
+
+          <div className="space-y-3">
+            <Label>Report sections</Label>
+            <p className="text-xs text-muted-foreground">
+              Pre-set for{" "}
+              {(frequency && REPORTING_FREQUENCY_LABELS[frequency]?.toLowerCase()) ||
+                "monthly"}{" "}
+              reporting — untick anything to leave it out of this report. Cover
+              page and Executive Summary are always included.
+            </p>
+            <div className="grid gap-2 md:grid-cols-2">
+              {REPORT_SECTION_KEYS.map((key) => (
+                <label
+                  key={key}
+                  className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                >
+                  <Checkbox
+                    checked={sections[key]}
+                    onCheckedChange={(checked) =>
+                      setSectionOverrides((prev) => ({
+                        ...prev,
+                        [key]: checked === true,
+                      }))
+                    }
+                  />
+                  {REPORT_SECTION_LABELS[key]}
+                </label>
+              ))}
+            </div>
+          </div>
 
           <div className="space-y-2">
             <Label htmlFor="report-password">Report password (optional)</Label>

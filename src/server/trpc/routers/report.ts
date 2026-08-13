@@ -8,7 +8,16 @@ import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 import { signReportToken } from "@/server/services/report-tokens";
 import { encryptReportPassword } from "@/server/services/report-password-crypto";
+import { REPORT_SECTION_KEYS } from "@/lib/report-sections";
 import bcrypt from "bcryptjs";
+
+const sectionsSchema = z
+  .object(
+    Object.fromEntries(
+      REPORT_SECTION_KEYS.map((key) => [key, z.boolean().optional()])
+    ) as Record<(typeof REPORT_SECTION_KEYS)[number], z.ZodOptional<z.ZodBoolean>>
+  )
+  .strict();
 
 export const reportRouter = createTRPCRouter({
   list: protectedProcedure
@@ -69,6 +78,7 @@ export const reportRouter = createTRPCRouter({
           periodStart: z.string().min(1),
           periodEnd: z.string().min(1),
           password: z.string().optional(),
+          sections: sectionsSchema.optional(),
           signatures: z.array(z.object({
             role: z.enum(["contractor", "project_manager", "client"]),
             name: z.string().min(1),
@@ -181,6 +191,7 @@ export const reportRouter = createTRPCRouter({
             periodEnd: input.periodEnd,
             generatedBy: ctx.userId,
             signatures: input.signatures,
+            sections: input.sections,
           },
         });
       } catch (err) {
@@ -196,7 +207,7 @@ export const reportRouter = createTRPCRouter({
         });
       }
 
-      writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "generate", entityType: "report", entityId: report.id, metadata: { reportNumber, periodStart: input.periodStart, periodEnd: input.periodEnd } });
+      writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "generate", entityType: "report", entityId: report.id, metadata: { reportNumber, periodStart: input.periodStart, periodEnd: input.periodEnd, sections: input.sections } });
       // Never return the full row: it carries passwordHash.
       return { id: report.id, reportNumber, status: report.status };
     }),

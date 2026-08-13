@@ -11,6 +11,7 @@ import {
 import { getReadUrl } from "./storage";
 import { generateBeforeAfterPairs } from "./before-after";
 import { formatDate, formatDateRange } from "@/lib/format";
+import { resolveSections, type ReportSections } from "@/lib/report-sections";
 import type { db as dbType } from "@/server/db";
 
 // Template imports
@@ -64,6 +65,11 @@ export interface GenerateReportInput {
    */
   reportNumber?: number;
   signatures?: ReportSignature[];
+  /**
+   * Per-run section toggles from the generate dialog. Overlaid on the
+   * project's frequency recipe; omitted keys fall back to that recipe.
+   */
+  sections?: Partial<ReportSections>;
 }
 
 /**
@@ -78,6 +84,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   if (!project) throw new Error("Project not found");
 
   const org = project.organisation;
+  const sections = resolveSections(project.reportingFrequency, input.sections);
 
   // 2. Resolve the report number — prefer the value passed in from the
   // caller (which reads the already-inserted row). Only fall back to
@@ -492,6 +499,8 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   // 8. Evidence gallery (grouped by task). Images go into the HTML as
   // short-lived presigned URLs, not base64 — Puppeteer fetches them
   // during render. Cache per key: one photo linked to N tasks is signed once.
+  // Skipped entirely when the recipe excludes the gallery — signing a URL
+  // per photo is the expensive part of gathering.
   const galleryTasks: GalleryTask[] = [];
   const taskEvidenceMap = new Map<string, GalleryTask>();
   const readUrlCache = new Map<string, string | null>();
@@ -521,58 +530,62 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     };
   }
 
-  for (const ev of periodEvidence) {
-    for (const link of ev.links) {
-      let gt = taskEvidenceMap.get(link.task.id);
-      if (!gt) {
-        const task = taskById.get(link.task.id);
-        gt = {
-          id: link.task.id,
-          name: link.task.name,
-          status: task?.status ?? null,
-          progressPct: task?.progressPct ?? null,
-          evidence: [],
-        };
-        taskEvidenceMap.set(link.task.id, gt);
+  if (sections.gallery) {
+    for (const ev of periodEvidence) {
+      for (const link of ev.links) {
+        let gt = taskEvidenceMap.get(link.task.id);
+        if (!gt) {
+          const task = taskById.get(link.task.id);
+          gt = {
+            id: link.task.id,
+            name: link.task.name,
+            status: task?.status ?? null,
+            progressPct: task?.progressPct ?? null,
+            evidence: [],
+          };
+          taskEvidenceMap.set(link.task.id, gt);
+        }
+        gt.evidence.push(await toGalleryEvidence(ev));
       }
-      gt.evidence.push(await toGalleryEvidence(ev));
     }
-  }
-  for (const gt of taskEvidenceMap.values()) {
-    // Chronological within a task — the reader follows work as it happened
-    gt.evidence.sort((a, b) => (a.capturedAt ?? "").localeCompare(b.capturedAt ?? ""));
-    galleryTasks.push(gt);
-  }
-  // Programme order, not alphabetical — the gallery should read like the plan
-  galleryTasks.sort(
-    (a, b) => (taskOrderIndex.get(a.id) ?? 1e9) - (taskOrderIndex.get(b.id) ?? 1e9)
-  );
+    for (const gt of taskEvidenceMap.values()) {
+      // Chronological within a task — the reader follows work as it happened
+      gt.evidence.sort((a, b) => (a.capturedAt ?? "").localeCompare(b.capturedAt ?? ""));
+      galleryTasks.push(gt);
+    }
+    // Programme order, not alphabetical — the gallery should read like the plan
+    galleryTasks.sort(
+      (a, b) => (taskOrderIndex.get(a.id) ?? 1e9) - (taskOrderIndex.get(b.id) ?? 1e9)
+    );
 
-  // Photos captured in the period but not yet linked to a task still belong
-  // in an evidence report — grouped last rather than silently dropped.
-  const unlinkedEvidence = periodEvidence.filter((ev) => ev.links.length === 0);
-  if (unlinkedEvidence.length > 0) {
-    const group: GalleryTask = {
-      id: "__unlinked__",
-      name: "Other site photos (not yet linked to a task)",
-      status: null,
-      progressPct: null,
-      evidence: [],
-    };
-    for (const ev of unlinkedEvidence) {
-      group.evidence.push(await toGalleryEvidence(ev));
+    // Photos captured in the period but not yet linked to a task still belong
+    // in an evidence report — grouped last rather than silently dropped.
+    const unlinkedEvidence = periodEvidence.filter((ev) => ev.links.length === 0);
+    if (unlinkedEvidence.length > 0) {
+      const group: GalleryTask = {
+        id: "__unlinked__",
+        name: "Other site photos (not yet linked to a task)",
+        status: null,
+        progressPct: null,
+        evidence: [],
+      };
+      for (const ev of unlinkedEvidence) {
+        group.evidence.push(await toGalleryEvidence(ev));
+      }
+      group.evidence.sort((a, b) => (a.capturedAt ?? "").localeCompare(b.capturedAt ?? ""));
+      galleryTasks.push(group);
     }
-    group.evidence.sort((a, b) => (a.capturedAt ?? "").localeCompare(b.capturedAt ?? ""));
-    galleryTasks.push(group);
   }
 
   // 9. Before/after pairs
-  const beforeAfterPairs = await generateBeforeAfterPairs(
-    db,
-    input.projectId,
-    input.periodStart,
-    input.periodEnd
-  );
+  const beforeAfterPairs = sections.beforeAfter
+    ? await generateBeforeAfterPairs(
+        db,
+        input.projectId,
+        input.periodStart,
+        input.periodEnd
+      )
+    : [];
 
   // 10. Verification stats (scoped to reporting period)
   const withExif = periodEvidence.filter((e) => e.exifData != null).length;
@@ -762,14 +775,19 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   }
 
   if (periodEvidence.length > 0) {
+    // Only cross-reference the verification page when the recipe includes it.
+    const metadataSentence = sections.verification
+      ? "Capture timestamps and camera metadata are preserved for every item — see Verification & Metadata."
+      : "Capture timestamps and camera metadata are preserved for every item.";
     paragraphs.push(
-      `Of the ${periodEvidence.length} evidence item${periodEvidence.length === 1 ? "" : "s"} captured this period, ${withGps} carr${withGps === 1 ? "ies" : "y"} GPS positions and ${gpsVerifiedByZone} ${gpsVerifiedByZone === 1 ? "was" : "were"} verified inside defined site zones. Capture timestamps and camera metadata are preserved for every item — see Verification & Metadata.`
+      `Of the ${periodEvidence.length} evidence item${periodEvidence.length === 1 ? "" : "s"} captured this period, ${withGps} carr${withGps === 1 ? "ies" : "y"} GPS positions and ${gpsVerifiedByZone} ${gpsVerifiedByZone === 1 ? "was" : "were"} verified inside defined site zones. ${metadataSentence}`
     );
   }
 
   return {
     meta,
     reportNumber,
+    sections,
     summaryStats,
     keyDates,
     keyDatesTotal: allKeyDates.length,
@@ -802,28 +820,34 @@ function joinList(items: string[], max = 5): string {
 export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherReportData>>): Promise<string> {
   // Dynamic import to avoid Turbopack's react-dom/server static analysis block
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { meta, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, narrative, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
+  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, narrative, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
     data;
 
   // Page numbers are computed in ONE pass using the same pagination
   // helpers the templates render with — footers and TOC can't disagree.
-  // Page 1 = cover, page 2 = TOC, then content; empty sections skipped.
-  const hasGallery = galleryTasks.length > 0;
-  const hasBeforeAfter = beforeAfterPairs.length > 0;
-  const hasKeyDates = keyDates.length > 0;
-  const hasLookahead = lookahead.length > 0;
+  // Page 1 = cover, then TOC when the recipe includes it, then content;
+  // sections excluded by the recipe or empty of data are skipped.
+  const hasToc = sections.toc;
+  const hasTimeline = sections.timeline;
+  const hasGallery = sections.gallery && galleryTasks.length > 0;
+  const hasBeforeAfter = sections.beforeAfter && beforeAfterPairs.length > 0;
+  const hasKeyDates = sections.keyDates && keyDates.length > 0;
+  const hasLookahead = sections.lookahead && lookahead.length > 0;
+  const hasVerification = sections.verification;
+  const hasSignOff = sections.signOff;
 
-  const summaryPage = 3;
+  const summaryPage = hasToc ? 3 : 2;
   const keyDatesPage = summaryPage + 1;
   const timelineStart = keyDatesPage + (hasKeyDates ? 1 : 0);
-  const timelinePages = timelinePageCount(timelineTasks.length);
+  const timelinePages = hasTimeline ? timelinePageCount(timelineTasks.length) : 0;
   const lookaheadPage = timelineStart + timelinePages;
   const galleryStartPage = lookaheadPage + (hasLookahead ? 1 : 0);
-  const galleryPageCount = paginateGallery(galleryTasks).length;
+  const galleryPageCount = hasGallery ? paginateGallery(galleryTasks).length : 0;
   const beforeAfterStart = galleryStartPage + galleryPageCount;
   const beforeAfterPageCount = hasBeforeAfter ? Math.ceil(beforeAfterPairs.length / 2) : 0;
   const verificationStart = beforeAfterStart + beforeAfterPageCount;
-  const signOffStart = verificationStart + verificationPageCount(verificationStats);
+  const verificationPages = hasVerification ? verificationPageCount(verificationStats) : 0;
+  const signOffStart = verificationStart + verificationPages;
 
   // Build TOC entries
   const tocEntries: TocEntry[] = [
@@ -832,7 +856,9 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   if (hasKeyDates) {
     tocEntries.push({ title: "Key Dates & Milestones", page: keyDatesPage });
   }
-  tocEntries.push({ title: "Programme Timeline", page: timelineStart });
+  if (hasTimeline) {
+    tocEntries.push({ title: "Programme Timeline", page: timelineStart });
+  }
   if (hasLookahead) {
     tocEntries.push({ title: "Lookahead — Next Period", page: lookaheadPage });
   }
@@ -842,12 +868,18 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   if (hasBeforeAfter) {
     tocEntries.push({ title: "Before & After Comparison", page: beforeAfterStart });
   }
-  tocEntries.push({ title: "Verification & Data Integrity", page: verificationStart });
-  tocEntries.push({ title: "Sign-Off", page: signOffStart });
+  if (hasVerification) {
+    tocEntries.push({ title: "Verification & Data Integrity", page: verificationStart });
+  }
+  if (hasSignOff) {
+    tocEntries.push({ title: "Sign-Off", page: signOffStart });
+  }
 
   const children = [
     createElement(CoverPage, { key: "cover", meta }),
-    createElement(TableOfContents, { key: "toc", meta, entries: tocEntries }),
+    ...(hasToc
+      ? [createElement(TableOfContents, { key: "toc", meta, entries: tocEntries })]
+      : []),
     createElement(ExecutiveSummary, {
       key: "summary",
       meta,
@@ -867,14 +899,18 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
           }),
         ]
       : []),
-    createElement(ProgrammeTimeline, {
-      key: "timeline",
-      meta,
-      tasks: timelineTasks,
-      periodStart: meta.periodStart,
-      periodEnd: meta.periodEnd,
-      startPage: timelineStart,
-    }),
+    ...(hasTimeline
+      ? [
+          createElement(ProgrammeTimeline, {
+            key: "timeline",
+            meta,
+            tasks: timelineTasks,
+            periodStart: meta.periodStart,
+            periodEnd: meta.periodEnd,
+            startPage: timelineStart,
+          }),
+        ]
+      : []),
     ...(hasLookahead
       ? [
           createElement(LookaheadPage, {
@@ -888,30 +924,47 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
           }),
         ]
       : []),
-    createElement(EvidenceGalleryPage, {
-      key: "gallery",
-      meta,
-      tasks: galleryTasks,
-      startPage: galleryStartPage,
-    }),
-    createElement(BeforeAfterPage, {
-      key: "beforeafter",
-      meta,
-      pairs: beforeAfterPairs,
-      startPage: beforeAfterStart,
-    }),
-    createElement(VerificationPage, {
-      key: "verification",
-      meta,
-      stats: verificationStats,
-      startPage: verificationStart,
-    }),
-    createElement(SignOffPage, {
-      key: "signoff",
-      meta,
-      startPage: signOffStart,
-      signatures: signatures ?? [],
-    }),
+    ...(hasGallery
+      ? [
+          createElement(EvidenceGalleryPage, {
+            key: "gallery",
+            meta,
+            tasks: galleryTasks,
+            startPage: galleryStartPage,
+          }),
+        ]
+      : []),
+    ...(hasBeforeAfter
+      ? [
+          createElement(BeforeAfterPage, {
+            key: "beforeafter",
+            meta,
+            pairs: beforeAfterPairs,
+            startPage: beforeAfterStart,
+          }),
+        ]
+      : []),
+    ...(hasVerification
+      ? [
+          createElement(VerificationPage, {
+            key: "verification",
+            meta,
+            stats: verificationStats,
+            startPage: verificationStart,
+          }),
+        ]
+      : []),
+    ...(hasSignOff
+      ? [
+          createElement(SignOffPage, {
+            key: "signoff",
+            meta,
+            startPage: signOffStart,
+            signatures: signatures ?? [],
+            hasVerificationSection: hasVerification,
+          }),
+        ]
+      : []),
   ];
 
   const html = renderToStaticMarkup(

@@ -12,10 +12,13 @@ export function SignOffPage({
   meta,
   startPage,
   signatures = [],
+  hasVerificationSection = true,
 }: {
   meta: ReportMeta;
   startPage: number;
   signatures?: SignatureData[];
+  /** Recipe-dependent: the disclaimer must not cite a section the report omits. */
+  hasVerificationSection?: boolean;
 }) {
   // Build a lookup of provided signatures by role
   const sigByRole = new Map(signatures.map((s) => [s.role, s]));
@@ -70,8 +73,10 @@ export function SignOffPage({
           <p style={{ marginBottom: 6 }}>
             Sitefile does not independently verify the physical progress on site.
             The GPS coordinates and timestamps are extracted from device metadata
-            and have not been independently verified unless explicitly stated in the
-            Verification section of this report.
+            and have not been independently verified unless explicitly stated
+            {hasVerificationSection
+              ? " in the Verification section of this report."
+              : " in this report."}
           </p>
           <p style={{ marginBottom: 6 }}>
             This document is confidential and intended solely for the parties named
