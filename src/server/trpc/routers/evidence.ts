@@ -169,7 +169,16 @@ export const evidenceRouter = createTRPCRouter({
         .select({ count: sql<number>`COUNT(*)::int` })
         .from(evidence)
         .where(and(eq(evidence.projectId, input.projectId), isNull(evidence.deletedAt)));
-      return { count: row?.count ?? 0 };
+      // Linked = photos with at least one task link; drives the
+      // report-readiness checklist's "link photos" step.
+      const [linkedRow] = await ctx.db
+        .select({
+          count: sql<number>`COUNT(DISTINCT ${evidenceLinks.evidenceId})::int`,
+        })
+        .from(evidenceLinks)
+        .innerJoin(evidence, eq(evidenceLinks.evidenceId, evidence.id))
+        .where(and(eq(evidence.projectId, input.projectId), isNull(evidence.deletedAt)));
+      return { count: row?.count ?? 0, linked: linkedRow?.count ?? 0 };
     }),
 
   list: protectedProcedure

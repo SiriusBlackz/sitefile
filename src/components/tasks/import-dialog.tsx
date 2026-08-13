@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Link from "next/link";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
+import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -426,9 +429,24 @@ export function ImportDialog({
             </div>
             <p className="text-sm text-muted-foreground">
               Your programme is loaded — dates, hierarchy and progress
-              included. Next: add photos in the Evidence tab and link them to
-              these tasks.
+              included.
             </p>
+            {/* The next step in the report journey, actionable right here —
+                a bare success message left users stranded (pilot feedback). */}
+            <div className="mt-1 flex flex-wrap justify-center gap-2">
+              <Link
+                href={`/projects/${projectId}/evidence`}
+                className={cn(buttonVariants({ size: "sm" }))}
+              >
+                Next: add site photos
+              </Link>
+              <Link
+                href={`/projects/${projectId}`}
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+              >
+                See all steps
+              </Link>
+            </div>
           </div>
         )}
 

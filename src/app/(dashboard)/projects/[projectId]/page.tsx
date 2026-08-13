@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { formatDateRange } from "@/lib/format";
 import { BillingBanner } from "@/components/projects/billing-banner";
-import { NextStepBanner } from "@/components/projects/next-step-banner";
+import { ReportChecklist } from "@/components/projects/report-checklist";
 import { getProjectStatusColor, getProjectStatusLabel } from "@/lib/project-status";
 
 // Error codes meaning "this project isn't reachable" — don't retry, show not-found.
@@ -207,11 +207,15 @@ export default function ProjectDetailPage() {
         </Card>
       </div>
 
-      {/* Next-step nudge — below header + stats so users see the project context first */}
-      <NextStepBanner
+      {/* A-to-Z report journey — below header + stats so users see the project context first */}
+      <ReportChecklist
         projectId={project.id}
         taskCount={totalTasks}
         evidenceCount={evidenceCount?.count ?? 0}
+        linkedCount={evidenceCount?.linked ?? 0}
+        reportCount={totalReports}
+        clientLogoSet={!!project.clientLogoKey}
+        isTouch={isTouch}
       />
 
       {/* Navigation Sections — Work, Intelligence, Admin (3 equal-weight sections) */}
