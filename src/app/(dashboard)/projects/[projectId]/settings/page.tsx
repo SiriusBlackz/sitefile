@@ -9,6 +9,7 @@ import { BillingBanner } from "@/components/projects/billing-banner";
 import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
 import { getProjectStatusLabel } from "@/lib/project-status";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -157,6 +158,8 @@ export default function ProjectSettingsPage() {
 
   const [addUserId, setAddUserId] = useState<string>("");
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
   const [pendingRemoval, setPendingRemoval] = useState<{
     userId: string;
     name: string;
@@ -178,6 +181,17 @@ export default function ProjectSettingsPage() {
       toast.success("Project archived");
       utils.project.list.invalidate();
       utils.project.get.invalidate({ id: params.projectId });
+      router.push("/projects");
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const deleteProject = trpc.project.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Project deleted");
+      utils.project.list.invalidate();
       router.push("/projects");
     },
     onError: (error) => {
@@ -526,7 +540,69 @@ export default function ProjectSettingsPage() {
             </>
           )}
         </CardContent>
+        {/* Delete is available in both states — archived projects are the
+            natural cleanup case, but a mistaken project shouldn't need
+            archiving first. */}
+        <CardContent className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Deleting removes this project permanently — its programme, all
+            photos and evidence files, reports and audit history. This cannot
+            be undone.
+          </p>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="shrink-0"
+            onClick={() => {
+              setDeleteConfirm("");
+              setDeleteOpen(true);
+            }}
+            disabled={deleteProject.isPending}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Delete project
+          </Button>
+        </CardContent>
       </Card>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete &ldquo;{project.name}&rdquo; permanently?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the programme, all photos and their files, every
+              generated report and the audit history — for good. Any active
+              subscription is cancelled. Type the project name to confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            placeholder={project.name}
+            aria-label="Type the project name to confirm deletion"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                deleteProject.mutate({
+                  id: params.projectId,
+                  confirmName: deleteConfirm,
+                })
+              }
+              disabled={
+                deleteProject.isPending ||
+                deleteConfirm.trim() !== project.name.trim()
+              }
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteProject.isPending ? "Deleting..." : "Delete forever"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <AlertDialogContent>

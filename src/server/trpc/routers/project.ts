@@ -13,6 +13,7 @@ import {
   createPortalSession,
   cancelSubscription,
 } from "@/server/services/stripe";
+import { inngest } from "@/server/inngest/client";
 
 export const projectRouter = createTRPCRouter({
   list: protectedProcedure
@@ -228,6 +229,60 @@ export const projectRouter = createTRPCRouter({
         .returning();
       writeAuditLogAsync(ctx.db, { projectId: input.id, userId: ctx.userId, action: "archive", entityType: "project", entityId: input.id });
       return project;
+    }),
+
+  delete: adminProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        /** Must match the project name exactly — server-side rail behind the type-to-confirm UI. */
+        confirmName: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.id, ctx.orgId, ctx.userId);
+
+      const existing = await ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.id),
+      });
+      if (!existing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      }
+      if (input.confirmName.trim() !== existing.name.trim()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Project name doesn't match — type it exactly to confirm deletion.",
+        });
+      }
+
+      if (existing.stripeSubscriptionId) {
+        try {
+          await cancelSubscription(existing.stripeSubscriptionId);
+        } catch (err) {
+          console.error("[project.delete] Failed to cancel subscription:", err);
+        }
+      }
+
+      // Every child table (tasks, zones, evidence, links, reports, members,
+      // audit log, upload intents) cascades from this delete.
+      await ctx.db.delete(projects).where(eq(projects.id, input.id));
+
+      // Stored files (photos, thumbnails, report PDFs, client logo) are
+      // removed async — the privacy policy promises real deletion, so a
+      // failure to even queue the cleanup is logged loudly for follow-up.
+      try {
+        await inngest.send({
+          name: "project/deleted",
+          data: { projectId: input.id },
+        });
+      } catch (err) {
+        console.error(
+          `[project.delete] Storage cleanup event failed — objects orphaned under projects/${input.id}/`,
+          err
+        );
+      }
+
+      return { ok: true };
     }),
 
   createPortalSession: protectedProcedure

@@ -3,6 +3,8 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { join, dirname } from "path";
@@ -241,4 +243,51 @@ export async function fetchFromStorage(
   } catch {
     return null;
   }
+}
+
+/**
+ * Delete every stored object under a prefix — used when a project is
+ * deleted so its photos, thumbnails, report PDFs and client logo don't
+ * orphan in R2. The prefix guard is a hard safety rail: only per-project
+ * subtrees are deletable through this function, so a bug can never
+ * escalate into a bucket-wide wipe.
+ */
+export async function deleteStoragePrefix(prefix: string): Promise<number> {
+  if (!/^projects\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/$/i.test(prefix)) {
+    throw new Error(`deleteStoragePrefix: refusing non-project prefix "${prefix}"`);
+  }
+
+  if (!isR2Configured) {
+    const { rm } = await import("fs/promises");
+    await rm(join(getLocalUploadDir(), prefix), { recursive: true, force: true });
+    return 0;
+  }
+
+  const client = getS3Client();
+  const bucket = process.env.R2_BUCKET_NAME!;
+  let deleted = 0;
+  let token: string | undefined;
+  do {
+    const list = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: token,
+      })
+    );
+    const objects = (list.Contents ?? [])
+      .map((o) => ({ Key: o.Key }))
+      .filter((o): o is { Key: string } => !!o.Key);
+    if (objects.length > 0) {
+      await client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: objects },
+        })
+      );
+      deleted += objects.length;
+    }
+    token = list.IsTruncated ? list.NextContinuationToken : undefined;
+  } while (token);
+  return deleted;
 }
