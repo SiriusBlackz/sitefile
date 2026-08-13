@@ -34,6 +34,7 @@ const ACTION_LABELS: Record<string, string> = {
   link: "linked",
   unlink: "unlinked",
   generate: "generated",
+  draft_narrative: "drafted a narrative for",
   import: "imported",
   download: "downloaded",
 };

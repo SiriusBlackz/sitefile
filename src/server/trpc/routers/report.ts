@@ -9,6 +9,7 @@ import { writeAuditLogAsync } from "@/server/services/audit";
 import { signReportToken } from "@/server/services/report-tokens";
 import { encryptReportPassword } from "@/server/services/report-password-crypto";
 import { REPORT_SECTION_KEYS } from "@/lib/report-sections";
+import { draftNarrative } from "@/server/services/narrative-draft";
 import bcrypt from "bcryptjs";
 
 const sectionsSchema = z
@@ -79,6 +80,7 @@ export const reportRouter = createTRPCRouter({
           periodEnd: z.string().min(1),
           password: z.string().optional(),
           sections: sectionsSchema.optional(),
+          narrative: z.array(z.string().trim().min(1).max(4000)).max(12).optional(),
           signatures: z.array(z.object({
             role: z.enum(["contractor", "project_manager", "client"]),
             name: z.string().min(1),
@@ -192,6 +194,7 @@ export const reportRouter = createTRPCRouter({
             generatedBy: ctx.userId,
             signatures: input.signatures,
             sections: input.sections,
+            narrative: input.narrative,
           },
         });
       } catch (err) {
@@ -210,6 +213,38 @@ export const reportRouter = createTRPCRouter({
       writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "generate", entityType: "report", entityId: report.id, metadata: { reportNumber, periodStart: input.periodStart, periodEnd: input.periodEnd, sections: input.sections } });
       // Never return the full row: it carries passwordHash.
       return { id: report.id, reportNumber, status: report.status };
+    }),
+
+  draftNarrative: protectedProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().uuid(),
+          periodStart: z.string().min(1),
+          periodEnd: z.string().min(1),
+        })
+        .refine((d) => d.periodEnd >= d.periodStart, {
+          message: "Period end must be on or after period start",
+          path: ["periodEnd"],
+        })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const result = await draftNarrative(ctx.db, {
+        projectId: input.projectId,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        generatedBy: ctx.userId,
+      });
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.projectId,
+        userId: ctx.userId,
+        action: "draft_narrative",
+        entityType: "project",
+        entityId: input.projectId,
+        metadata: { periodStart: input.periodStart, periodEnd: input.periodEnd },
+      });
+      return result;
     }),
 
   download: protectedProcedure

@@ -19,6 +19,7 @@ import { ReportShell, type ReportMeta } from "@/components/reports/templates/rep
 import { CoverPage } from "@/components/reports/templates/cover-page";
 import {
   ExecutiveSummary,
+  summaryPageCount,
   type SummaryStats,
 } from "@/components/reports/templates/executive-summary";
 import {
@@ -70,6 +71,12 @@ export interface GenerateReportInput {
    * project's frequency recipe; omitted keys fall back to that recipe.
    */
   sections?: Partial<ReportSections>;
+  /**
+   * PM-approved narrative paragraphs (AI-drafted then edited in the
+   * generate dialog). When present these replace the deterministic
+   * narrative; when absent the deterministic engine's prose is used.
+   */
+  narrative?: string[];
 }
 
 /**
@@ -795,7 +802,9 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     lookahead,
     lookaheadTotal: allLookahead.length,
     lookaheadWindow: { start: lookaheadStart, end: lookaheadEnd },
-    narrative: { paragraphs },
+    narrative: {
+      paragraphs: input.narrative?.length ? input.narrative : paragraphs,
+    },
     timelineTasks,
     galleryTasks,
     beforeAfterPairs,
@@ -837,7 +846,8 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const hasSignOff = sections.signOff;
 
   const summaryPage = hasToc ? 3 : 2;
-  const keyDatesPage = summaryPage + 1;
+  const summaryPages = summaryPageCount(narrative, summaryStats);
+  const keyDatesPage = summaryPage + summaryPages;
   const timelineStart = keyDatesPage + (hasKeyDates ? 1 : 0);
   const timelinePages = hasTimeline ? timelinePageCount(timelineTasks.length) : 0;
   const lookaheadPage = timelineStart + timelinePages;

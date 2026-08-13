@@ -15,6 +15,7 @@ export type AuditAction =
   | "link"
   | "unlink"
   | "generate"
+  | "draft_narrative"
   | "import"
   | "subscribe"
   | "payment_failed"

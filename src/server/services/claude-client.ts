@@ -23,3 +23,7 @@ export function getAnthropicClient(): Anthropic {
 
 // Latest Sonnet (per CLAUDE.md model guidance — supports PDF input natively).
 export const CLAUDE_MODEL_PDF = "claude-sonnet-4-6";
+
+// Narrative drafting uses the same Sonnet tier — prose quality at report
+// scale doesn't need Opus, and cost stays negligible per report.
+export const CLAUDE_MODEL_NARRATIVE = "claude-sonnet-4-6";

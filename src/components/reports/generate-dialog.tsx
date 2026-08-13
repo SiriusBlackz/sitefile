@@ -13,8 +13,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Pen, X } from "lucide-react";
+import { Pen, Sparkles, X } from "lucide-react";
 import { SignaturePad } from "./signature-pad";
 import {
   REPORT_SECTION_KEYS,
@@ -80,6 +81,10 @@ export function GenerateDialog({
   const [password, setPassword] = useState("");
   const [signatures, setSignatures] = useState<SignatureInput[]>([]);
   const [drawingRole, setDrawingRole] = useState<string | null>(null);
+  // Narrative: AI drafts once, PM edits are preserved; Re-draft is explicit.
+  // Empty = the report uses the deterministic auto-written summary.
+  const [narrative, setNarrative] = useState("");
+  const [lastDraft, setLastDraft] = useState<string | null>(null);
   // Section recipe: defaults follow the project's reporting frequency
   // (weekly/fortnightly get the lean pack); overrides are per-run only.
   const [sectionOverrides, setSectionOverrides] = useState<Partial<ReportSections>>({});
@@ -97,6 +102,31 @@ export function GenerateDialog({
     onError: (err) => toast.error(err.message),
   });
 
+  const draftMutation = trpc.report.draftNarrative.useMutation({
+    onSuccess: (data) => {
+      const text = data.paragraphs.join("\n\n");
+      setNarrative(text);
+      setLastDraft(text);
+      toast.success("Narrative drafted — review and edit before generating");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  function handleDraft() {
+    if (!periodStart || !periodEnd) {
+      toast.error("Select the reporting period first");
+      return;
+    }
+    if (
+      narrative.trim() &&
+      narrative !== lastDraft &&
+      !window.confirm("Replace your edited narrative with a fresh AI draft?")
+    ) {
+      return;
+    }
+    draftMutation.mutate({ projectId, periodStart, periodEnd });
+  }
+
   function handleClose() {
     setPeriodStart(defaults.start);
     setPeriodEnd(defaults.end);
@@ -104,6 +134,8 @@ export function GenerateDialog({
     setSignatures([]);
     setDrawingRole(null);
     setSectionOverrides({});
+    setNarrative("");
+    setLastDraft(null);
     onOpenChange(false);
   }
 
@@ -114,6 +146,7 @@ export function GenerateDialog({
       periodStart !== defaults.start ||
       periodEnd !== defaults.end ||
       password !== "" ||
+      narrative.trim() !== "" ||
       REPORT_SECTION_KEYS.some(
         (key) => sections[key] !== recipeDefaults[key]
       ) ||
@@ -141,6 +174,11 @@ export function GenerateDialog({
         imageDataUrl: s.imageDataUrl,
       }));
 
+    const narrativeParagraphs = narrative
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
     generateMutation.mutate({
       projectId,
       periodStart,
@@ -149,6 +187,7 @@ export function GenerateDialog({
       // Send the fully resolved set, not just overrides — the server
       // falls back to its own recipe, and this pins what the user saw.
       sections,
+      narrative: narrativeParagraphs.length > 0 ? narrativeParagraphs : undefined,
       signatures: validSignatures.length > 0 ? validSignatures : undefined,
     });
   }
@@ -211,6 +250,40 @@ export function GenerateDialog({
               to the start of works.
             </p>
           )}
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="report-narrative">Narrative (optional)</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onClick={handleDraft}
+                disabled={draftMutation.isPending}
+              >
+                <Sparkles className="mr-1 h-3.5 w-3.5" />
+                {draftMutation.isPending
+                  ? "Drafting..."
+                  : lastDraft
+                    ? "Re-draft"
+                    : "Draft with AI"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Drafts professional report prose from your programme and evidence
+              for the selected period — review and edit it freely before
+              generating. Leave blank to use the standard auto-written summary.
+            </p>
+            {(narrative !== "" || lastDraft !== null) && (
+              <Textarea
+                id="report-narrative"
+                value={narrative}
+                onChange={(e) => setNarrative(e.target.value)}
+                rows={10}
+                placeholder="Narrative paragraphs, separated by blank lines"
+              />
+            )}
+          </div>
 
           <div className="space-y-3">
             <Label>Report sections</Label>
