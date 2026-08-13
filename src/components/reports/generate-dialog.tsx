@@ -15,7 +15,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Pen, Sparkles, X } from "lucide-react";
+import { Lightbulb, Pen, Sparkles, X } from "lucide-react";
 import { SignaturePad } from "./signature-pad";
 import {
   REPORT_SECTION_KEYS,
@@ -85,6 +85,8 @@ export function GenerateDialog({
   // Empty = the report uses the deterministic auto-written summary.
   const [narrative, setNarrative] = useState("");
   const [lastDraft, setLastDraft] = useState<string | null>(null);
+  // Key issues: seeded from programme risks, edited by the PM; one per line.
+  const [keyIssues, setKeyIssues] = useState("");
   // Section recipe: defaults follow the project's reporting frequency
   // (weekly/fortnightly get the lean pack); overrides are per-run only.
   const [sectionOverrides, setSectionOverrides] = useState<Partial<ReportSections>>({});
@@ -112,6 +114,28 @@ export function GenerateDialog({
     onError: (err) => toast.error(err.message),
   });
 
+  const suggestMutation = trpc.report.keyIssueSuggestions.useMutation({
+    onSuccess: (data) => {
+      if (data.suggestions.length === 0) {
+        toast.info("No programme risks found for this period — add issues manually");
+        return;
+      }
+      // Append below whatever the PM already wrote, never overwrite.
+      setKeyIssues((prev) =>
+        [prev.trim(), ...data.suggestions].filter(Boolean).join("\n")
+      );
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  function handleSuggestIssues() {
+    if (!periodStart || !periodEnd) {
+      toast.error("Select the reporting period first");
+      return;
+    }
+    suggestMutation.mutate({ projectId, periodStart, periodEnd });
+  }
+
   function handleDraft() {
     if (!periodStart || !periodEnd) {
       toast.error("Select the reporting period first");
@@ -136,6 +160,7 @@ export function GenerateDialog({
     setSectionOverrides({});
     setNarrative("");
     setLastDraft(null);
+    setKeyIssues("");
     onOpenChange(false);
   }
 
@@ -147,6 +172,7 @@ export function GenerateDialog({
       periodEnd !== defaults.end ||
       password !== "" ||
       narrative.trim() !== "" ||
+      keyIssues.trim() !== "" ||
       REPORT_SECTION_KEYS.some(
         (key) => sections[key] !== recipeDefaults[key]
       ) ||
@@ -178,6 +204,10 @@ export function GenerateDialog({
       .split(/\n\s*\n/)
       .map((p) => p.trim())
       .filter(Boolean);
+    const keyIssuesList = keyIssues
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
 
     generateMutation.mutate({
       projectId,
@@ -188,6 +218,7 @@ export function GenerateDialog({
       // falls back to its own recipe, and this pins what the user saw.
       sections,
       narrative: narrativeParagraphs.length > 0 ? narrativeParagraphs : undefined,
+      keyIssues: keyIssuesList.length > 0 ? keyIssuesList : undefined,
       signatures: validSignatures.length > 0 ? validSignatures : undefined,
     });
   }
@@ -283,6 +314,35 @@ export function GenerateDialog({
                 placeholder="Narrative paragraphs, separated by blank lines"
               />
             )}
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="report-key-issues">Key issues (optional)</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onClick={handleSuggestIssues}
+                disabled={suggestMutation.isPending}
+              >
+                <Lightbulb className="mr-1 h-3.5 w-3.5" />
+                {suggestMutation.isPending ? "Checking..." : "Suggest from programme"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              One issue per line — early warnings, holdups, decisions awaited.
+              Suggestions from the programme (delays, overdue activities) are
+              added below anything you&apos;ve written. Leave blank to omit the
+              section.
+            </p>
+            <Textarea
+              id="report-key-issues"
+              value={keyIssues}
+              onChange={(e) => setKeyIssues(e.target.value)}
+              rows={4}
+              placeholder="e.g. Awaiting client sign-off on window specification"
+            />
           </div>
 
           <div className="space-y-3">

@@ -29,7 +29,7 @@ export const generateReport = inngest.createFunction(
     },
   },
   async ({ event, step }) => {
-    const { reportId, projectId, periodStart, periodEnd, generatedBy, signatures, sections, narrative } =
+    const { reportId, projectId, periodStart, periodEnd, generatedBy, signatures, sections, narrative, keyIssues } =
       event.data as {
         reportId: string;
         projectId: string;
@@ -39,6 +39,7 @@ export const generateReport = inngest.createFunction(
         signatures?: { role: "contractor" | "project_manager" | "client"; name: string; title?: string; date?: string; imageDataUrl?: string }[];
         sections?: Partial<import("@/lib/report-sections").ReportSections>;
         narrative?: string[];
+        keyIssues?: string[];
       };
 
     // Single heavy step: gather → render → PDF → upload. Deliberately NOT
@@ -64,6 +65,7 @@ export const generateReport = inngest.createFunction(
         signatures,
         sections,
         narrative,
+        keyIssues,
         reportNumber: existing.reportNumber,
       });
       const html = await renderReportHTML(reportData);

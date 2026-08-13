@@ -41,6 +41,7 @@ import {
 import { SignOffPage } from "@/components/reports/templates/sign-off";
 import { TableOfContents, type TocEntry } from "@/components/reports/templates/table-of-contents";
 import { KeyDatesPage, type KeyDateEntry } from "@/components/reports/templates/key-dates";
+import { KeyIssuesPage } from "@/components/reports/templates/key-issues";
 import { LookaheadPage, type LookaheadEntry } from "@/components/reports/templates/lookahead";
 
 type DB = typeof dbType;
@@ -77,6 +78,11 @@ export interface GenerateReportInput {
    * narrative; when absent the deterministic engine's prose is used.
    */
   narrative?: string[];
+  /**
+   * PM's key issues list (seeded from programme risks in the dialog,
+   * then edited). Rendered as its own section when non-empty.
+   */
+  keyIssues?: string[];
 }
 
 /**
@@ -805,6 +811,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     narrative: {
       paragraphs: input.narrative?.length ? input.narrative : paragraphs,
     },
+    keyIssues: input.keyIssues ?? [],
     timelineTasks,
     galleryTasks,
     beforeAfterPairs,
@@ -829,7 +836,7 @@ function joinList(items: string[], max = 5): string {
 export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherReportData>>): Promise<string> {
   // Dynamic import to avoid Turbopack's react-dom/server static analysis block
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, narrative, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
+  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, narrative, keyIssues, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
     data;
 
   // Page numbers are computed in ONE pass using the same pagination
@@ -840,6 +847,7 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const hasTimeline = sections.timeline;
   const hasGallery = sections.gallery && galleryTasks.length > 0;
   const hasBeforeAfter = sections.beforeAfter && beforeAfterPairs.length > 0;
+  const hasKeyIssues = sections.keyIssues && keyIssues.length > 0;
   const hasKeyDates = sections.keyDates && keyDates.length > 0;
   const hasLookahead = sections.lookahead && lookahead.length > 0;
   const hasVerification = sections.verification;
@@ -847,7 +855,8 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
 
   const summaryPage = hasToc ? 3 : 2;
   const summaryPages = summaryPageCount(narrative, summaryStats);
-  const keyDatesPage = summaryPage + summaryPages;
+  const keyIssuesPage = summaryPage + summaryPages;
+  const keyDatesPage = keyIssuesPage + (hasKeyIssues ? 1 : 0);
   const timelineStart = keyDatesPage + (hasKeyDates ? 1 : 0);
   const timelinePages = hasTimeline ? timelinePageCount(timelineTasks.length) : 0;
   const lookaheadPage = timelineStart + timelinePages;
@@ -863,6 +872,9 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const tocEntries: TocEntry[] = [
     { title: "Executive Summary", page: summaryPage },
   ];
+  if (hasKeyIssues) {
+    tocEntries.push({ title: "Key Issues & Early Warnings", page: keyIssuesPage });
+  }
   if (hasKeyDates) {
     tocEntries.push({ title: "Key Dates & Milestones", page: keyDatesPage });
   }
@@ -897,6 +909,16 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
       narrative,
       startPage: summaryPage,
     }),
+    ...(hasKeyIssues
+      ? [
+          createElement(KeyIssuesPage, {
+            key: "keyissues",
+            meta,
+            issues: keyIssues,
+            startPage: keyIssuesPage,
+          }),
+        ]
+      : []),
     ...(hasKeyDates
       ? [
           createElement(KeyDatesPage, {
