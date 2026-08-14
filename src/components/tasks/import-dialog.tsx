@@ -360,10 +360,11 @@ export function ImportDialog({
               <FileUp className="h-8 w-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
                 {fileName ||
-                  "Select an Excel (.xlsx), PDF, or XML programme"}
+                  "Select your programme: MS Project / P6 (XML export), Excel (.xlsx), or PDF"}
               </p>
               <p className="text-xs text-muted-foreground/70">
-                PDF uses AI extraction (10-30s). MS Project users: File → Save As → XML.
+                MS Project: File → Save As → XML. Primavera P6: File → Export →
+                XML. PDF uses AI extraction (10–30s).
               </p>
               <input
                 ref={fileInputRef}
@@ -431,22 +432,14 @@ export function ImportDialog({
               Your programme is loaded — dates, hierarchy and progress
               included.
             </p>
-            {/* The next step in the report journey, actionable right here —
-                a bare success message left users stranded (pilot feedback). */}
-            <div className="mt-1 flex flex-wrap justify-center gap-2">
-              <Link
-                href={`/projects/${projectId}/evidence`}
-                className={cn(buttonVariants({ size: "sm" }))}
-              >
-                Next: add site photos
-              </Link>
-              <Link
-                href={`/projects/${projectId}`}
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-              >
-                See all steps
-              </Link>
-            </div>
+            {/* Forward motion lives in the footer (Next step / Save and
+                continue later) — the body only offers the overview. */}
+            <Link
+              href={`/projects/${projectId}`}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-1")}
+            >
+              See all steps
+            </Link>
           </div>
         )}
 
@@ -560,7 +553,8 @@ export function ImportDialog({
                   <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
                   <div>
                     <p className="font-medium text-amber-900 dark:text-amber-200">
-                      AI confidence: {Math.round(preview.confidence * 100)}%
+                      AI confidence:{" "}
+                      {preview.confidence < 0.4 ? "Low" : "Medium"}
                     </p>
                     <p className="text-amber-800 dark:text-amber-300/90 mt-0.5">
                       Review every row carefully — the source PDF was difficult
@@ -763,7 +757,17 @@ export function ImportDialog({
             </Button>
           )}
           {importedCount !== null && (
-            <Button onClick={handleClose}>Done</Button>
+            <>
+              <Button variant="outline" onClick={handleClose}>
+                Save and continue later
+              </Button>
+              <Link
+                href={`/projects/${projectId}/evidence`}
+                className={cn(buttonVariants())}
+              >
+                Next step: add site photos →
+              </Link>
+            </>
           )}
           {preview && importedCount === null && (
             <Button

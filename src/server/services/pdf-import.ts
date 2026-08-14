@@ -89,6 +89,9 @@ export async function parsePdfBuffer(buf: Buffer): Promise<PdfParseResult> {
   const response = await anthropic.messages.create({
     model: CLAUDE_MODEL_PDF,
     max_tokens: 8192,
+    // Deterministic-as-possible: the same PDF re-imported should not report
+    // a visibly different confidence between runs.
+    temperature: 0,
     system: SYSTEM_PROMPT,
     tools: [SUBMIT_TOOL],
     tool_choice: { type: "tool", name: "submit_programme" },
