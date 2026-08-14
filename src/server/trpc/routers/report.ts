@@ -88,6 +88,16 @@ export const reportRouter = createTRPCRouter({
           keyIssues: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           keyRisks: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           coverEvidenceId: z.string().uuid().optional(),
+          healthSafety: z
+            .object({
+              accidents: z.number().int().min(0).max(9999),
+              nearMisses: z.number().int().min(0).max(9999),
+              riddor: z.number().int().min(0).max(9999),
+              toolboxTalks: z.number().int().min(0).max(9999),
+              inductions: z.number().int().min(0).max(9999),
+              note: z.string().trim().max(1000).optional(),
+            })
+            .optional(),
           signatures: z.array(z.object({
             role: z.enum(["contractor", "project_manager", "client"]),
             name: z.string().min(1),
@@ -205,6 +215,7 @@ export const reportRouter = createTRPCRouter({
             keyIssues: input.keyIssues,
             keyRisks: input.keyRisks,
             coverEvidenceId: input.coverEvidenceId,
+            healthSafety: input.healthSafety,
           },
         });
       } catch (err) {
@@ -240,6 +251,16 @@ export const reportRouter = createTRPCRouter({
           keyIssues: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           keyRisks: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           coverEvidenceId: z.string().uuid().optional(),
+          healthSafety: z
+            .object({
+              accidents: z.number().int().min(0).max(9999),
+              nearMisses: z.number().int().min(0).max(9999),
+              riddor: z.number().int().min(0).max(9999),
+              toolboxTalks: z.number().int().min(0).max(9999),
+              inductions: z.number().int().min(0).max(9999),
+              note: z.string().trim().max(1000).optional(),
+            })
+            .optional(),
           signatures: z.array(z.object({
             role: z.enum(["contractor", "project_manager", "client"]),
             name: z.string().min(1),
@@ -272,6 +293,7 @@ export const reportRouter = createTRPCRouter({
         keyIssues: input.keyIssues,
         keyRisks: input.keyRisks,
         coverEvidenceId: input.coverEvidenceId,
+        healthSafety: input.healthSafety,
         signatures: input.signatures,
       });
       const html = await renderReportHTML(data);
@@ -355,7 +377,8 @@ export const reportRouter = createTRPCRouter({
         periodEnd: input.periodEnd,
         generatedBy: ctx.userId,
         reportNumber: 0,
-        sections: { gallery: false, beforeAfter: false },
+        includeWeather: false,
+        sections: { gallery: false, beforeAfter: false, photoMap: false },
       });
       return { suggestions: data.summaryStats.keyRisks };
     }),

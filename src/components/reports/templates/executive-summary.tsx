@@ -1,4 +1,22 @@
 import { PageFooter, type ReportMeta } from "./report-shell";
+import type { PeriodWeather } from "@/server/services/weather";
+
+export interface SinceLastReport {
+  reportNumber: number;
+  periodEnd: string;
+  completedDelta: number;
+  progressDelta: number;
+  newEvidence: number;
+}
+
+export interface HealthSafetyStats {
+  accidents: number;
+  nearMisses: number;
+  riddor: number;
+  toolboxTalks: number;
+  inductions: number;
+  note?: string;
+}
 
 export interface SummaryStats {
   totalTasks: number;
@@ -12,6 +30,12 @@ export interface SummaryStats {
   totalEvidence: number;
   evidenceThisPeriod: number;
   keyRisks: string[];
+  /** Movement since the previous completed report, when one exists. */
+  sinceLastReport?: SinceLastReport | null;
+  /** Period weather at the site location, when derivable. */
+  weather?: PeriodWeather | null;
+  /** PM-entered H&S figures, when provided. */
+  healthSafety?: HealthSafetyStats | null;
 }
 
 export interface ReportNarrative {
@@ -37,11 +61,18 @@ const EVIDENCE_H = 78; // heading + line + margin
 const paraHeight = (text: string) => Math.ceil(text.length / 110) * 19 + 10;
 const riskHeight = (text: string) => Math.ceil(text.length / 105) * 20 + 6;
 
+const DELTA_STRIP_H = 46;
+const WEATHER_H = 100; // heading + two lines + source note
+const HS_H = 130; // heading + stat row + optional note
+
 type SummaryItem =
   | { type: "para"; text: string; withHeading: boolean }
   | { type: "stats" }
+  | { type: "delta" }
   | { type: "table" }
   | { type: "evidence" }
+  | { type: "weather" }
+  | { type: "hs" }
   | { type: "risk"; text: string; withHeading: boolean };
 
 export function paginateSummary(
@@ -58,8 +89,17 @@ export function paginateSummary(
     });
   });
   blocks.push({ item: { type: "stats" }, height: STAT_CARDS_H });
+  if (stats.sinceLastReport) {
+    blocks.push({ item: { type: "delta" }, height: DELTA_STRIP_H });
+  }
   blocks.push({ item: { type: "table" }, height: TASK_TABLE_H });
   blocks.push({ item: { type: "evidence" }, height: EVIDENCE_H });
+  if (stats.weather) {
+    blocks.push({ item: { type: "weather" }, height: WEATHER_H });
+  }
+  if (stats.healthSafety) {
+    blocks.push({ item: { type: "hs" }, height: HS_H });
+  }
   stats.keyRisks.forEach((r, i) => {
     blocks.push({
       item: { type: "risk", text: r, withHeading: i === 0 },
@@ -141,8 +181,20 @@ function renderItem(item: SummaryItem, key: number, stats: SummaryStats) {
       );
     case "stats":
       return <StatCards key={key} stats={stats} />;
+    case "delta":
+      return stats.sinceLastReport ? (
+        <DeltaStrip key={key} delta={stats.sinceLastReport} />
+      ) : null;
     case "table":
       return <TaskTable key={key} stats={stats} />;
+    case "weather":
+      return stats.weather ? (
+        <WeatherBlock key={key} weather={stats.weather} />
+      ) : null;
+    case "hs":
+      return stats.healthSafety ? (
+        <HealthSafetyBlock key={key} hs={stats.healthSafety} />
+      ) : null;
     case "evidence":
       return (
         <div key={key}>
@@ -266,6 +318,120 @@ function TaskTable({ stats }: { stats: SummaryStats }) {
           </tr>
         </tfoot>
       </table>
+    </div>
+  );
+}
+
+function DeltaStrip({ delta }: { delta: SinceLastReport }) {
+  const sign = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+  return (
+    <div
+      style={{
+        margin: "0 0 20px",
+        padding: "9px 14px",
+        borderRadius: 8,
+        border: "1px solid #e2e8f0",
+        borderLeft: "3px solid var(--brand)",
+        background: "#f8fafc",
+        fontSize: 10.5,
+        color: "#334155",
+      }}
+    >
+      <strong>Since Report #{delta.reportNumber}</strong> (period ended{" "}
+      {formatPeriodDate(delta.periodEnd)}):{" "}
+      {sign(delta.completedDelta)} activit
+      {Math.abs(delta.completedDelta) === 1 ? "y" : "ies"} completed
+      {" · "}overall progress {sign(delta.progressDelta)}%{" · "}
+      {delta.newEvidence} new photo{delta.newEvidence === 1 ? "" : "s"}
+    </div>
+  );
+}
+
+function WeatherBlock({ weather }: { weather: PeriodWeather }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <h3>Weather — Reporting Period</h3>
+      <div style={{ fontSize: 11, lineHeight: 1.7, color: "#1e293b" }}>
+        Rainfall of at least 1mm fell on <strong>{weather.wetDays}</strong> of{" "}
+        {weather.daysCovered} recorded day{weather.daysCovered === 1 ? "" : "s"}
+        {weather.heavyRainDays > 0 && (
+          <>
+            , including <strong>{weather.heavyRainDays}</strong> day
+            {weather.heavyRainDays === 1 ? "" : "s"} of heavy rain (≥10mm)
+          </>
+        )}
+        ; total precipitation <strong>{weather.totalPrecipMm}mm</strong>.
+        Temperatures ranged {weather.minTempC}°C to {weather.maxTempC}°C
+        {weather.frostDays > 0 && (
+          <>
+            , with <strong>{weather.frostDays}</strong> air-frost day
+            {weather.frostDays === 1 ? "" : "s"}
+          </>
+        )}
+        .
+      </div>
+      <div style={{ fontSize: 8.5, color: "#94a3b8", marginTop: 4 }}>
+        Source: Open-Meteo historical weather for the site location
+        {weather.daysCovered < weather.totalDays
+          ? ` (${weather.daysCovered} of ${weather.totalDays} period days with data)`
+          : ""}
+        .
+      </div>
+    </div>
+  );
+}
+
+function HealthSafetyBlock({ hs }: { hs: HealthSafetyStats }) {
+  const items = [
+    { label: "Accidents", value: hs.accidents, alert: hs.accidents > 0 },
+    { label: "Near Misses", value: hs.nearMisses, alert: hs.nearMisses > 0 },
+    { label: "RIDDOR", value: hs.riddor, alert: hs.riddor > 0 },
+    { label: "Toolbox Talks", value: hs.toolboxTalks, alert: false },
+    { label: "Inductions", value: hs.inductions, alert: false },
+  ];
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <h3>Health &amp; Safety</h3>
+      <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
+        {items.map((it) => (
+          <div
+            key={it.label}
+            style={{
+              flex: 1,
+              padding: "8px 10px",
+              border: "1px solid #e2e8f0",
+              borderRadius: 8,
+              background: it.alert ? "#fef2f2" : "#fff",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 8,
+                color: "#64748b",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginBottom: 2,
+              }}
+            >
+              {it.label}
+            </div>
+            <div
+              style={{
+                fontSize: 16,
+                fontWeight: 700,
+                color: it.alert ? "#991b1b" : "#0f172a",
+              }}
+            >
+              {it.value}
+            </div>
+          </div>
+        ))}
+      </div>
+      {hs.note && (
+        <div style={{ fontSize: 10.5, color: "#334155", lineHeight: 1.6 }}>
+          {hs.note}
+        </div>
+      )}
     </div>
   );
 }

@@ -261,6 +261,18 @@ export function GenerateDialog({
   // the real derived list rather than typing blind.
   const [keyRisksEdit, setKeyRisksEdit] = useState<string[] | null>(null);
   const [riskDraft, setRiskDraft] = useState("");
+  // Health & Safety figures — all-empty means the report omits the block.
+  const emptyHs = {
+    accidents: "",
+    nearMisses: "",
+    riddor: "",
+    toolboxTalks: "",
+    inductions: "",
+    note: "",
+  };
+  const [hs, setHs] = useState({ ...emptyHs });
+  const hsTouched = Object.values(hs).some((v) => v.trim() !== "");
+
   // Cover hero photo — per report, optional; null keeps today's cover.
   const [coverEvidenceId, setCoverEvidenceId] = useState<string | null>(null);
   const { data: coverPhotoData } = trpc.evidence.list.useInfiniteQuery(
@@ -388,6 +400,7 @@ export function GenerateDialog({
     setKeyRisksEdit(null);
     setRiskDraft("");
     setCoverEvidenceId(null);
+    setHs({ ...emptyHs });
     onOpenChange(false);
   }
 
@@ -405,6 +418,7 @@ export function GenerateDialog({
         (key) => sections[key] !== recipeDefaults[key]
       ) ||
       coverEvidenceId !== null ||
+      hsTouched ||
       signatures.some((s) => s.name.trim() || s.title.trim() || s.imageDataUrl);
     if (isDirty && !window.confirm("Discard report setup?")) return;
     handleClose();
@@ -456,6 +470,16 @@ export function GenerateDialog({
       keyIssues: keyIssuesList.length > 0 ? keyIssuesList : undefined,
       keyRisks: keyRisksList,
       coverEvidenceId: coverEvidenceId ?? undefined,
+      healthSafety: hsTouched
+        ? {
+            accidents: Number(hs.accidents) || 0,
+            nearMisses: Number(hs.nearMisses) || 0,
+            riddor: Number(hs.riddor) || 0,
+            toolboxTalks: Number(hs.toolboxTalks) || 0,
+            inductions: Number(hs.inductions) || 0,
+            note: hs.note.trim() || undefined,
+          }
+        : undefined,
       signatures: validSignatures.length > 0 ? validSignatures : undefined,
     };
   }
@@ -749,6 +773,52 @@ export function GenerateDialog({
               photos={coverPhotos}
               value={coverEvidenceId}
               onChange={setCoverEvidenceId}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Health &amp; Safety (optional)</Label>
+            <p className="text-xs text-muted-foreground">
+              Appears as a Health &amp; Safety block on the Executive Summary.
+              Leave everything empty to omit it.
+            </p>
+            <div className="grid grid-cols-3 gap-2 md:grid-cols-5">
+              {(
+                [
+                  ["accidents", "Accidents"],
+                  ["nearMisses", "Near misses"],
+                  ["riddor", "RIDDOR"],
+                  ["toolboxTalks", "Toolbox talks"],
+                  ["inductions", "Inductions"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="space-y-1">
+                  <Label
+                    htmlFor={`hs-${key}`}
+                    className="text-xs font-normal text-muted-foreground"
+                  >
+                    {label}
+                  </Label>
+                  <Input
+                    id={`hs-${key}`}
+                    type="number"
+                    min={0}
+                    value={hs[key]}
+                    onChange={(e) =>
+                      setHs((prev) => ({ ...prev, [key]: e.target.value }))
+                    }
+                    placeholder="0"
+                  />
+                </div>
+              ))}
+            </div>
+            <Input
+              id="hs-note"
+              value={hs.note}
+              onChange={(e) =>
+                setHs((prev) => ({ ...prev, note: e.target.value }))
+              }
+              placeholder="Optional note — e.g. Fire drill completed 12 Aug; no incidents"
             />
           </div>
 

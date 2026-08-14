@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { eq, and, or, gte, lte, asc, desc, isNull, sql } from "drizzle-orm";
+import { eq, and, or, gte, lte, lt, asc, desc, isNull, sql } from "drizzle-orm";
 import {
   projects,
   tasks,
@@ -10,6 +10,7 @@ import {
 } from "@/server/db/schema";
 import { getReadUrl } from "./storage";
 import { generateBeforeAfterPairs } from "./before-after";
+import { fetchPeriodWeather, deriveSiteCoords } from "./weather";
 import { formatDate, formatDateRange } from "@/lib/format";
 import { resolveSections, type ReportSections } from "@/lib/report-sections";
 import type { db as dbType } from "@/server/db";
@@ -43,6 +44,7 @@ import { TableOfContents, type TocEntry } from "@/components/reports/templates/t
 import { KeyDatesPage, type KeyDateEntry } from "@/components/reports/templates/key-dates";
 import { KeyIssuesPage } from "@/components/reports/templates/key-issues";
 import { LookaheadPage, type LookaheadEntry } from "@/components/reports/templates/lookahead";
+import { PhotoMapPage, type PhotoMapData } from "@/components/reports/templates/photo-map";
 
 type DB = typeof dbType;
 
@@ -95,6 +97,24 @@ export interface GenerateReportInput {
    * exists or belongs to another project.
    */
   coverEvidenceId?: string;
+  /**
+   * PM-entered Health & Safety figures for the period — rendered as an
+   * Executive Summary block when provided.
+   */
+  healthSafety?: {
+    accidents: number;
+    nearMisses: number;
+    riddor: number;
+    toolboxTalks: number;
+    inductions: number;
+    note?: string;
+  };
+  /**
+   * False skips the external weather fetch — internal callers
+   * (key-issue suggestions, narrative drafting) don't need it and
+   * shouldn't pay its latency.
+   */
+  includeWeather?: boolean;
 }
 
 /**
@@ -654,6 +674,147 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     }
   }
 
+  // 10b. Executive Summary enrichments — all optional, all degrade to
+  // absent blocks rather than errors.
+
+  // Weather at the site: coordinates derived from drawn zones (centroid)
+  // or evidence GPS (median) — no site-address field needed.
+  if (input.includeWeather !== false) {
+    const coords = deriveSiteCoords(
+      zones.map((z) => z.polygon as { coordinates: number[][][] }),
+      allEvidence
+    );
+    if (coords) {
+      summaryStats.weather = await fetchPeriodWeather(
+        coords.latitude,
+        coords.longitude,
+        input.periodStart,
+        input.periodEnd
+      );
+    }
+  }
+
+  // Movement since the previous completed report, read from its stored
+  // stats snapshot.
+  const prevReport = await db.query.reports.findFirst({
+    where: and(
+      eq(reports.projectId, input.projectId),
+      eq(reports.status, "completed"),
+      lt(reports.reportNumber, reportNumber)
+    ),
+    orderBy: [desc(reports.reportNumber)],
+    columns: { reportNumber: true, periodEnd: true, reportData: true },
+  });
+  const prevStats = (
+    prevReport?.reportData as { stats?: SummaryStats } | null
+  )?.stats;
+  if (prevReport && prevStats && typeof prevStats.completedTasks === "number") {
+    summaryStats.sinceLastReport = {
+      reportNumber: prevReport.reportNumber,
+      periodEnd: prevReport.periodEnd,
+      completedDelta: completedTasks - prevStats.completedTasks,
+      progressDelta: avgActual - (prevStats.averageActualProgress ?? 0),
+      newEvidence: Math.max(
+        0,
+        allEvidence.length - (prevStats.totalEvidence ?? 0)
+      ),
+    };
+  }
+
+  if (input.healthSafety) {
+    summaryStats.healthSafety = input.healthSafety;
+  }
+
+  // 10c. Photo Location Map — satellite static map with zones + numbered
+  // pins, built only when the section is on and GPS photos exist.
+  let photoMap: PhotoMapData | null = null;
+  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+  if (
+    sections.photoMap &&
+    mapboxToken.length > 0 &&
+    !/placeholder/i.test(mapboxToken)
+  ) {
+    const gpsPhotos = periodEvidence.filter(
+      (e) => e.latitude != null && e.longitude != null
+    );
+    if (gpsPhotos.length > 0) {
+      const MAX_PINS = 20;
+      // periodEvidence is newest-first; pins read better oldest-first.
+      const pinned = [...gpsPhotos].reverse().slice(0, MAX_PINS);
+      const markers = pinned.map(
+        (ev, i) =>
+          `pin-s-${i + 1}+be123c(${ev.longitude!.toFixed(5)},${ev.latitude!.toFixed(5)})`
+      );
+      const zoneFeatures = zones.map((z) => ({
+        type: "Feature" as const,
+        properties: {
+          stroke: z.color ?? "#3B82F6",
+          "stroke-width": 3,
+          fill: z.color ?? "#3B82F6",
+          "fill-opacity": 0.12,
+        },
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: (z.polygon as { coordinates: number[][][] }).coordinates,
+        },
+      }));
+      const zoneOverlay =
+        zoneFeatures.length > 0
+          ? `geojson(${encodeURIComponent(
+              JSON.stringify({ type: "FeatureCollection", features: zoneFeatures })
+            )})`
+          : "";
+      // Static API URLs cap around 8KB — drop the zone overlay before the
+      // pins if a heavily-drawn site pushes past a safe budget.
+      const overlays = [
+        ...(zoneOverlay && zoneOverlay.length < 5000 ? [zoneOverlay] : []),
+        ...markers,
+      ].join(",");
+      const staticUrl = `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/${overlays}/auto/700x430@2x?padding=60&access_token=${mapboxToken}`;
+      // Fetch server-side and inline as a data URI: the token is
+      // URL-restricted to the app's domain, and Puppeteer (PDF render)
+      // sends no Referer — a bare <img src> would 403 in the final PDF.
+      const candidates = [
+        process.env.NEXT_PUBLIC_APP_URL ?? "",
+        "https://www.sitefile.app",
+      ].filter(Boolean);
+      let mapDataUri: string | null = null;
+      for (const origin of candidates) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 8000);
+          const res = await fetch(staticUrl, {
+            headers: { Referer: origin.endsWith("/") ? origin : origin + "/" },
+            signal: controller.signal,
+          });
+          clearTimeout(timer);
+          if (res.ok) {
+            const buf = Buffer.from(await res.arrayBuffer());
+            const ct = res.headers.get("content-type") ?? "image/png";
+            mapDataUri = `data:${ct};base64,${buf.toString("base64")}`;
+            break;
+          }
+        } catch {
+          // try next candidate
+        }
+      }
+      if (mapDataUri) {
+        photoMap = {
+          mapUrl: mapDataUri,
+          legend: pinned.map((ev, i) => ({
+            n: i + 1,
+            label: ev.note ?? ev.links[0]?.task.name ?? "Site photo",
+          })),
+          overflow: gpsPhotos.length - pinned.length,
+          photosWithGps: gpsPhotos.length,
+          totalPhotos: periodEvidence.length,
+          verifiedInZones: gpsVerifiedByZone,
+          zonesConfigured: zones.length,
+        };
+      }
+    }
+  }
+
   // Upload delay analysis
   let totalDelay = 0;
   let maxDelay = 0;
@@ -847,6 +1008,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     galleryTasks,
     beforeAfterPairs,
     verificationStats,
+    photoMap,
     signatures: input.signatures ?? [],
   };
 }
@@ -867,7 +1029,7 @@ function joinList(items: string[], max = 5): string {
 export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherReportData>>): Promise<string> {
   // Dynamic import to avoid Turbopack's react-dom/server static analysis block
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, narrative, keyIssues, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, signatures } =
+  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, narrative, keyIssues, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, photoMap, signatures } =
     data;
 
   // Page numbers are computed in ONE pass using the same pagination
@@ -881,6 +1043,7 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const hasKeyIssues = sections.keyIssues && keyIssues.length > 0;
   const hasKeyDates = sections.keyDates && keyDates.length > 0;
   const hasLookahead = sections.lookahead && lookahead.length > 0;
+  const hasPhotoMap = sections.photoMap && photoMap != null;
   const hasVerification = sections.verification;
   const hasSignOff = sections.signOff;
 
@@ -891,7 +1054,8 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const timelineStart = keyDatesPage + (hasKeyDates ? 1 : 0);
   const timelinePages = hasTimeline ? timelinePageCount(timelineTasks.length) : 0;
   const lookaheadPage = timelineStart + timelinePages;
-  const galleryStartPage = lookaheadPage + (hasLookahead ? 1 : 0);
+  const photoMapPage = lookaheadPage + (hasLookahead ? 1 : 0);
+  const galleryStartPage = photoMapPage + (hasPhotoMap ? 1 : 0);
   const galleryPageCount = hasGallery ? paginateGallery(galleryTasks).length : 0;
   const beforeAfterStart = galleryStartPage + galleryPageCount;
   const beforeAfterPageCount = hasBeforeAfter ? Math.ceil(beforeAfterPairs.length / 2) : 0;
@@ -914,6 +1078,9 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   }
   if (hasLookahead) {
     tocEntries.push({ title: "Lookahead — Next Period", page: lookaheadPage });
+  }
+  if (hasPhotoMap) {
+    tocEntries.push({ title: "Photo Location Map", page: photoMapPage });
   }
   if (hasGallery) {
     tocEntries.push({ title: "Progress Records", page: galleryStartPage });
@@ -984,6 +1151,16 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
             windowStart: lookaheadWindow.start,
             windowEnd: lookaheadWindow.end,
             startPage: lookaheadPage,
+          }),
+        ]
+      : []),
+    ...(hasPhotoMap
+      ? [
+          createElement(PhotoMapPage, {
+            key: "photomap",
+            meta,
+            data: photoMap!,
+            startPage: photoMapPage,
           }),
         ]
       : []),

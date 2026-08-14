@@ -57,7 +57,8 @@ export async function draftNarrative(
   const data = await gatherReportData(db, {
     ...input,
     reportNumber: 0,
-    sections: { gallery: false, beforeAfter: false },
+    includeWeather: false,
+    sections: { gallery: false, beforeAfter: false, photoMap: false },
   });
 
   const facts: string[] = [];
