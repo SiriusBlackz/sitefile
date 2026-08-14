@@ -138,15 +138,23 @@ export function ReportChecklist({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
+                      {/* No strike-through: it reads as "unavailable", not
+                          "done" (pilot feedback). Done = check + muted text,
+                          still linked so e.g. branding stays reachable. */}
                       <p
                         className={cn(
                           "text-sm font-medium",
-                          step.done && "text-muted-foreground line-through decoration-1"
+                          step.done && "text-muted-foreground"
                         )}
                       >
                         {step.title}
+                        {step.done && (
+                          <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
+                            Done
+                          </span>
+                        )}
                       </p>
-                      {!isActive && !step.done && (
+                      {!isActive && (
                         <Link
                           href={step.actions[0].href}
                           aria-label={step.actions[0].label}

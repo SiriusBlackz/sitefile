@@ -1,8 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const ZoneMapEditor = dynamic(
   () =>
@@ -33,7 +36,22 @@ export default function ZonesPage() {
   return (
     <div className="space-y-4">
       <ProjectBreadcrumb items={[{ label: "GPS Zones" }]} />
-      <h2 className="text-2xl font-bold tracking-tight">GPS Zones</h2>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h2 className="text-2xl font-bold tracking-tight">GPS Zones</h2>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Draw areas of your site (optional) so photos taken inside them are
+            automatically matched to the right tasks. Skip this if you&apos;d
+            rather link photos by hand.
+          </p>
+        </div>
+        <Link
+          href={`/projects/${projectId}/reports`}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+        >
+          Next step: generate report →
+        </Link>
+      </div>
       <ZoneMapEditor projectId={projectId} mapEnabled={hasMapboxToken} />
     </div>
   );

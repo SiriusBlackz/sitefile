@@ -12,6 +12,8 @@ interface EvidenceGridProps {
   /** True when the list is filtered — switches the empty state message. */
   hasActiveFilters?: boolean;
   onClearFilters?: () => void;
+  /** Makes the empty state itself a click-to-upload target. */
+  onUploadClick?: () => void;
 }
 
 export function EvidenceGrid({
@@ -21,6 +23,7 @@ export function EvidenceGrid({
   onToggleSelect,
   hasActiveFilters,
   onClearFilters,
+  onUploadClick,
 }: EvidenceGridProps) {
   if (items.length === 0) {
     if (hasActiveFilters) {
@@ -39,6 +42,26 @@ export function EvidenceGrid({
             </Button>
           )}
         </div>
+      );
+    }
+    // Same pattern as the programme import step: the empty area is itself
+    // the upload target, not just a signpost to the button above.
+    if (onUploadClick) {
+      return (
+        <button
+          type="button"
+          onClick={onUploadClick}
+          className="w-full cursor-pointer rounded-lg border-2 border-dashed py-12 text-center text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/50"
+        >
+          <ImageIcon className="mx-auto mb-3 h-8 w-8" />
+          <p>No evidence yet.</p>
+          <p className="text-sm mt-1">
+            <span className="font-medium text-foreground">
+              Click here to upload
+            </span>{" "}
+            photos or videos — or use the Upload button above.
+          </p>
+        </button>
       );
     }
     return (

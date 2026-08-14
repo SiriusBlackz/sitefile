@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,7 +105,11 @@ function EvidenceNoteEditor({
 
 export default function EvidencePage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const router = useRouter();
   const [uploadOpen, setUploadOpen] = useState(false);
+  // Flips once the queue reports finished uploads, switching the dialog
+  // footer from Cancel to the Next step / Save for later pair.
+  const [hasUploaded, setHasUploaded] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [taskFilter, setTaskFilter] = useState<string>("");
   const [dateFrom, setDateFrom] = useState("");
@@ -155,7 +159,13 @@ export default function EvidencePage() {
 
   const bulkLinkMutation = trpc.evidence.bulkLink.useMutation({
     onSuccess: (data) => {
-      toast.success(`Linked ${data.linked} photos to task`);
+      toast.success(`Linked ${data.linked} photos to task`, {
+        description: "Next step: draw GPS zones (optional) or generate your report.",
+        action: {
+          label: "Next step →",
+          onClick: () => router.push(`/projects/${projectId}/zones`),
+        },
+      });
       utils.evidence.list.invalidate();
       setSelectedIds(new Set());
       setSelectMode(false);
@@ -218,6 +228,7 @@ export default function EvidencePage() {
   }
 
   function handleUploadComplete() {
+    setHasUploaded(true);
     utils.evidence.list.invalidate();
   }
 
@@ -438,6 +449,7 @@ export default function EvidencePage() {
         onToggleSelect={selectMode ? toggleSelect : undefined}
         hasActiveFilters={Boolean(hasActiveFilters)}
         onClearFilters={clearFilters}
+        onUploadClick={() => setUploadOpen(true)}
       />
 
       {hasNextPage && (
@@ -452,7 +464,13 @@ export default function EvidencePage() {
         </div>
       )}
 
-      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+      <Dialog
+        open={uploadOpen}
+        onOpenChange={(open) => {
+          setUploadOpen(open);
+          if (!open) setHasUploaded(false);
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Upload Evidence</DialogTitle>
@@ -466,7 +484,38 @@ export default function EvidencePage() {
             onUploadComplete={handleUploadComplete}
           />
           <DialogFooter>
-            <Button onClick={() => setUploadOpen(false)}>Done</Button>
+            {hasUploaded ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setUploadOpen(false);
+                    setHasUploaded(false);
+                  }}
+                >
+                  Save and continue later
+                </Button>
+                <Button
+                  onClick={() => {
+                    setUploadOpen(false);
+                    setHasUploaded(false);
+                    setSelectMode(true);
+                    toast.info(
+                      "Photos saved — select the ones you've uploaded, then choose the task to link them to."
+                    );
+                  }}
+                >
+                  Next step: link photos →
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => setUploadOpen(false)}
+              >
+                Cancel
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
