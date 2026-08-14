@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { eq, and, lt, desc } from "drizzle-orm";
+import { eq, and, lt, desc, isNull, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
-import { reports } from "@/server/db/schema";
+import { reports, evidence } from "@/server/db/schema";
 import { inngest } from "@/server/inngest/client";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
@@ -10,7 +10,10 @@ import { signReportToken } from "@/server/services/report-tokens";
 import { encryptReportPassword } from "@/server/services/report-password-crypto";
 import { REPORT_SECTION_KEYS } from "@/lib/report-sections";
 import { draftNarrative } from "@/server/services/narrative-draft";
-import { gatherReportData } from "@/server/services/report-generator";
+import {
+  gatherReportData,
+  renderReportHTML,
+} from "@/server/services/report-generator";
 import bcrypt from "bcryptjs";
 
 const sectionsSchema = z
@@ -216,6 +219,106 @@ export const reportRouter = createTRPCRouter({
       writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "generate", entityType: "report", entityId: report.id, metadata: { reportNumber, periodStart: input.periodStart, periodEnd: input.periodEnd, sections: input.sections } });
       // Never return the full row: it carries passwordHash.
       return { id: report.id, reportNumber, status: report.status };
+    }),
+
+  // Renders the exact report HTML (same data-gather + templates the PDF
+  // pipeline uses) for the review-before-generate step — the standard
+  // form pattern: fill in → preview → edit → confirm → final document.
+  previewHtml: protectedProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().uuid(),
+          periodStart: z.string().min(1),
+          periodEnd: z.string().min(1),
+          sections: sectionsSchema.optional(),
+          narrative: z.array(z.string().trim().min(1).max(4000)).max(12).optional(),
+          keyIssues: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
+          signatures: z.array(z.object({
+            role: z.enum(["contractor", "project_manager", "client"]),
+            name: z.string().min(1),
+            title: z.string().optional(),
+            date: z.string().optional(),
+            imageDataUrl: z.string().optional(),
+          })).optional(),
+        })
+        .refine((d) => d.periodEnd >= d.periodStart, {
+          message: "Period end must be on or after period start",
+          path: ["periodEnd"],
+        })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const existing = await ctx.db.query.reports.findMany({
+        where: eq(reports.projectId, input.projectId),
+        columns: { reportNumber: true },
+        orderBy: [desc(reports.reportNumber)],
+        limit: 1,
+      });
+      const data = await gatherReportData(ctx.db, {
+        projectId: input.projectId,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        generatedBy: ctx.userId,
+        reportNumber: (existing[0]?.reportNumber ?? 0) + 1,
+        sections: input.sections,
+        narrative: input.narrative,
+        keyIssues: input.keyIssues,
+        signatures: input.signatures,
+      });
+      const html = await renderReportHTML(data);
+      return { html };
+    }),
+
+  // Counts how much evidence the chosen period would actually pull in,
+  // using the same rule as the generator (capture date, falling back to
+  // upload date when EXIF gave none) — so the dialog can warn BEFORE a
+  // contractor generates a report with an empty gallery.
+  evidencePreview: protectedProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().uuid(),
+          periodStart: z.string().min(1),
+          periodEnd: z.string().min(1),
+        })
+        .refine((d) => d.periodEnd >= d.periodStart, {
+          message: "Period end must be on or after period start",
+          path: ["periodEnd"],
+        })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const rows = await ctx.db
+        .select({
+          effectiveAt: sql<string>`coalesce(${evidence.capturedAt}, ${evidence.uploadedAt})`,
+        })
+        .from(evidence)
+        .where(
+          and(
+            eq(evidence.projectId, input.projectId),
+            isNull(evidence.deletedAt)
+          )
+        );
+      const periodStart = new Date(input.periodStart + "T00:00:00Z");
+      const periodEnd = new Date(input.periodEnd + "T23:59:59.999Z");
+      let inPeriod = 0;
+      let earliest: Date | null = null;
+      let latest: Date | null = null;
+      for (const row of rows) {
+        const at = new Date(row.effectiveAt);
+        if (at >= periodStart && at <= periodEnd) inPeriod++;
+        if (!earliest || at < earliest) earliest = at;
+        if (!latest || at > latest) latest = at;
+      }
+      const toDateString = (d: Date | null) =>
+        d ? d.toISOString().split("T")[0] : null;
+      return {
+        total: rows.length,
+        inPeriod,
+        earliest: toDateString(earliest),
+        latest: toDateString(latest),
+      };
     }),
 
   // Programme-derived seeds for the Key Issues list — the same risk

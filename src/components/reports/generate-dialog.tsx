@@ -1,8 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import {
+  useEffect,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,7 +21,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Lightbulb, Pen, Sparkles, X } from "lucide-react";
+import { Lightbulb, Pen, Sparkles, Type, X } from "lucide-react";
 import { SignaturePad } from "./signature-pad";
 import {
   REPORT_SECTION_KEYS,
@@ -23,7 +29,7 @@ import {
   defaultSectionsForFrequency,
   type ReportSections,
 } from "@/lib/report-sections";
-import { REPORTING_FREQUENCY_LABELS } from "@/lib/format";
+import { formatDate, REPORTING_FREQUENCY_LABELS } from "@/lib/format";
 
 interface SignatureInput {
   role: "contractor" | "project_manager" | "client";
@@ -37,6 +43,110 @@ const SIGNATURE_ROLES = [
   { role: "project_manager" as const, label: "Project Manager" },
   { role: "client" as const, label: "Client" },
 ];
+
+/**
+ * Renders a typed name as a script-font signature image. Produces the same
+ * imageDataUrl a drawn signature does, so the template, "Digitally Signed"
+ * treatment and PDF pipeline all work unchanged.
+ */
+function typedSignatureDataUrl(name: string): string | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = 600;
+  canvas.height = 160;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  const family = '"Segoe Script", "Brush Script MT", "Snell Roundhand", cursive';
+  let fontSize = 64;
+  ctx.font = `italic ${fontSize}px ${family}`;
+  const maxWidth = canvas.width - 40;
+  while (fontSize > 20 && ctx.measureText(name).width > maxWidth) {
+    fontSize -= 4;
+    ctx.font = `italic ${fontSize}px ${family}`;
+  }
+  ctx.fillStyle = "#1e293b";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  ctx.fillText(name, canvas.width / 2, canvas.height / 2, maxWidth);
+  return canvas.toDataURL("image/png");
+}
+
+const SAVED_SIGNATURE_KEY = "sitefile.savedSignature";
+
+/** Key issues list editor — shared by the setup form and the preview panel. */
+function KeyIssuesEditor({
+  keyIssues,
+  setKeyIssues,
+  issueDraft,
+  setIssueDraft,
+  idPrefix,
+}: {
+  keyIssues: string[];
+  setKeyIssues: Dispatch<SetStateAction<string[]>>;
+  issueDraft: string;
+  setIssueDraft: (v: string) => void;
+  idPrefix: string;
+}) {
+  function addDraft() {
+    if (!issueDraft.trim()) return;
+    setKeyIssues((prev) => [...prev, issueDraft.trim()]);
+    setIssueDraft("");
+  }
+  return (
+    <>
+      {keyIssues.length > 0 && (
+        <ul className="space-y-1">
+          {keyIssues.map((issue, i) => (
+            <li key={i} className="flex items-center gap-1">
+              <Input
+                value={issue}
+                aria-label={`Key issue ${i + 1}`}
+                onChange={(e) =>
+                  setKeyIssues((prev) =>
+                    prev.map((v, j) => (j === i ? e.target.value : v))
+                  )
+                }
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                aria-label="Remove issue"
+                onClick={() =>
+                  setKeyIssues((prev) => prev.filter((_, j) => j !== i))
+                }
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex items-center gap-1">
+        <Input
+          id={`${idPrefix}-key-issues`}
+          value={issueDraft}
+          onChange={(e) => setIssueDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addDraft();
+            }
+          }}
+          placeholder="e.g. Awaiting client sign-off on window specification"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          type="button"
+          disabled={!issueDraft.trim()}
+          onClick={addDraft}
+        >
+          Add
+        </Button>
+      </div>
+    </>
+  );
+}
 
 /** Local YYYY-MM-DD for <input type="date"> values (not display). */
 function toInputDate(d: Date): string {
@@ -81,16 +191,50 @@ export function GenerateDialog({
   const [password, setPassword] = useState("");
   const [signatures, setSignatures] = useState<SignatureInput[]>([]);
   const [drawingRole, setDrawingRole] = useState<string | null>(null);
+  // Typed-signature confirm step: preview the rendered script signature
+  // before it's applied — mirrors the draw pad's explicit Save.
+  const [typedPreview, setTypedPreview] = useState<{
+    role: string;
+    dataUrl: string;
+  } | null>(null);
   // Narrative: AI drafts once, PM edits are preserved; Re-draft is explicit.
   // Empty = the report uses the deterministic auto-written summary.
   const [narrative, setNarrative] = useState("");
   const [lastDraft, setLastDraft] = useState<string | null>(null);
-  // Key issues: seeded from programme risks, edited by the PM; one per line.
-  const [keyIssues, setKeyIssues] = useState("");
+  // Key issues: an explicit list (seeded from programme risks, edited by
+  // the PM). A separate draft input feeds it — but an un-added draft is
+  // still included on generate, so typed text is never silently lost.
+  const [keyIssues, setKeyIssues] = useState<string[]>([]);
+  const [issueDraft, setIssueDraft] = useState("");
   // Section recipe: defaults follow the project's reporting frequency
   // (weekly/fortnightly get the lean pack); overrides are per-run only.
   const [sectionOverrides, setSectionOverrides] = useState<Partial<ReportSections>>({});
   const { data: project } = trpc.project.get.useQuery({ id: projectId });
+  // Branding nudge: a contractor can reach this dialog without ever seeing
+  // the overview checklist, so warn here before an unbranded cover ships.
+  const { data: org } = trpc.org.get.useQuery(undefined, { enabled: open });
+  // Live count of evidence the chosen period would pull in — the report
+  // filters by capture date (upload date when EXIF gave none), so a period
+  // that misses the photos would otherwise generate a silently empty report.
+  const periodValid = Boolean(
+    periodStart && periodEnd && periodEnd >= periodStart
+  );
+  const { data: evidencePreview } = trpc.report.evidencePreview.useQuery(
+    { projectId, periodStart, periodEnd },
+    { enabled: open && periodValid, placeholderData: (prev) => prev }
+  );
+
+  function coverAllEvidence() {
+    if (!evidencePreview?.earliest || !evidencePreview.latest) return;
+    setPeriodStart(
+      evidencePreview.earliest < periodStart
+        ? evidencePreview.earliest
+        : periodStart
+    );
+    setPeriodEnd(
+      evidencePreview.latest > periodEnd ? evidencePreview.latest : periodEnd
+    );
+  }
   const frequency = project?.reportingFrequency ?? null;
   const recipeDefaults = defaultSectionsForFrequency(frequency);
   const sections: ReportSections = { ...recipeDefaults, ...sectionOverrides };
@@ -114,16 +258,26 @@ export function GenerateDialog({
     onError: (err) => toast.error(err.message),
   });
 
+  // Review-before-generate: renders the real report HTML for approval.
+  const [previewHtmlContent, setPreviewHtmlContent] = useState<string | null>(
+    null
+  );
+  const previewMutation = trpc.report.previewHtml.useMutation({
+    onSuccess: (data) => setPreviewHtmlContent(data.html),
+    onError: (err) => toast.error(err.message),
+  });
+
   const suggestMutation = trpc.report.keyIssueSuggestions.useMutation({
     onSuccess: (data) => {
       if (data.suggestions.length === 0) {
         toast.info("No programme risks found for this period — add issues manually");
         return;
       }
-      // Append below whatever the PM already wrote, never overwrite.
-      setKeyIssues((prev) =>
-        [prev.trim(), ...data.suggestions].filter(Boolean).join("\n")
-      );
+      // Append below whatever the PM already added, never overwrite.
+      setKeyIssues((prev) => {
+        const seen = new Set(prev);
+        return [...prev, ...data.suggestions.filter((s) => !seen.has(s))];
+      });
     },
     onError: (err) => toast.error(err.message),
   });
@@ -157,10 +311,12 @@ export function GenerateDialog({
     setPassword("");
     setSignatures([]);
     setDrawingRole(null);
+    setTypedPreview(null);
     setSectionOverrides({});
     setNarrative("");
     setLastDraft(null);
-    setKeyIssues("");
+    setKeyIssues([]);
+    setIssueDraft("");
     onOpenChange(false);
   }
 
@@ -172,7 +328,8 @@ export function GenerateDialog({
       periodEnd !== defaults.end ||
       password !== "" ||
       narrative.trim() !== "" ||
-      keyIssues.trim() !== "" ||
+      keyIssues.length > 0 ||
+      issueDraft.trim() !== "" ||
       REPORT_SECTION_KEYS.some(
         (key) => sections[key] !== recipeDefaults[key]
       ) ||
@@ -181,14 +338,16 @@ export function GenerateDialog({
     handleClose();
   }
 
-  function handleGenerate() {
+  // Shared assembly for preview and generate — both must see the exact
+  // same content, or the preview stops being a promise.
+  function buildReportContent() {
     if (!periodStart || !periodEnd) {
       toast.error("Please select both start and end dates");
-      return;
+      return null;
     }
     if (periodEnd < periodStart) {
       toast.error("End date must be after start date");
-      return;
+      return null;
     }
     const validSignatures = signatures
       .filter((s) => s.name.trim())
@@ -204,22 +363,46 @@ export function GenerateDialog({
       .split(/\n\s*\n/)
       .map((p) => p.trim())
       .filter(Boolean);
-    const keyIssuesList = keyIssues
-      .split("\n")
+    // Include an un-added draft — typed text must never silently vanish.
+    const keyIssuesList = [...keyIssues, issueDraft]
       .map((l) => l.trim())
       .filter(Boolean);
 
-    generateMutation.mutate({
+    return {
       projectId,
       periodStart,
       periodEnd,
-      password: password || undefined,
       // Send the fully resolved set, not just overrides — the server
       // falls back to its own recipe, and this pins what the user saw.
       sections,
       narrative: narrativeParagraphs.length > 0 ? narrativeParagraphs : undefined,
       keyIssues: keyIssuesList.length > 0 ? keyIssuesList : undefined,
       signatures: validSignatures.length > 0 ? validSignatures : undefined,
+    };
+  }
+
+  function handlePreview() {
+    const content = buildReportContent();
+    if (!content) return;
+    previewMutation.mutate(content);
+  }
+
+  function handleGenerate() {
+    const content = buildReportContent();
+    if (!content) return;
+    if (
+      evidencePreview &&
+      evidencePreview.total > 0 &&
+      evidencePreview.inPeriod === 0 &&
+      !window.confirm(
+        "No photos fall within this period — the report will have no evidence in it. Generate anyway?"
+      )
+    ) {
+      return;
+    }
+    generateMutation.mutate({
+      ...content,
+      password: password || undefined,
     });
   }
 
@@ -241,7 +424,29 @@ export function GenerateDialog({
     updateSignature(role, { imageDataUrl: undefined });
   }
 
+  // Reuse across reports: the last applied signature (typed or drawn) is
+  // kept on this device only — never sent anywhere until used in a report.
+  const [savedSignature, setSavedSignature] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setSavedSignature(localStorage.getItem(SAVED_SIGNATURE_KEY));
+    } catch {
+      // Storage unavailable (private mode) — feature quietly absent.
+    }
+  }, [open]);
+
+  function applySignature(role: string, dataUrl: string) {
+    updateSignature(role, { imageDataUrl: dataUrl });
+    try {
+      localStorage.setItem(SAVED_SIGNATURE_KEY, dataUrl);
+      setSavedSignature(dataUrl);
+    } catch {
+      // Best-effort save.
+    }
+  }
+
   return (
+    <>
     <Dialog
       open={open}
       onOpenChange={(next) => {
@@ -254,6 +459,27 @@ export function GenerateDialog({
         </DialogHeader>
 
         <div className="space-y-6">
+          {org && !org.logoUrl && (
+            <div className="space-y-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <p>
+                <strong>No company logo set</strong> — the report cover will go
+                out without your branding. Adding your logo and company colour
+                takes a minute.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href="/account"
+                  target="_blank"
+                  rel="noopener"
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "sm" })
+                  )}
+                >
+                  Add company branding
+                </a>
+              </div>
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="period-start">Period Start *</Label>
@@ -274,6 +500,65 @@ export function GenerateDialog({
               />
             </div>
           </div>
+          {periodValid && evidencePreview && evidencePreview.total === 0 && (
+            <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              No photos or videos have been uploaded to this project yet — the
+              report will be generated without an evidence gallery.
+            </p>
+          )}
+          {periodValid &&
+            evidencePreview &&
+            evidencePreview.total > 0 &&
+            evidencePreview.inPeriod === 0 && (
+              <div className="space-y-2 rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                <p>
+                  <strong>
+                    None of your {evidencePreview.total} photos fall within
+                    this period
+                  </strong>{" "}
+                  — the report&apos;s evidence sections will be empty. Photos
+                  are placed by the date they were taken (or uploaded, when the
+                  photo carries no date), and yours span{" "}
+                  {formatDate(evidencePreview.earliest)} to{" "}
+                  {formatDate(evidencePreview.latest)}.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  onClick={coverAllEvidence}
+                >
+                  Adjust period to include all photos
+                </Button>
+              </div>
+            )}
+          {periodValid &&
+            evidencePreview &&
+            evidencePreview.total > 0 &&
+            evidencePreview.inPeriod > 0 && (
+              <p
+                className={
+                  evidencePreview.inPeriod < evidencePreview.total
+                    ? "rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
+                    : "text-xs text-muted-foreground"
+                }
+              >
+                {evidencePreview.inPeriod < evidencePreview.total ? (
+                  <>
+                    {evidencePreview.inPeriod} of {evidencePreview.total}{" "}
+                    photos fall within this period — the other{" "}
+                    {evidencePreview.total - evidencePreview.inPeriod} will be
+                    left out of this report.
+                  </>
+                ) : (
+                  <>
+                    All {evidencePreview.total} photo
+                    {evidencePreview.total === 1 ? "" : "s"} fall within this
+                    period and will be included.
+                  </>
+                )}
+              </p>
+            )}
           {periodStart && periodEnd && periodStart === periodEnd && (
             <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
               This covers a single day. A first report to a client usually
@@ -331,17 +616,16 @@ export function GenerateDialog({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              One issue per line — early warnings, holdups, decisions awaited.
-              Suggestions from the programme (delays, overdue activities) are
-              added below anything you&apos;ve written. Leave blank to omit the
-              section.
+              Early warnings, holdups, decisions awaited. Everything added here
+              appears in the report&apos;s Key Issues &amp; Early Warnings
+              section. Leave empty to omit the section.
             </p>
-            <Textarea
-              id="report-key-issues"
-              value={keyIssues}
-              onChange={(e) => setKeyIssues(e.target.value)}
-              rows={4}
-              placeholder="e.g. Awaiting client sign-off on window specification"
+            <KeyIssuesEditor
+              keyIssues={keyIssues}
+              setKeyIssues={setKeyIssues}
+              issueDraft={issueDraft}
+              setIssueDraft={setIssueDraft}
+              idPrefix="report"
             />
           </div>
 
@@ -395,8 +679,10 @@ export function GenerateDialog({
           <div className="space-y-3">
             <Label>Sign-off page (optional)</Label>
             <p className="text-xs text-muted-foreground">
-              A typed name only pre-fills the block for wet-ink signing after
-              printing. Draw a signature to mark the block as digitally signed.
+              Enter a name, then sign it — &quot;Sign with typed name&quot;
+              renders the name as a signature, or draw one by hand. Either
+              marks the block as digitally signed; a name alone just pre-fills
+              the block for wet-ink signing after printing.
             </p>
 
             {SIGNATURE_ROLES.map(({ role, label }) => {
@@ -422,7 +708,7 @@ export function GenerateDialog({
                   {isDrawing ? (
                     <SignaturePad
                       onSave={(dataUrl) => {
-                        updateSignature(role, { imageDataUrl: dataUrl });
+                        applySignature(role, dataUrl);
                         setDrawingRole(null);
                       }}
                       onCancel={() => setDrawingRole(null)}
@@ -453,21 +739,80 @@ export function GenerateDialog({
                         Redraw
                       </Button>
                     </div>
+                  ) : typedPreview?.role === role ? (
+                    <div className="space-y-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- signature preview */}
+                      <img
+                        src={typedPreview.dataUrl}
+                        alt="Typed signature preview"
+                        className="h-12 rounded border bg-white px-2"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          type="button"
+                          onClick={() => {
+                            applySignature(role, typedPreview.dataUrl);
+                            setTypedPreview(null);
+                          }}
+                        >
+                          Save signature
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          type="button"
+                          onClick={() => setTypedPreview(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
                   ) : (
                     <div className="space-y-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setDrawingRole(role)}
-                        type="button"
-                        disabled={!sig?.name}
-                      >
-                        <Pen className="mr-1 h-3.5 w-3.5" />
-                        Draw Signature
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const name = sig?.name?.trim();
+                            if (!name) return;
+                            const dataUrl = typedSignatureDataUrl(name);
+                            if (dataUrl) setTypedPreview({ role, dataUrl });
+                          }}
+                          type="button"
+                          disabled={!sig?.name}
+                        >
+                          <Type className="mr-1 h-3.5 w-3.5" />
+                          Sign with typed name
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setDrawingRole(role)}
+                          type="button"
+                          disabled={!sig?.name}
+                        >
+                          <Pen className="mr-1 h-3.5 w-3.5" />
+                          Draw
+                        </Button>
+                        {savedSignature && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              if (sig?.name) applySignature(role, savedSignature);
+                            }}
+                            type="button"
+                            disabled={!sig?.name}
+                          >
+                            Use saved signature
+                          </Button>
+                        )}
+                      </div>
                       {!sig?.name && (
                         <p className="text-xs text-muted-foreground">
-                          Enter a name above to enable signature drawing.
+                          Enter a name above to enable signing.
                         </p>
                       )}
                     </div>
@@ -483,6 +828,13 @@ export function GenerateDialog({
             Cancel
           </Button>
           <Button
+            variant="outline"
+            onClick={handlePreview}
+            disabled={previewMutation.isPending || !periodStart || !periodEnd}
+          >
+            {previewMutation.isPending ? "Building preview..." : "Preview report"}
+          </Button>
+          <Button
             onClick={handleGenerate}
             disabled={generateMutation.isPending || !periodStart || !periodEnd}
           >
@@ -491,5 +843,84 @@ export function GenerateDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      {/* Full-page review of the real report before committing to the PDF.
+          Edits happen back in the form; the preview is the promise. */}
+      <Dialog
+        open={previewHtmlContent !== null}
+        onOpenChange={(next) => {
+          if (!next) setPreviewHtmlContent(null);
+        }}
+      >
+        <DialogContent className="grid h-[94vh] w-[96vw] max-w-[96vw] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-[96vw]">
+          <DialogHeader>
+            <DialogTitle>Report preview</DialogTitle>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-col gap-3 md:flex-row">
+            <iframe
+              title="Report preview"
+              sandbox=""
+              srcDoc={previewHtmlContent ?? ""}
+              className="min-h-[45vh] w-full flex-1 rounded-md border bg-white md:min-h-0"
+            />
+            <div className="flex w-full shrink-0 flex-col gap-3 overflow-y-auto md:w-96">
+              <p className="text-xs text-muted-foreground">
+                This is exactly what the PDF will contain. Edit the wording
+                here, then <strong>Update preview</strong> to see it in place —
+                repeat until it reads right. (Sections, signatures and period
+                are edited back in the setup form.)
+              </p>
+              <div className="space-y-1">
+                <Label htmlFor="preview-narrative">Narrative</Label>
+                <Textarea
+                  id="preview-narrative"
+                  value={narrative}
+                  onChange={(e) => setNarrative(e.target.value)}
+                  rows={10}
+                  placeholder="Narrative paragraphs, separated by blank lines — empty uses the standard auto-written summary"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="preview-key-issues">Key issues</Label>
+                <KeyIssuesEditor
+                  keyIssues={keyIssues}
+                  setKeyIssues={setKeyIssues}
+                  issueDraft={issueDraft}
+                  setIssueDraft={setIssueDraft}
+                  idPrefix="preview"
+                />
+              </div>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={handlePreview}
+                disabled={previewMutation.isPending}
+              >
+                {previewMutation.isPending
+                  ? "Updating preview..."
+                  : "Update preview"}
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPreviewHtmlContent(null)}
+            >
+              ← Back to setup
+            </Button>
+            <Button
+              onClick={() => {
+                setPreviewHtmlContent(null);
+                handleGenerate();
+              }}
+              disabled={generateMutation.isPending}
+            >
+              Looks good — generate PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
