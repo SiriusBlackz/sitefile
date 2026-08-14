@@ -83,6 +83,12 @@ export interface GenerateReportInput {
    * then edited). Rendered as its own section when non-empty.
    */
   keyIssues?: string[];
+  /**
+   * PM override for the Executive Summary's Key Risks & Observations —
+   * edited in the preview panel, seeded from the derived list. When
+   * present it replaces the derived risks wholesale.
+   */
+  keyRisks?: string[];
 }
 
 /**
@@ -308,6 +314,9 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     );
   }
 
+  // PM override from the preview panel replaces the derived list wholesale.
+  const resolvedKeyRisks = input.keyRisks ?? keyRisks;
+
   // 6b. Key Dates & Milestones — explicitly flagged tasks plus
   // zero-duration activities (the planner's convention for milestones
   // when the format has no explicit flag). Variance is measured against
@@ -463,7 +472,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     variance: avgActual - Math.min(avgPlanned, 100),
     totalEvidence: allEvidence.length,
     evidenceThisPeriod: periodEvidence.length,
-    keyRisks,
+    keyRisks: resolvedKeyRisks,
   };
 
   // 7. Timeline tasks

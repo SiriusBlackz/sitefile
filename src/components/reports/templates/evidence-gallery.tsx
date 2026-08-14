@@ -255,12 +255,8 @@ function CardMeta({ ev }: { ev: GalleryEvidence }) {
             GPS: {ev.latitude.toFixed(5)}, {ev.longitude.toFixed(5)}
           </div>
         )}
-        {ev.uploaderName && (
-          <div>
-            By {ev.uploaderName}
-            {ev.uploaderRole ? ` (${ev.uploaderRole})` : ""}
-          </div>
-        )}
+        {/* Uploader attribution intentionally omitted from gallery cards
+            (pilot feedback) — the Verification section covers provenance. */}
       </div>
     </>
   );

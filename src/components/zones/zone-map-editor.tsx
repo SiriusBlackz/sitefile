@@ -35,7 +35,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MapPin, Pencil, PenLine, Trash2 } from "lucide-react";
+import { MapPin, Pencil, PenLine, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface ZoneMapEditorProps {
@@ -372,28 +372,33 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
       {mapEnabled ? (
         <div className="relative min-h-[400px] flex-1 rounded-lg overflow-hidden border">
           <div ref={mapContainer} className="h-full w-full" />
-          <div className="absolute left-2 top-2 z-10 w-64 max-w-[calc(100%-4rem)]">
-            <Input
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  clearTimeout(searchTimerRef.current);
-                  runSearch(searchQuery);
-                }
-              }}
-              placeholder="Search address or postcode…"
-              aria-label="Search for a location"
-              className="border bg-card text-foreground shadow-md placeholder:text-muted-foreground"
-            />
+          {/* Always light: the box floats over map imagery, which is light in
+              both app themes — theme tokens made it invisible in dark mode. */}
+          <div className="absolute left-2 top-2 z-10 w-72 max-w-[calc(100%-4rem)]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    clearTimeout(searchTimerRef.current);
+                    runSearch(searchQuery);
+                  }
+                }}
+                placeholder="Search site address or postcode"
+                aria-label="Search for a location"
+                className="border-slate-300 bg-white pl-8 text-slate-900 shadow-md placeholder:text-slate-500"
+              />
+            </div>
             {searchResults.length > 0 && (
-              <ul className="mt-1 overflow-hidden rounded-md border bg-card text-foreground shadow-md">
+              <ul className="mt-1 overflow-hidden rounded-md border border-slate-300 bg-white text-slate-900 shadow-md">
                 {searchResults.map((r) => (
                   <li key={r.id}>
                     <button
                       type="button"
-                      className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100"
                       onClick={() => selectSearchResult(r)}
                     >
                       {r.name}

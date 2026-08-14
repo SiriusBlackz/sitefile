@@ -109,8 +109,16 @@ export function EvidenceCard({ item, onClick, selected, onToggleSelect }: Eviden
         )}
       </div>
       <div className="p-2 space-y-1">
-        <p className="text-xs font-medium truncate">
-          {item.originalFilename ?? "Untitled"}
+        {/* Caption-first: the note is the photo's report title; raw camera
+            filenames (IMG_1234.jpg) are a muted fallback, not a headline. */}
+        <p
+          className={
+            item.note
+              ? "text-xs font-medium truncate"
+              : "text-xs truncate text-muted-foreground"
+          }
+        >
+          {item.note ?? item.originalFilename ?? "Untitled — add a caption"}
         </p>
         {capturedDate && (
           <div className="flex items-center gap-1 text-xs text-muted-foreground">

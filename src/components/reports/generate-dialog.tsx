@@ -206,6 +206,11 @@ export function GenerateDialog({
   // still included on generate, so typed text is never silently lost.
   const [keyIssues, setKeyIssues] = useState<string[]>([]);
   const [issueDraft, setIssueDraft] = useState("");
+  // Exec-summary Key Risks & Observations override. null = untouched (the
+  // server derives them); seeded from the preview response so the PM edits
+  // the real derived list rather than typing blind.
+  const [keyRisksEdit, setKeyRisksEdit] = useState<string[] | null>(null);
+  const [riskDraft, setRiskDraft] = useState("");
   // Section recipe: defaults follow the project's reporting frequency
   // (weekly/fortnightly get the lean pack); overrides are per-run only.
   const [sectionOverrides, setSectionOverrides] = useState<Partial<ReportSections>>({});
@@ -263,7 +268,10 @@ export function GenerateDialog({
     null
   );
   const previewMutation = trpc.report.previewHtml.useMutation({
-    onSuccess: (data) => setPreviewHtmlContent(data.html),
+    onSuccess: (data) => {
+      setPreviewHtmlContent(data.html);
+      setKeyRisksEdit((prev) => prev ?? data.keyRisks);
+    },
     onError: (err) => toast.error(err.message),
   });
 
@@ -317,6 +325,8 @@ export function GenerateDialog({
     setLastDraft(null);
     setKeyIssues([]);
     setIssueDraft("");
+    setKeyRisksEdit(null);
+    setRiskDraft("");
     onOpenChange(false);
   }
 
@@ -367,6 +377,11 @@ export function GenerateDialog({
     const keyIssuesList = [...keyIssues, issueDraft]
       .map((l) => l.trim())
       .filter(Boolean);
+    // null = never seeded/touched → let the server derive them.
+    const keyRisksList =
+      keyRisksEdit === null
+        ? undefined
+        : [...keyRisksEdit, riskDraft].map((l) => l.trim()).filter(Boolean);
 
     return {
       projectId,
@@ -377,6 +392,7 @@ export function GenerateDialog({
       sections,
       narrative: narrativeParagraphs.length > 0 ? narrativeParagraphs : undefined,
       keyIssues: keyIssuesList.length > 0 ? keyIssuesList : undefined,
+      keyRisks: keyRisksList,
       signatures: validSignatures.length > 0 ? validSignatures : undefined,
     };
   }
@@ -878,6 +894,26 @@ export function GenerateDialog({
                   onChange={(e) => setNarrative(e.target.value)}
                   rows={10}
                   placeholder="Narrative paragraphs, separated by blank lines — empty uses the standard auto-written summary"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="preview-risks-key-issues">
+                  Key risks &amp; observations
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  The Executive Summary&apos;s risk list — derived from the
+                  programme, yours to reword or trim.
+                </p>
+                <KeyIssuesEditor
+                  keyIssues={keyRisksEdit ?? []}
+                  setKeyIssues={(action) =>
+                    setKeyRisksEdit((prev) =>
+                      typeof action === "function" ? action(prev ?? []) : action
+                    )
+                  }
+                  issueDraft={riskDraft}
+                  setIssueDraft={setRiskDraft}
+                  idPrefix="preview-risks"
                 />
               </div>
               <div className="space-y-1">

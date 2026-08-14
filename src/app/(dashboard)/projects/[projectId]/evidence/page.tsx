@@ -3,7 +3,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -81,11 +83,15 @@ function EvidenceNoteEditor({
 
   return (
     <div className="space-y-1">
-      <p className="text-xs font-medium text-muted-foreground">Note</p>
+      <p className="text-xs font-medium text-muted-foreground">Caption</p>
+      <p className="text-xs text-muted-foreground">
+        Appears as this photo&apos;s title in reports — e.g. &quot;Concrete
+        breakout at pipeline trench&quot;.
+      </p>
       <Textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        placeholder="Add a note..."
+        placeholder="e.g. Concrete breakout at pipeline trench"
         rows={2}
       />
       {dirty && (
@@ -95,7 +101,7 @@ function EvidenceNoteEditor({
             onClick={() => updateNote.mutate({ evidenceId, note })}
             disabled={updateNote.isPending}
           >
-            {updateNote.isPending ? "Saving..." : "Save note"}
+            {updateNote.isPending ? "Saving..." : "Save caption"}
           </Button>
         </div>
       )}
@@ -268,6 +274,16 @@ export default function EvidencePage() {
         <div className="flex flex-wrap items-center gap-2">
           {!selectMode ? (
             <>
+              {/* Persistent forward pointer — the post-link toast is
+                  transient, and without this the page dead-ends. */}
+              {items.length > 0 && (
+                <Link
+                  href={`/projects/${projectId}/zones`}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                >
+                  Next step: GPS zones →
+                </Link>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -529,7 +545,9 @@ export default function EvidencePage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {currentItem?.originalFilename ?? "Evidence Detail"}
+              {currentItem?.note ??
+                currentItem?.originalFilename ??
+                "Evidence Detail"}
             </DialogTitle>
           </DialogHeader>
           {currentItem && (
