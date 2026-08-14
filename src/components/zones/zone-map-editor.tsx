@@ -64,6 +64,16 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
   const [editColor, setEditColor] = useState("#3B82F6");
   const [editTaskId, setEditTaskId] = useState<string>("");
   const [isDrawing, setIsDrawing] = useState(false);
+  // Address/place search — most users are on phones, so typing the site
+  // address beats pan-and-pinch hunting across a country-level map.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<
+    { id: string; name: string; center: [number, number] }[]
+  >([]);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Set when Mapbox rejects tile/search requests (403 = account/billing
+  // problem) — a silent white map looks like an app bug; name the cause.
+  const [mapDegraded, setMapDegraded] = useState(false);
   // Incremented every time the map style finishes loading (initial load and
   // any style change) — zones can only be drawn once the style is ready.
   const [styleGen, setStyleGen] = useState(0);
@@ -132,6 +142,13 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
 
     map.addControl(draw);
     map.addControl(new mapboxgl.NavigationControl(), "top-right");
+
+    // Surface tile 401/403s (token or account/billing rejection) instead of
+    // leaving a silent blank map.
+    map.on("error", (e) => {
+      const status = (e.error as { status?: number } | undefined)?.status;
+      if (status === 401 || status === 403) setMapDegraded(true);
+    });
 
     // "style.load" fires on initial load and whenever the style is replaced
     // (which wipes custom sources/layers) — bump styleGen so zones re-draw.
@@ -269,6 +286,60 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
     setZoneName("");
   }
 
+  function runSearch(query: string) {
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    if (!query.trim() || !token) {
+      setSearchResults([]);
+      return;
+    }
+    fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+        query
+      )}.json?access_token=${token}&limit=5`
+    )
+      .then((r) => {
+        if (!r.ok) {
+          if (r.status === 401 || r.status === 403) setMapDegraded(true);
+          toast.error("Address search is unavailable right now.");
+          throw new Error(`geocoding ${r.status}`);
+        }
+        return r.json();
+      })
+      .then(
+        (data: {
+          features?: { id: string; place_name: string; center: [number, number] }[];
+        }) => {
+          setSearchResults(
+            (data.features ?? []).map((f) => ({
+              id: f.id,
+              name: f.place_name,
+              center: f.center,
+            }))
+          );
+        }
+      )
+      .catch(() => setSearchResults([]));
+  }
+
+  function handleSearchChange(value: string) {
+    setSearchQuery(value);
+    clearTimeout(searchTimerRef.current);
+    if (value.trim().length < 3) {
+      setSearchResults([]);
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => runSearch(value), 350);
+  }
+
+  function selectSearchResult(result: {
+    name: string;
+    center: [number, number];
+  }) {
+    mapRef.current?.flyTo({ center: result.center, zoom: 16 });
+    setSearchQuery(result.name);
+    setSearchResults([]);
+  }
+
   function startDrawing() {
     drawRef.current?.changeMode("draw_polygon");
     setIsDrawing(true);
@@ -299,8 +370,47 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
   return (
     <div className="flex flex-col gap-4 md:h-[600px] md:flex-row">
       {mapEnabled ? (
-        <div className="min-h-[400px] flex-1 rounded-lg overflow-hidden border">
+        <div className="relative min-h-[400px] flex-1 rounded-lg overflow-hidden border">
           <div ref={mapContainer} className="h-full w-full" />
+          <div className="absolute left-2 top-2 z-10 w-64 max-w-[calc(100%-4rem)]">
+            <Input
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  clearTimeout(searchTimerRef.current);
+                  runSearch(searchQuery);
+                }
+              }}
+              placeholder="Search address or postcode…"
+              aria-label="Search for a location"
+              className="border bg-card text-foreground shadow-md placeholder:text-muted-foreground"
+            />
+            {searchResults.length > 0 && (
+              <ul className="mt-1 overflow-hidden rounded-md border bg-card text-foreground shadow-md">
+                {searchResults.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                      onClick={() => selectSearchResult(r)}
+                    >
+                      {r.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {mapDegraded && (
+            <div className="absolute inset-x-2 bottom-2 z-10 rounded-md border border-amber-500/60 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-md dark:bg-amber-950 dark:text-amber-300">
+              Map imagery couldn&apos;t load — Mapbox is refusing requests for
+              this account (usually a billing or usage-limit issue). Zones
+              still save and work; check the Mapbox account to restore the
+              map.
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex min-h-[400px] flex-1 items-center justify-center rounded-lg border bg-muted/40 p-6">
