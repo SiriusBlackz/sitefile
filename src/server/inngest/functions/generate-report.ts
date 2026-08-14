@@ -29,7 +29,7 @@ export const generateReport = inngest.createFunction(
     },
   },
   async ({ event, step }) => {
-    const { reportId, projectId, periodStart, periodEnd, generatedBy, signatures, sections, narrative, keyIssues, keyRisks } =
+    const { reportId, projectId, periodStart, periodEnd, generatedBy, signatures, sections, narrative, keyIssues, keyRisks, coverEvidenceId } =
       event.data as {
         reportId: string;
         projectId: string;
@@ -41,6 +41,7 @@ export const generateReport = inngest.createFunction(
         narrative?: string[];
         keyIssues?: string[];
         keyRisks?: string[];
+        coverEvidenceId?: string;
       };
 
     // Single heavy step: gather → render → PDF → upload. Deliberately NOT
@@ -68,6 +69,7 @@ export const generateReport = inngest.createFunction(
         narrative,
         keyIssues,
         keyRisks,
+        coverEvidenceId,
         reportNumber: existing.reportNumber,
       });
       const html = await renderReportHTML(reportData);

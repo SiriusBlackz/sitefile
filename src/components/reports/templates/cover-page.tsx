@@ -34,7 +34,7 @@ export function CoverPage({ meta }: { meta: ReportMeta }) {
       </div>
 
       {/* Title block */}
-      <div style={{ textAlign: "center", marginBottom: 48 }}>
+      <div style={{ textAlign: "center", marginBottom: meta.coverPhotoUrl ? 28 : 48 }}>
         <div
           style={{
             fontSize: 12,
@@ -54,6 +54,34 @@ export function CoverPage({ meta }: { meta: ReportMeta }) {
           </div>
         )}
       </div>
+
+      {/* Hero band: the PM-chosen site photo — framed rather than
+          full-bleed so any photo quality still reads clean and the
+          branded layout keeps its contrast. */}
+      {meta.coverPhotoUrl && (
+        <div
+          style={{
+            maxWidth: 560,
+            margin: "0 auto 32px",
+            borderRadius: 10,
+            overflow: "hidden",
+            border: "1px solid #e2e8f0",
+            borderBottom: "4px solid var(--brand)",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- Puppeteer static HTML */}
+          <img
+            src={meta.coverPhotoUrl}
+            alt="Site photo"
+            style={{
+              display: "block",
+              width: "100%",
+              height: 250,
+              objectFit: "cover",
+            }}
+          />
+        </div>
+      )}
 
       {/* Details table */}
       <div

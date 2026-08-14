@@ -87,6 +87,7 @@ export const reportRouter = createTRPCRouter({
           narrative: z.array(z.string().trim().min(1).max(4000)).max(12).optional(),
           keyIssues: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           keyRisks: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
+          coverEvidenceId: z.string().uuid().optional(),
           signatures: z.array(z.object({
             role: z.enum(["contractor", "project_manager", "client"]),
             name: z.string().min(1),
@@ -203,6 +204,7 @@ export const reportRouter = createTRPCRouter({
             narrative: input.narrative,
             keyIssues: input.keyIssues,
             keyRisks: input.keyRisks,
+            coverEvidenceId: input.coverEvidenceId,
           },
         });
       } catch (err) {
@@ -237,6 +239,7 @@ export const reportRouter = createTRPCRouter({
           narrative: z.array(z.string().trim().min(1).max(4000)).max(12).optional(),
           keyIssues: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           keyRisks: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
+          coverEvidenceId: z.string().uuid().optional(),
           signatures: z.array(z.object({
             role: z.enum(["contractor", "project_manager", "client"]),
             name: z.string().min(1),
@@ -268,6 +271,7 @@ export const reportRouter = createTRPCRouter({
         narrative: input.narrative,
         keyIssues: input.keyIssues,
         keyRisks: input.keyRisks,
+        coverEvidenceId: input.coverEvidenceId,
         signatures: input.signatures,
       });
       const html = await renderReportHTML(data);

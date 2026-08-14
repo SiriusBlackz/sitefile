@@ -21,6 +21,8 @@ export interface ReportMeta {
   periodStart: string;
   periodEnd: string;
   generatedAt: string;
+  /** Presigned URL of the PM-chosen site photo for the cover hero band. */
+  coverPhotoUrl?: string | null;
 }
 
 const DEFAULT_BRAND = "#3b82f6";

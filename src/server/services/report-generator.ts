@@ -89,6 +89,12 @@ export interface GenerateReportInput {
    * present it replaces the derived risks wholesale.
    */
   keyRisks?: string[];
+  /**
+   * Evidence id of the site photo chosen for the cover hero band —
+   * per report, optional. Silently ignored if the photo no longer
+   * exists or belongs to another project.
+   */
+  coverEvidenceId?: string;
 }
 
 /**
@@ -190,6 +196,21 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     ? await getReadUrl(project.clientLogoKey)
     : null;
 
+  // Optional PM-chosen cover photo — full-res key, project-scoped lookup
+  // so a stale or foreign id degrades to "no cover photo", never an error.
+  let coverPhotoUrl: string | null = null;
+  if (input.coverEvidenceId) {
+    const coverEv = await db.query.evidence.findFirst({
+      where: and(
+        eq(evidence.id, input.coverEvidenceId),
+        eq(evidence.projectId, input.projectId),
+        isNull(evidence.deletedAt)
+      ),
+      columns: { storageKey: true },
+    });
+    if (coverEv) coverPhotoUrl = await getReadUrl(coverEv.storageKey);
+  }
+
   const meta: ReportMeta = {
     organisationName: org.name,
     logoUrl,
@@ -204,6 +225,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     periodStart: input.periodStart,
     periodEnd: input.periodEnd,
     generatedAt: new Date().toISOString(),
+    coverPhotoUrl,
   };
 
   // 6. Executive summary stats — leaf activities only. Counting phase

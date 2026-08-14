@@ -72,6 +72,56 @@ function typedSignatureDataUrl(name: string): string | null {
 
 const SAVED_SIGNATURE_KEY = "sitefile.savedSignature";
 
+/** Cover photo thumbnail picker — shared by setup form and preview panel. */
+function CoverPhotoPicker({
+  photos,
+  value,
+  onChange,
+}: {
+  photos: {
+    id: string;
+    thumbnailUrl: string | null;
+    publicUrl: string;
+    note: string | null;
+    originalFilename: string | null;
+  }[];
+  value: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  if (photos.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        No photos in this project yet — upload site photos to choose one.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {photos.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          title={p.note ?? p.originalFilename ?? "Site photo"}
+          onClick={() => onChange(value === p.id ? null : p.id)}
+          className={cn(
+            "h-14 w-20 overflow-hidden rounded-md border transition-shadow",
+            value === p.id
+              ? "ring-2 ring-primary ring-offset-1"
+              : "hover:ring-1 hover:ring-muted-foreground/40"
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- tiny thumb */}
+          <img
+            src={p.thumbnailUrl ?? p.publicUrl}
+            alt={p.note ?? "Site photo"}
+            className="h-full w-full object-cover"
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Key issues list editor — shared by the setup form and the preview panel. */
 function KeyIssuesEditor({
   keyIssues,
@@ -211,6 +261,16 @@ export function GenerateDialog({
   // the real derived list rather than typing blind.
   const [keyRisksEdit, setKeyRisksEdit] = useState<string[] | null>(null);
   const [riskDraft, setRiskDraft] = useState("");
+  // Cover hero photo — per report, optional; null keeps today's cover.
+  const [coverEvidenceId, setCoverEvidenceId] = useState<string | null>(null);
+  const { data: coverPhotoData } = trpc.evidence.list.useInfiniteQuery(
+    { projectId, limit: 12, type: "photo" },
+    {
+      enabled: open,
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    }
+  );
+  const coverPhotos = coverPhotoData?.pages[0]?.items ?? [];
   // Section recipe: defaults follow the project's reporting frequency
   // (weekly/fortnightly get the lean pack); overrides are per-run only.
   const [sectionOverrides, setSectionOverrides] = useState<Partial<ReportSections>>({});
@@ -327,6 +387,7 @@ export function GenerateDialog({
     setIssueDraft("");
     setKeyRisksEdit(null);
     setRiskDraft("");
+    setCoverEvidenceId(null);
     onOpenChange(false);
   }
 
@@ -343,6 +404,7 @@ export function GenerateDialog({
       REPORT_SECTION_KEYS.some(
         (key) => sections[key] !== recipeDefaults[key]
       ) ||
+      coverEvidenceId !== null ||
       signatures.some((s) => s.name.trim() || s.title.trim() || s.imageDataUrl);
     if (isDirty && !window.confirm("Discard report setup?")) return;
     handleClose();
@@ -393,6 +455,7 @@ export function GenerateDialog({
       narrative: narrativeParagraphs.length > 0 ? narrativeParagraphs : undefined,
       keyIssues: keyIssuesList.length > 0 ? keyIssuesList : undefined,
       keyRisks: keyRisksList,
+      coverEvidenceId: coverEvidenceId ?? undefined,
       signatures: validSignatures.length > 0 ? validSignatures : undefined,
     };
   }
@@ -676,6 +739,20 @@ export function GenerateDialog({
           </div>
 
           <div className="space-y-2">
+            <Label>Cover photo (optional)</Label>
+            <p className="text-xs text-muted-foreground">
+              Pick a site photo to feature on the report cover — tap to
+              select, tap again to remove. Leave unselected for the standard
+              cover.
+            </p>
+            <CoverPhotoPicker
+              photos={coverPhotos}
+              value={coverEvidenceId}
+              onChange={setCoverEvidenceId}
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="report-password">Report password (optional)</Label>
             <Input
               id="report-password"
@@ -924,6 +1001,14 @@ export function GenerateDialog({
                   issueDraft={issueDraft}
                   setIssueDraft={setIssueDraft}
                   idPrefix="preview"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Cover photo</Label>
+                <CoverPhotoPicker
+                  photos={coverPhotos}
+                  value={coverEvidenceId}
+                  onChange={setCoverEvidenceId}
                 />
               </div>
               <Button
