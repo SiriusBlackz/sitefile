@@ -49,10 +49,14 @@ export function ReportChecklist({
   const { data: org } = trpc.org.get.useQuery(undefined, {
     enabled: !journeyDone,
   });
+  const { data: orgUsers = [] } = trpc.project.orgUsers.useQuery(undefined, {
+    enabled: !journeyDone,
+  });
 
   if (journeyDone) return null;
 
   const brandingDone = !!(org?.logoUrl || org?.brandColor || clientLogoSet);
+  const teamDone = orgUsers.length > 1;
 
   const steps: Step[] = [
     {
@@ -68,6 +72,14 @@ export function ReportChecklist({
       actions: [
         { label: "Company branding", href: "/account" },
         { label: "Client logo", href: `/projects/${projectId}/settings`, outline: true },
+      ],
+    },
+    {
+      title: "Invite your site team",
+      done: teamDone,
+      desc: "Site staff capture photos straight into the project from their phones — they sign up, you add them in project settings.",
+      actions: [
+        { label: "Team settings", href: `/projects/${projectId}/settings` },
       ],
     },
     {

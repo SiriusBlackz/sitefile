@@ -310,6 +310,15 @@ export default function ProjectSettingsPage() {
           <CardTitle className="text-base">Team Members</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <p className="rounded-lg border border-dashed bg-muted/40 p-3 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">
+              Getting site staff in:
+            </span>{" "}
+            they sign up at www.sitefile.app/sign-up with their work email —
+            once they appear in your organisation, add them to this project
+            below. They&apos;ll then see it in their app and can capture
+            photos straight to it.
+          </p>
           <div className="space-y-2">
             {owners.map((owner) => (
               <div

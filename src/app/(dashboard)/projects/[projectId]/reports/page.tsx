@@ -3,11 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
 import { ReportList } from "@/components/reports/report-list";
 import { GenerateDialog } from "@/components/reports/generate-dialog";
+import { ReportBuilderPanel } from "@/components/reports/report-builder-panel";
 import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
-import { FileText } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ReportsPage() {
@@ -65,16 +64,16 @@ export default function ReportsPage() {
       <ProjectBreadcrumb items={[{ label: "Reports" }]} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Reports</h2>
-        <Button
-          onClick={() => {
-            setGenerateKey((k) => k + 1);
-            setGenerateOpen(true);
-          }}
-        >
-          <FileText className="mr-1 h-4 w-4" />
-          Generate Report
-        </Button>
       </div>
+
+      {/* The standing draft — readiness ring, fix rows, Review & send. */}
+      <ReportBuilderPanel
+        projectId={projectId}
+        onReviewAndSend={() => {
+          setGenerateKey((k) => k + 1);
+          setGenerateOpen(true);
+        }}
+      />
 
       <ReportList reports={reports} />
 

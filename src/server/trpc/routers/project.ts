@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, desc, ne, or, isNull, inArray, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
-import { projects, organisations, projectMembers, users, reports, evidence } from "@/server/db/schema";
+import { projects, organisations, projectMembers, users, reports, evidence, tasks } from "@/server/db/schema";
 import { PROJECT_MEMBER_ROLES, PROJECT_STATUSES } from "@/server/db/enums";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
@@ -275,6 +275,11 @@ export const projectRouter = createTRPCRouter({
       const unlinked = inPeriod.filter((r) => r.linkCount === 0).length;
       const uncaptioned = inPeriod.filter((r) => !r.note?.trim()).length;
 
+      const [taskCountRow] = await ctx.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(tasks)
+        .where(eq(tasks.projectId, input.id));
+
       const programmeConfirmedThisPeriod =
         project.programmeConfirmedAt != null &&
         project.programmeConfirmedAt >= periodStart;
@@ -284,6 +289,7 @@ export const projectRouter = createTRPCRouter({
         reportingFrequency: project.reportingFrequency,
         lastReportNumber: lastReport?.reportNumber ?? null,
         periodStart: periodStartStr,
+        taskCount: taskCountRow?.count ?? 0,
         photosThisPeriod: inPeriod.length,
         unlinked,
         uncaptioned,
