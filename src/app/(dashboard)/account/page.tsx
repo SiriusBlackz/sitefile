@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SkinSwitcherCard } from "@/components/layout/skin-switcher";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { LogOut, Paintbrush, UserRound } from "lucide-react";
 
@@ -342,6 +343,7 @@ export default function AccountPage() {
       <h1 className="text-2xl font-bold tracking-tight">Account</h1>
       <ProfileCard />
       <BrandingCard />
+      <SkinSwitcherCard />
       {isDemo ? (
         <DemoSessionCard />
       ) : isClerkConfigured ? (

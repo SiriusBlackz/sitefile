@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/sonner";
 import { ClerkWrapper } from "@/components/clerk-wrapper";
+import { SkinApplier } from "@/components/layout/skin-switcher";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -48,6 +49,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.svg" />
       </head>
       <body className="min-h-full flex flex-col">
+        <SkinApplier />
         <ClerkWrapper>
           <Providers>
             {children}
