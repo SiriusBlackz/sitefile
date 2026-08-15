@@ -30,6 +30,8 @@ import {
   type OfflineCapture,
 } from "@/lib/offline-queue";
 import { usePWA } from "@/lib/use-pwa";
+import { pointInPolygon } from "@/lib/geo";
+import { MapPin, SkipForward } from "lucide-react";
 
 // Image types accepted by evidence.getUploadUrl (kept in sync with the
 // server's ALLOWED_MIME_TYPES — importing the router here would pull server
@@ -127,6 +129,35 @@ function ReviewContent() {
     { projectId },
     { enabled: !!projectId }
   );
+  // Zones power the at-the-shutter tag suggestion: a photo inside a zone
+  // with a default task gets a one-tap tag while the person who knows
+  // the answer is still standing in front of the work.
+  const { data: zones = [] } = trpc.zone.list.useQuery(
+    { projectId },
+    { enabled: !!projectId }
+  );
+
+  function suggestFor(photo: ReviewPhoto) {
+    if (photo.latitude == null || photo.longitude == null) return null;
+    for (const zone of zones) {
+      const polygon = zone.polygon as { coordinates: number[][][] };
+      if (
+        zone.defaultTaskId &&
+        pointInPolygon([photo.longitude, photo.latitude], polygon.coordinates)
+      ) {
+        const task = tasks.find((t) => t.id === zone.defaultTaskId);
+        if (task) return { taskId: task.id, taskName: task.name, zoneName: zone.name };
+      }
+    }
+    return null;
+  }
+
+  function advanceToNextPending(fromIdx: number) {
+    const next = photos.findIndex(
+      (p, i) => i > fromIdx && p.status === "pending" && !p.taskId
+    );
+    if (next >= 0) setSelectedIdx(next);
+  }
 
   const getUploadUrl = trpc.evidence.getUploadUrl.useMutation();
   const confirmUpload = trpc.evidence.confirm.useMutation();
@@ -227,10 +258,14 @@ function ReviewContent() {
 
       // 4. Link to task if selected
       if (photo.taskId && evidence) {
+        const suggested = suggestFor(photo);
         await linkEvidence.mutateAsync({
           evidenceId: evidence.id,
           taskId: photo.taskId,
-          linkMethod: "manual",
+          linkMethod:
+            suggested && suggested.taskId === photo.taskId
+              ? "ai_suggested"
+              : "manual",
         });
       }
 
@@ -396,6 +431,46 @@ function ReviewContent() {
       {/* Edit panel for selected photo */}
       {selected && selected.status === "pending" && (
         <div className="flex-1 overflow-y-auto bg-zinc-950 px-4 py-3 space-y-3">
+          {(() => {
+            const suggestion = suggestFor(selected);
+            if (selected.taskId) return null;
+            return (
+              <div className="space-y-2">
+                {suggestion ? (
+                  <button
+                    onClick={() => {
+                      updatePhoto(selected.id, { taskId: suggestion.taskId });
+                      advanceToNextPending(selectedIdx);
+                    }}
+                    className="flex min-h-16 w-full items-center gap-3 rounded-xl bg-primary px-4 py-3 text-left active:brightness-95"
+                  >
+                    <MapPin className="h-6 w-6 shrink-0 text-primary-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-base font-semibold leading-tight text-primary-foreground">
+                        Tag: {suggestion.taskName}
+                      </span>
+                      <span className="block text-xs text-primary-foreground/80">
+                        You&apos;re in {suggestion.zoneName}
+                      </span>
+                    </span>
+                  </button>
+                ) : selected.latitude == null ? (
+                  <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+                    No GPS on this photo — pick its task below, or sort it in
+                    the gallery later.
+                  </p>
+                ) : null}
+                <button
+                  onClick={() => advanceToNextPending(selectedIdx)}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-zinc-700 px-4 py-2.5 text-sm text-zinc-300 active:bg-zinc-800"
+                >
+                  <SkipForward className="h-4 w-4" />
+                  Sort it later
+                </button>
+              </div>
+            );
+          })()}
+
           <div>
             <label className="text-xs font-medium text-zinc-400 mb-1 block">
               Link to Task
@@ -460,11 +535,13 @@ function ReviewContent() {
                 minute: "2-digit",
               })}
             </span>
-            {selected.latitude != null && (
+            {selected.latitude != null ? (
               <span>
                 GPS: {selected.latitude.toFixed(4)},{" "}
                 {selected.longitude?.toFixed(4)}
               </span>
+            ) : (
+              <span className="text-amber-400">No GPS</span>
             )}
           </div>
 

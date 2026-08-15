@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, desc, lte, gte, sql, inArray, ilike, or, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
-import { evidence, evidenceLinks, users, uploadIntents, tasks } from "@/server/db/schema";
+import { evidence, evidenceLinks, users, uploadIntents, tasks, gpsZones } from "@/server/db/schema";
 import { EVIDENCE_TYPES, LINK_METHODS } from "@/server/db/enums";
 import { getUploadUrl, getPublicUrl, statStoredObject } from "@/server/services/storage";
 import { suggestTasks } from "@/server/services/ai-linker";
@@ -301,6 +301,107 @@ export const evidenceRouter = createTRPCRouter({
           })),
         })),
         nextCursor: hasMore ? items[items.length - 1].id : null,
+      };
+    }),
+
+  // The Yard: batch triage of unlinked photos, grouped by capture day +
+  // GPS zone so a PM confirms six at a time instead of linking one by
+  // one. Suggested task = the containing zone's default task; groups
+  // with no GPS (or outside every zone) get no auto-suggestion — the
+  // human picks, nothing auto-commits.
+  triageGroups: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+
+      const rows = await ctx.db
+        .select({
+          id: evidence.id,
+          note: evidence.note,
+          storageKey: evidence.storageKey,
+          thumbnailKey: evidence.thumbnailKey,
+          latitude: evidence.latitude,
+          longitude: evidence.longitude,
+          capturedAt: evidence.capturedAt,
+          uploadedAt: evidence.uploadedAt,
+          linkCount: sql<number>`(select count(*) from evidence_links el where el.evidence_id = ${evidence.id})::int`,
+        })
+        .from(evidence)
+        .where(and(eq(evidence.projectId, input.projectId), isNull(evidence.deletedAt)));
+
+      const unlinked = rows.filter((r) => r.linkCount === 0);
+      if (unlinked.length === 0) return { groups: [], total: 0 };
+
+      const zones = await ctx.db.query.gpsZones.findMany({
+        where: eq(gpsZones.projectId, input.projectId),
+        with: { defaultTask: { columns: { id: true, name: true } } },
+      });
+      const { pointInPolygon } = await import("@/lib/geo");
+
+      type Group = {
+        key: string;
+        day: string;
+        zoneName: string | null;
+        suggestedTaskId: string | null;
+        suggestedTaskName: string | null;
+        reason: string;
+        items: {
+          id: string;
+          note: string | null;
+          thumbnailUrl: string | null;
+          publicUrl: string;
+        }[];
+      };
+      const groups = new Map<string, Group>();
+
+      for (const r of unlinked) {
+        const at = r.capturedAt ?? r.uploadedAt ?? new Date();
+        const day = at.toISOString().slice(0, 10);
+        let zone: (typeof zones)[number] | null = null;
+        if (r.latitude != null && r.longitude != null) {
+          for (const z of zones) {
+            const polygon = z.polygon as { coordinates: number[][][] };
+            if (pointInPolygon([r.longitude, r.latitude], polygon.coordinates)) {
+              zone = z;
+              break;
+            }
+          }
+        }
+        const zoneKey =
+          zone?.id ?? (r.latitude != null ? "outside-zones" : "no-gps");
+        const key = `${day}|${zoneKey}`;
+        let group = groups.get(key);
+        if (!group) {
+          group = {
+            key,
+            day,
+            zoneName: zone?.name ?? null,
+            suggestedTaskId: zone?.defaultTask?.id ?? null,
+            suggestedTaskName: zone?.defaultTask?.name ?? null,
+            reason: zone
+              ? zone.defaultTask
+                ? `Taken in ${zone.name} — its zone task is “${zone.defaultTask.name}”`
+                : `Taken in ${zone.name} — the zone has no default task; pick one`
+              : r.latitude != null
+                ? "GPS outside every drawn zone — pick the task"
+                : "No GPS on these photos — pick the task",
+            items: [],
+          };
+          groups.set(key, group);
+        }
+        group.items.push({
+          id: r.id,
+          note: r.note,
+          thumbnailUrl: r.thumbnailKey ? getPublicUrl(r.thumbnailKey) : null,
+          publicUrl: getPublicUrl(r.storageKey),
+        });
+      }
+
+      return {
+        groups: Array.from(groups.values()).sort((a, b) =>
+          b.day.localeCompare(a.day)
+        ),
+        total: unlinked.length,
       };
     }),
 

@@ -36,6 +36,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { EvidenceGrid } from "@/components/evidence/evidence-grid";
+import { YardTriage } from "@/components/evidence/yard-triage";
 import { UploadQueue } from "@/components/evidence/upload-queue";
 import { TaskLinker } from "@/components/evidence/task-linker";
 import type { EvidenceItem } from "@/components/evidence/evidence-card";
@@ -457,6 +458,10 @@ export default function EvidencePage() {
           </div>
         </div>
       )}
+
+      {/* The Yard: batch triage sits above the gallery whenever unlinked
+          photos exist — cleared group by group, never auto-committed. */}
+      <YardTriage projectId={projectId} />
 
       <EvidenceGrid
         items={items}

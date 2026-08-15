@@ -61,6 +61,9 @@ function CaptureContent() {
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [captureFlash, setCaptureFlash] = useState(false);
+  // Honesty at capture time: if location is denied/unavailable the crew
+  // should know NOW, not when the report can't verify the photos.
+  const [gpsDenied, setGpsDenied] = useState(false);
 
   const { isOnline } = usePWA();
 
@@ -184,7 +187,10 @@ function CaptureContent() {
               )
             );
           },
-          () => {},
+          (err) => {
+            if (!mountedRef.current) return;
+            if (err.code === err.PERMISSION_DENIED) setGpsDenied(true);
+          },
           { enableHighAccuracy: true, timeout: 5000 }
         );
 
@@ -330,6 +336,13 @@ function CaptureContent() {
           </button>
         </div>
 
+        {/* GPS honesty pill */}
+        {gpsDenied && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 rounded-full bg-amber-500/90 px-3 py-1.5 text-xs font-medium text-black">
+            No GPS — photos won&apos;t verify on the site map
+          </div>
+        )}
+
         {/* Camera not ready */}
         {!cameraReady && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-6">
@@ -386,10 +399,10 @@ function CaptureContent() {
         <button
           onClick={capturePhoto}
           disabled={!cameraReady}
-          className="h-[72px] w-[72px] rounded-full border-[5px] border-white flex items-center justify-center active:scale-90 transition-transform disabled:opacity-50"
+          className="h-[88px] w-[88px] rounded-full border-[6px] border-white flex items-center justify-center active:scale-90 transition-transform disabled:opacity-50"
           aria-label="Take photo"
         >
-          <div className="h-[58px] w-[58px] rounded-full bg-white" />
+          <div className="h-[70px] w-[70px] rounded-full bg-white" />
         </button>
 
         {/* Switch camera */}
@@ -406,7 +419,7 @@ function CaptureContent() {
       {photos.length > 0 && (
         <button
           onClick={goToReview}
-          className="flex items-center justify-center gap-2 bg-primary py-3 text-sm font-medium text-primary-foreground active:brightness-95"
+          className="flex items-center justify-center gap-2 bg-primary py-4 text-base font-semibold text-primary-foreground active:brightness-95"
         >
           <Send className="h-4 w-4" />
           Review & Upload {photos.length} Photo{photos.length !== 1 ? "s" : ""}

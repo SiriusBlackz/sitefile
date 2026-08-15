@@ -81,6 +81,11 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
 
   const utils = trpc.useUtils();
   const { data: zones = [] } = trpc.zone.list.useQuery({ projectId });
+  // Harvested zone suggestions: clusters of photo GPS outside every
+  // drawn zone — the map never has to start blank.
+  const { data: harvest } = trpc.zone.harvestSuggestions.useQuery({ projectId });
+  const suggestions = harvest?.suggestions ?? [];
+  const [harvestNames, setHarvestNames] = useState<Record<string, string>>({});
   const { data: tasks = [] } = trpc.task.list.useQuery({ projectId });
 
   // Base UI renders the raw value (a task UUID) in the trigger when the value
@@ -94,6 +99,7 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
   const createMutation = trpc.zone.create.useMutation({
     onSuccess: () => {
       utils.zone.list.invalidate({ projectId });
+      utils.zone.harvestSuggestions.invalidate({ projectId });
       setPendingZone(null);
       setZoneName("");
       setZoneColor("#3B82F6");
@@ -237,6 +243,38 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
       });
     }
 
+    // Harvested suggestions render as dashed amber outlines — clearly
+    // provisional, never solid until confirmed.
+    for (let i = 0; i < 8; i++) {
+      const sid = `harvest-${i}`;
+      if (map.getLayer(`${sid}-outline`)) map.removeLayer(`${sid}-outline`);
+      if (map.getLayer(`${sid}-fill`)) map.removeLayer(`${sid}-fill`);
+      if (map.getSource(sid)) map.removeSource(sid);
+    }
+    for (const sug of suggestions) {
+      const sid = sug.id;
+      map.addSource(sid, {
+        type: "geojson",
+        data: { type: "Feature", properties: {}, geometry: sug.polygon },
+      });
+      map.addLayer({
+        id: `${sid}-fill`,
+        type: "fill",
+        source: sid,
+        paint: { "fill-color": "#E8940A", "fill-opacity": 0.08 },
+      });
+      map.addLayer({
+        id: `${sid}-outline`,
+        type: "line",
+        source: sid,
+        paint: {
+          "line-color": "#E8940A",
+          "line-width": 2,
+          "line-dasharray": [2, 2],
+        },
+      });
+    }
+
     // Centre the map on the project's zones once, on first draw; keep the
     // default UK view when the project has no zones yet.
     if (zones.length > 0 && !didFitBoundsRef.current) {
@@ -261,7 +299,7 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
         { padding: 48, maxZoom: 17, animate: false }
       );
     }
-  }, [zones, styleGen]);
+  }, [zones, suggestions, styleGen]);
 
   function handleCreateZone() {
     if (!pendingZone || !zoneName) return;
@@ -457,6 +495,59 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
             Click the map to add corner points, then double-click (or press
             Enter) to close the zone.
           </p>
+        )}
+        {suggestions.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-dashed border-primary/50 bg-accent/40 p-2.5">
+            <p className="text-xs font-medium">
+              Suggested from your photos — confirm to create:
+            </p>
+            {suggestions.map((sug) => (
+              <div key={sug.id} className="space-y-1.5">
+                <button
+                  type="button"
+                  className="text-left text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    mapRef.current?.flyTo({
+                      center: [sug.centroid.longitude, sug.centroid.latitude],
+                      zoom: 17,
+                    })
+                  }
+                >
+                  {sug.count} photos cluster here — name this zone?
+                </button>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={harvestNames[sug.id] ?? ""}
+                    onChange={(e) =>
+                      setHarvestNames((prev) => ({
+                        ...prev,
+                        [sug.id]: e.target.value,
+                      }))
+                    }
+                    placeholder="e.g. Car park works"
+                    className="h-8 text-xs"
+                  />
+                  <Button
+                    size="xs"
+                    disabled={
+                      !harvestNames[sug.id]?.trim() || createMutation.isPending
+                    }
+                    onClick={() =>
+                      createMutation.mutate({
+                        projectId,
+                        name: harvestNames[sug.id].trim(),
+                        polygon: sug.polygon,
+                        defaultTaskId: null,
+                        color: "#E8940A",
+                      })
+                    }
+                  >
+                    Create
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
         {zones.length === 0 && (
           <p className="text-sm text-muted-foreground">
