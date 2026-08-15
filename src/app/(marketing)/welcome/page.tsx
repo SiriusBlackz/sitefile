@@ -214,7 +214,7 @@ export default function WelcomePage() {
               },
             ].map((f) => (
               <div key={f.title} className="flex gap-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-400">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
                   <f.icon className="h-5 w-5" />
                 </div>
                 <div>
@@ -228,7 +228,7 @@ export default function WelcomePage() {
           </div>
           <p className="mt-10 text-center text-sm text-slate-400">
             Full details in our{" "}
-            <Link href="/privacy" className="text-blue-400 hover:underline">
+            <Link href="/privacy" className="text-primary hover:underline">
               privacy policy
             </Link>
             .

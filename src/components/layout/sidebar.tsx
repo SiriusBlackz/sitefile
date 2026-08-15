@@ -31,8 +31,10 @@ export function Sidebar() {
   });
 
   return (
-    <aside className="hidden md:flex w-64 flex-col border-r bg-muted/30">
-      <div className="flex h-14 items-center gap-2 border-b px-4">
+    // Ink chrome: the sidebar consumes the sidebar token set so the app
+    // frame carries the brand while content stays on site-dust paper.
+    <aside className="hidden md:flex w-64 flex-col border-r border-(--sidebar-border) bg-sidebar text-sidebar-foreground">
+      <div className="flex h-14 items-center gap-2 border-b border-(--sidebar-border) px-4">
         {org?.logoUrl ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element -- user-uploaded logo */}
@@ -63,8 +65,10 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                buttonVariants({ variant: isActive ? "secondary" : "ghost" }),
-                "w-full justify-start gap-2"
+                buttonVariants({ variant: "ghost" }),
+                "w-full justify-start gap-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                isActive &&
+                  "bg-sidebar-accent text-sidebar-foreground"
               )}
             >
               <item.icon className="h-4 w-4" />
@@ -73,12 +77,12 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="flex items-center gap-3 px-4 pb-2 text-[11px] text-muted-foreground/70">
-        <Link href="/support" className="hover:text-foreground">Support</Link>
-        <Link href="/privacy" className="hover:text-foreground">Privacy</Link>
-        <Link href="/terms" className="hover:text-foreground">Terms</Link>
+      <div className="flex items-center gap-3 px-4 pb-2 text-[11px] text-sidebar-foreground/60">
+        <Link href="/support" className="hover:text-sidebar-foreground">Support</Link>
+        <Link href="/privacy" className="hover:text-sidebar-foreground">Privacy</Link>
+        <Link href="/terms" className="hover:text-sidebar-foreground">Terms</Link>
       </div>
-      <div className="border-t p-3 flex items-center justify-between gap-2">
+      <div className="border-t border-(--sidebar-border) p-3 flex items-center justify-between gap-2">
         <OfflineQueueIndicator />
         <div className="flex items-center gap-1">
           <ThemeToggle />

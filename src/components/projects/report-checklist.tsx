@@ -121,7 +121,7 @@ export function ReportChecklist({
                 <div
                   className={cn(
                     "flex items-start gap-3 rounded-lg px-2 py-2",
-                    isActive && "bg-blue-50 dark:bg-blue-950/20"
+                    isActive && "bg-accent"
                   )}
                 >
                   <div
@@ -130,7 +130,7 @@ export function ReportChecklist({
                       step.done
                         ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
                         : isActive
-                          ? "bg-blue-600 text-white"
+                          ? "bg-primary text-primary-foreground"
                           : "bg-muted text-muted-foreground"
                     )}
                   >

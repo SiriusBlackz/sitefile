@@ -348,7 +348,7 @@ function ReviewContent() {
           {selected.status === "uploading" && (
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-zinc-800">
               <div
-                className="h-full bg-blue-500 transition-all"
+                className="h-full bg-primary transition-all"
                 style={{ width: `${selected.progress}%` }}
               />
             </div>
@@ -364,7 +364,7 @@ function ReviewContent() {
             onClick={() => setSelectedIdx(idx)}
             className={`relative h-14 w-14 flex-shrink-0 rounded-lg overflow-hidden border-2 ${
               idx === selectedIdx
-                ? "border-blue-500"
+                ? "border-primary"
                 : "border-transparent"
             }`}
           >
@@ -517,7 +517,7 @@ function ReviewContent() {
         <button
           onClick={uploadAll}
           disabled={uploading || photos.every((p) => p.status !== "pending")}
-          className="flex items-center justify-center gap-2 bg-blue-600 py-4 text-sm font-semibold active:bg-blue-700 disabled:bg-zinc-800 disabled:text-zinc-500 safe-bottom"
+          className="flex items-center justify-center gap-2 bg-primary py-4 text-sm font-semibold text-primary-foreground active:brightness-95 disabled:bg-zinc-800 disabled:text-zinc-500 safe-bottom"
         >
           {uploading ? (
             <>

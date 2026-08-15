@@ -310,7 +310,7 @@ function CaptureContent() {
               </Badge>
             )}
             {photos.length > 0 && (
-              <Badge className="bg-blue-500/90 text-white">
+              <Badge className="bg-primary/90 text-primary-foreground">
                 {photos.length} photo{photos.length !== 1 ? "s" : ""}
               </Badge>
             )}
@@ -406,7 +406,7 @@ function CaptureContent() {
       {photos.length > 0 && (
         <button
           onClick={goToReview}
-          className="flex items-center justify-center gap-2 bg-blue-600 py-3 text-sm font-medium active:bg-blue-700"
+          className="flex items-center justify-center gap-2 bg-primary py-3 text-sm font-medium text-primary-foreground active:brightness-95"
         >
           <Send className="h-4 w-4" />
           Review & Upload {photos.length} Photo{photos.length !== 1 ? "s" : ""}

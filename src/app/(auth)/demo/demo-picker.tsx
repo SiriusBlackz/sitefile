@@ -44,9 +44,9 @@ export function DemoPicker() {
             <button
               key={user.key}
               onClick={() => selectUser(user.key)}
-              className="w-full flex items-center gap-4 rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-left transition-colors hover:border-blue-600 hover:bg-zinc-800"
+              className="w-full flex items-center gap-4 rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-left transition-colors hover:border-primary hover:bg-zinc-800"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600/10 text-blue-500">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <User className="h-5 w-5" />
               </div>
               <div>
