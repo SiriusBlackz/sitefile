@@ -2,7 +2,13 @@ import { z } from "zod";
 import { eq, and, lt, desc, isNull, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
-import { reports, evidence } from "@/server/db/schema";
+import {
+  reports,
+  evidence,
+  reportShares,
+  projects,
+} from "@/server/db/schema";
+import { randomBytes } from "crypto";
 import { inngest } from "@/server/inngest/client";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
@@ -15,6 +21,7 @@ import {
   renderReportHTML,
 } from "@/server/services/report-generator";
 import bcrypt from "bcryptjs";
+import { addReportingPeriod } from "@/lib/reporting-cadence";
 
 const sectionsSchema = z
   .object(
@@ -231,6 +238,25 @@ export const reportRouter = createTRPCRouter({
         });
       }
 
+      // Advance the report cadence: the next report is owed one frequency
+      // step after whichever is later — the current due date or this
+      // report's period end. Adopts a due date automatically for projects
+      // that never set one.
+      const proj = await ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.projectId),
+        columns: { nextReportDue: true, reportingFrequency: true },
+      });
+      if (proj) {
+        const base =
+          proj.nextReportDue && proj.nextReportDue > input.periodEnd
+            ? proj.nextReportDue
+            : input.periodEnd;
+        await ctx.db
+          .update(projects)
+          .set({ nextReportDue: addReportingPeriod(base, proj.reportingFrequency) })
+          .where(eq(projects.id, input.projectId));
+      }
+
       writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "generate", entityType: "report", entityId: report.id, metadata: { reportNumber, periodStart: input.periodStart, periodEnd: input.periodEnd, sections: input.sections } });
       // Never return the full row: it carries passwordHash.
       return { id: report.id, reportNumber, status: report.status };
@@ -413,6 +439,109 @@ export const reportRouter = createTRPCRouter({
         metadata: { periodStart: input.periodStart, periodEnd: input.periodEnd },
       });
       return result;
+    }),
+
+
+  // ── Send & receipt ────────────────────────────────────────────────────
+  // A share is a tokenised public link to a completed report; the
+  // client's opens/downloads become a delivery receipt. Passwords stay
+  // out-of-band — the PDF itself is encrypted when one was set.
+
+  createShare: protectedProcedure
+    .input(
+      z.object({
+        reportId: z.string().uuid(),
+        recipientLabel: z.string().trim().max(200).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const report = await ctx.db.query.reports.findFirst({
+        where: eq(reports.id, input.reportId),
+        columns: { id: true, projectId: true, status: true, reportNumber: true },
+      });
+      if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
+      await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
+      if (report.status !== "completed") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Report is not ready to share" });
+      }
+      const token = randomBytes(24).toString("base64url");
+      const [share] = await ctx.db
+        .insert(reportShares)
+        .values({
+          reportId: report.id,
+          token,
+          recipientLabel: input.recipientLabel ?? null,
+          createdBy: ctx.userId,
+        })
+        .returning();
+      writeAuditLogAsync(ctx.db, {
+        projectId: report.projectId,
+        userId: ctx.userId,
+        action: "share",
+        entityType: "report",
+        entityId: report.id,
+        metadata: { reportNumber: report.reportNumber, shareId: share.id },
+      });
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.sitefile.app";
+      return { shareId: share.id, url: `${appUrl.replace(/\/$/, "")}/r/${token}` };
+    }),
+
+  shareStatus: protectedProcedure
+    .input(z.object({ reportId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const report = await ctx.db.query.reports.findFirst({
+        where: eq(reports.id, input.reportId),
+        columns: { id: true, projectId: true },
+      });
+      if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
+      await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
+      const shares = await ctx.db.query.reportShares.findMany({
+        where: eq(reportShares.reportId, report.id),
+        orderBy: [desc(reportShares.createdAt)],
+        with: { events: true },
+      });
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.sitefile.app";
+      return shares.map((s) => {
+        const firstEvent = (kind: string) =>
+          s.events
+            .filter((e) => e.event === kind)
+            .map((e) => e.createdAt)
+            .sort((a, b) => (a && b ? a.getTime() - b.getTime() : 0))[0] ?? null;
+        return {
+          id: s.id,
+          url: `${appUrl.replace(/\/$/, "")}/r/${s.token}`,
+          recipientLabel: s.recipientLabel,
+          createdAt: s.createdAt,
+          revokedAt: s.revokedAt,
+          openedAt: firstEvent("opened"),
+          downloadedAt: firstEvent("downloaded"),
+          openCount: s.events.filter((e) => e.event === "opened").length,
+        };
+      });
+    }),
+
+  revokeShare: protectedProcedure
+    .input(z.object({ shareId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const share = await ctx.db.query.reportShares.findFirst({
+        where: eq(reportShares.id, input.shareId),
+        with: { report: { columns: { projectId: true, id: true } } },
+      });
+      if (!share) throw new TRPCError({ code: "NOT_FOUND", message: "Share not found" });
+      await assertProjectAccess(ctx.db, share.report.projectId, ctx.orgId, ctx.userId);
+      await ctx.db
+        .update(reportShares)
+        .set({ revokedAt: new Date() })
+        .where(eq(reportShares.id, input.shareId));
+      writeAuditLogAsync(ctx.db, {
+        projectId: share.report.projectId,
+        userId: ctx.userId,
+        action: "revoke_share",
+        entityType: "report",
+        entityId: share.report.id,
+        metadata: { shareId: share.id },
+      });
+      return { ok: true };
     }),
 
   download: protectedProcedure

@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { eq, and, desc, ne, or, isNull, inArray } from "drizzle-orm";
+import { eq, and, desc, ne, or, isNull, inArray, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
-import { projects, organisations, projectMembers, users } from "@/server/db/schema";
+import { projects, organisations, projectMembers, users, reports, evidence } from "@/server/db/schema";
 import { PROJECT_MEMBER_ROLES, PROJECT_STATUSES } from "@/server/db/enums";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
@@ -111,6 +111,7 @@ export const projectRouter = createTRPCRouter({
           startDate: z.string().optional(),
           endDate: z.string().optional(),
           reportingFrequency: z.string().optional(),
+          nextReportDue: z.string().optional(),
         })
         .refine(
           (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,
@@ -136,6 +137,7 @@ export const projectRouter = createTRPCRouter({
           startDate: input.startDate || null,
           endDate: input.endDate || null,
           reportingFrequency: input.reportingFrequency || null,
+          nextReportDue: input.nextReportDue || null,
         })
         .returning();
 
@@ -182,6 +184,7 @@ export const projectRouter = createTRPCRouter({
           startDate: z.string().optional(),
           endDate: z.string().optional(),
           reportingFrequency: z.string().optional(),
+          nextReportDue: z.string().optional(),
           status: z.enum(PROJECT_STATUSES).optional(),
         })
         .refine(
@@ -203,6 +206,89 @@ export const projectRouter = createTRPCRouter({
         .returning();
       writeAuditLogAsync(ctx.db, { projectId: id, userId: ctx.userId, action: "update", entityType: "project", entityId: id });
       return project;
+    }),
+
+  // Programme-as-living-document ritual: contractors issue an updated
+  // programme every period. Import stamps this automatically; this is
+  // the one-tap "no change this period" alternative.
+  confirmProgramme: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.id, ctx.orgId, ctx.userId);
+      await ctx.db
+        .update(projects)
+        .set({ programmeConfirmedAt: new Date(), updatedAt: new Date() })
+        .where(eq(projects.id, input.id));
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.id,
+        userId: ctx.userId,
+        action: "confirm_programme",
+        entityType: "project",
+        entityId: input.id,
+      });
+      return { ok: true };
+    }),
+
+  // The living gap list: what stands between this project and its next
+  // report, computed per reporting period (period = since the last
+  // completed report's period end, else the project start).
+  gapList: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.id, ctx.orgId, ctx.userId);
+      const project = await ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.id),
+        columns: {
+          nextReportDue: true,
+          programmeConfirmedAt: true,
+          reportingFrequency: true,
+          startDate: true,
+        },
+      });
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const lastReport = await ctx.db.query.reports.findFirst({
+        where: and(eq(reports.projectId, input.id), eq(reports.status, "completed")),
+        orderBy: [desc(reports.reportNumber)],
+        columns: { periodEnd: true, reportNumber: true },
+      });
+      const periodStartStr = lastReport
+        ? lastReport.periodEnd
+        : (project.startDate ?? new Date().toISOString().slice(0, 10));
+      const periodStart = new Date(periodStartStr + "T00:00:00Z");
+
+      const rows = await ctx.db
+        .select({
+          id: evidence.id,
+          note: evidence.note,
+          capturedAt: evidence.capturedAt,
+          uploadedAt: evidence.uploadedAt,
+          linkCount: sql<number>`(select count(*) from evidence_links el where el.evidence_id = ${evidence.id})::int`,
+        })
+        .from(evidence)
+        .where(and(eq(evidence.projectId, input.id), isNull(evidence.deletedAt)));
+
+      const inPeriod = rows.filter((r) => {
+        const at = r.capturedAt ?? r.uploadedAt;
+        return at != null && at >= periodStart;
+      });
+      const unlinked = inPeriod.filter((r) => r.linkCount === 0).length;
+      const uncaptioned = inPeriod.filter((r) => !r.note?.trim()).length;
+
+      const programmeConfirmedThisPeriod =
+        project.programmeConfirmedAt != null &&
+        project.programmeConfirmedAt >= periodStart;
+
+      return {
+        nextReportDue: project.nextReportDue,
+        reportingFrequency: project.reportingFrequency,
+        lastReportNumber: lastReport?.reportNumber ?? null,
+        periodStart: periodStartStr,
+        photosThisPeriod: inPeriod.length,
+        unlinked,
+        uncaptioned,
+        programmeConfirmedThisPeriod,
+      };
     }),
 
   archive: adminProcedure

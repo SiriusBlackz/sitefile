@@ -99,6 +99,15 @@ export const projects = pgTable("projects", {
   contractType: text("contract_type"),
   scheduleMode: text("schedule_mode").notNull().default("manual"),
   reportingFrequency: text("reporting_frequency").default("monthly"),
+  // When the next report is owed to the client — drives the countdown
+  // chip and the gap list; advanced by one frequency step on generation.
+  nextReportDue: date("next_report_due", { mode: "string" }),
+  // Programme-as-living-document ritual: stamped by programme import and
+  // by the per-period "no change this period" confirmation.
+  programmeConfirmedAt: timestamp("programme_confirmed_at", {
+    withTimezone: true,
+    mode: "date",
+  }),
   startDate: date("start_date", { mode: "string" }),
   endDate: date("end_date", { mode: "string" }),
   status: text("status").default("active"),
@@ -366,7 +375,7 @@ export const reports = pgTable("reports", {
   ),
 ]).enableRLS();
 
-export const reportsRelations = relations(reports, ({ one }) => ({
+export const reportsRelations = relations(reports, ({ one, many }) => ({
   project: one(projects, {
     fields: [reports.projectId],
     references: [projects.id],
@@ -374,6 +383,61 @@ export const reportsRelations = relations(reports, ({ one }) => ({
   generator: one(users, {
     fields: [reports.generatedBy],
     references: [users.id],
+  }),
+  shares: many(reportShares),
+}));
+
+// ─── Report Shares (send & receipt) ─────────────────────────────────────────
+// A share is a tokenised public link to a completed report. The client's
+// interactions with it (opened the page, downloaded the PDF) are logged as
+// events, giving the contractor a delivery receipt — "the client opened
+// it" is the product's success criterion, so it is first-class data.
+
+export const reportShares = pgTable("report_shares", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  reportId: uuid("report_id")
+    .notNull()
+    .references(() => reports.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  recipientLabel: text("recipient_label"),
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
+}, (t) => [
+  index("report_shares_report_id_idx").on(t.reportId),
+]).enableRLS();
+
+export const reportSharesRelations = relations(reportShares, ({ one, many }) => ({
+  report: one(reports, {
+    fields: [reportShares.reportId],
+    references: [reports.id],
+  }),
+  creator: one(users, {
+    fields: [reportShares.createdBy],
+    references: [users.id],
+  }),
+  events: many(reportShareEvents),
+}));
+
+export const reportShareEvents = pgTable("report_share_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  shareId: uuid("share_id")
+    .notNull()
+    .references(() => reportShares.id, { onDelete: "cascade" }),
+  // "opened" = share page viewed; "downloaded" = PDF fetched.
+  event: text("event").notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+}, (t) => [
+  index("report_share_events_share_id_idx").on(t.shareId),
+]).enableRLS();
+
+export const reportShareEventsRelations = relations(reportShareEvents, ({ one }) => ({
+  share: one(reportShares, {
+    fields: [reportShareEvents.shareId],
+    references: [reportShares.id],
   }),
 }));
 

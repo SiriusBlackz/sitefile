@@ -28,6 +28,7 @@ const projectFormSchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   reportingFrequency: z.string().optional(),
+  nextReportDue: z.string().optional(),
 }).refine(
   (data) => !data.startDate || !data.endDate || data.endDate >= data.startDate,
   { message: "End date must be after start date", path: ["endDate"] }
@@ -64,6 +65,7 @@ export function ProjectForm({
       startDate: "",
       endDate: "",
       reportingFrequency: "monthly",
+      nextReportDue: "",
       ...defaultValues,
     },
   });
@@ -159,6 +161,16 @@ export function ProjectForm({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="nextReportDue">First report due (optional)</Label>
+            <Input id="nextReportDue" type="date" {...register("nextReportDue")} />
+            <p className="text-xs text-muted-foreground">
+              When your first report is owed to the client — often tied to a
+              contract date. Drives the countdown on the project page, and
+              moves forward automatically each time you generate a report.
+            </p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">

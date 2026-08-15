@@ -21,7 +21,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Download, Loader2, FileText, Lock } from "lucide-react";
+import { Download, Loader2, FileText, Lock, Send } from "lucide-react";
+import { ShareDialog } from "./share-dialog";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/format";
 
@@ -45,6 +46,7 @@ export function ReportList({ reports }: ReportListProps) {
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [pwPrompt, setPwPrompt] = useState<Report | null>(null);
   const [downloadPassword, setDownloadPassword] = useState("");
+  const [shareReport, setShareReport] = useState<Report | null>(null);
 
   async function runDownload(report: Report, password?: string) {
     setLoadingId(report.id);
@@ -143,6 +145,15 @@ export function ReportList({ reports }: ReportListProps) {
                 </TableCell>
                 <TableCell className="text-right">
                   <Button
+                    size="sm"
+                    className="mr-1.5"
+                    disabled={report.status !== "completed"}
+                    onClick={() => setShareReport(report)}
+                  >
+                    <Send className="mr-1 h-3 w-3" />
+                    Send
+                  </Button>
+                  <Button
                     variant="outline"
                     size="sm"
                     disabled={report.status !== "completed" || loadingId === report.id}
@@ -161,6 +172,18 @@ export function ReportList({ reports }: ReportListProps) {
           </TableBody>
         </Table>
       </div>
+
+      {shareReport && (
+        <ShareDialog
+          open={!!shareReport}
+          onOpenChange={(open) => {
+            if (!open) setShareReport(null);
+          }}
+          reportId={shareReport.id}
+          reportNumber={shareReport.reportNumber}
+          hasPassword={shareReport.hasPassword}
+        />
+      )}
 
       <Dialog
         open={!!pwPrompt}

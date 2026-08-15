@@ -26,6 +26,7 @@ import {
 import { formatDateRange } from "@/lib/format";
 import { BillingBanner } from "@/components/projects/billing-banner";
 import { ReportChecklist } from "@/components/projects/report-checklist";
+import { GapListCard } from "@/components/projects/gap-list-card";
 import { getProjectStatusColor, getProjectStatusLabel } from "@/lib/project-status";
 
 // Error codes meaning "this project isn't reachable" — don't retry, show not-found.
@@ -207,16 +208,22 @@ export default function ProjectDetailPage() {
         </Card>
       </div>
 
-      {/* A-to-Z report journey — below header + stats so users see the project context first */}
-      <ReportChecklist
-        projectId={project.id}
-        taskCount={totalTasks}
-        evidenceCount={evidenceCount?.count ?? 0}
-        linkedCount={evidenceCount?.linked ?? 0}
-        reportCount={totalReports}
-        clientLogoSet={!!project.clientLogoKey}
-        isTouch={isTouch}
-      />
+      {/* First report: the A-to-Z setup checklist. From report #1 onward
+          it hands over to the living gap list — countdown, this period's
+          gaps, and the programme-refresh ritual. */}
+      {totalReports === 0 ? (
+        <ReportChecklist
+          projectId={project.id}
+          taskCount={totalTasks}
+          evidenceCount={evidenceCount?.count ?? 0}
+          linkedCount={evidenceCount?.linked ?? 0}
+          reportCount={totalReports}
+          clientLogoSet={!!project.clientLogoKey}
+          isTouch={isTouch}
+        />
+      ) : (
+        <GapListCard projectId={project.id} />
+      )}
 
       {/* Navigation Sections — Work, Intelligence, Admin (3 equal-weight sections) */}
       {navSections.map((section) => (

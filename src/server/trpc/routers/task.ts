@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, asc, and, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
-import { tasks } from "@/server/db/schema";
+import { tasks, projects } from "@/server/db/schema";
 import { TASK_STATUSES } from "@/server/db/enums";
 import { detectAndParse } from "@/server/services/programme-import";
 import {
@@ -548,6 +548,13 @@ export const taskRouter = createTRPCRouter({
 
           refToId.set(pt.sourceRef, inserted.id);
         }
+
+        // Importing IS the programme-refresh ritual — stamp it so the gap
+        // list stops asking this period.
+        await tx
+          .update(projects)
+          .set({ programmeConfirmedAt: new Date() })
+          .where(eq(projects.id, input.projectId));
 
         writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "import", entityType: "task", entityId: input.projectId, metadata: { count: parsedTasks.length, format } });
         return { imported: parsedTasks.length, format };
