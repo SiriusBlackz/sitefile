@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -12,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Link2 } from "lucide-react";
+import { Check, Link2 } from "lucide-react";
 import { formatDate } from "@/lib/format";
 
 /**
@@ -27,10 +29,20 @@ export function YardTriage({ projectId }: { projectId: string }) {
   const { data: tasks = [] } = trpc.task.list.useQuery({ projectId });
   // Per-group manual task picks for groups without a zone suggestion.
   const [picks, setPicks] = useState<Record<string, string>>({});
+  // Persistent confirmation of the last linked batch — toasts vanish,
+  // this stays until dismissed, with the two natural next steps.
+  const [lastLinked, setLastLinked] = useState<{
+    count: number;
+    taskName: string | null;
+  } | null>(null);
 
   const bulkLink = trpc.evidence.bulkLink.useMutation({
     onSuccess: (res) => {
       toast.success(`Linked ${res.linked} photo${res.linked === 1 ? "" : "s"}`);
+      setLastLinked((prev) => ({
+        count: (prev?.count ?? 0) + res.linked,
+        taskName: prev?.taskName ?? null,
+      }));
       utils.evidence.triageGroups.invalidate({ projectId });
       utils.evidence.list.invalidate();
       utils.project.gapList.invalidate({ id: projectId });
@@ -38,7 +50,7 @@ export function YardTriage({ projectId }: { projectId: string }) {
     onError: (err) => toast.error(err.message),
   });
 
-  if (isLoading || !data || data.groups.length === 0) return null;
+  if (isLoading || !data || (data.groups.length === 0 && !lastLinked)) return null;
 
   function linkGroup(groupKey: string, evidenceIds: string[], taskId: string) {
     bulkLink.mutate({ evidenceIds, taskId });
@@ -61,6 +73,28 @@ export function YardTriage({ projectId }: { projectId: string }) {
           </span>
         </div>
 
+        {lastLinked && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-green-500/40 bg-green-500/10 p-3">
+            <Check className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+            <span className="min-w-0 flex-1 text-sm font-medium">
+              {lastLinked.count} photo{lastLinked.count === 1 ? "" : "s"} linked ✓
+              {data.groups.length === 0 ? " — the Yard is clear" : ""}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLastLinked(null)}
+            >
+              Dismiss
+            </Button>
+            <Link
+              href={`/projects/${projectId}/reports`}
+              className={cn(buttonVariants({ size: "sm" }))}
+            >
+              Review report →
+            </Link>
+          </div>
+        )}
         <div className="space-y-3">
           {data.groups.map((group) => {
             const chosen = group.suggestedTaskId ?? picks[group.key] ?? "";

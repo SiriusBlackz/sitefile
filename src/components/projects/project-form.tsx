@@ -89,6 +89,19 @@ export function ProjectForm({
             )}
           </div>
 
+          <div className="space-y-2 rounded-lg border border-primary/40 bg-accent/50 p-3">
+            <Label htmlFor="nextReportDue" className="text-sm font-semibold">
+              When is your first report due?
+            </Label>
+            <Input id="nextReportDue" type="date" {...register("nextReportDue")} />
+            <p className="text-xs text-muted-foreground">
+              Question № 1 — everything hangs off this date. It drives the
+              countdown and gap list, and moves forward automatically each
+              time you send a report. Leave blank to set it later.
+            </p>
+          </div>
+
+
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="reference">Reference</Label>
@@ -163,15 +176,7 @@ export function ProjectForm({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="nextReportDue">First report due (optional)</Label>
-            <Input id="nextReportDue" type="date" {...register("nextReportDue")} />
-            <p className="text-xs text-muted-foreground">
-              When your first report is owed to the client — often tied to a
-              contract date. Drives the countdown on the project page, and
-              moves forward automatically each time you generate a report.
-            </p>
-          </div>
+
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">

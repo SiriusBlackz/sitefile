@@ -30,6 +30,7 @@ import {
   type ReportSections,
 } from "@/lib/report-sections";
 import { formatDate, REPORTING_FREQUENCY_LABELS } from "@/lib/format";
+import type { ReportDraftPayload } from "@/lib/report-draft";
 
 interface SignatureInput {
   role: "contractor" | "project_manager" | "client";
@@ -71,6 +72,20 @@ function typedSignatureDataUrl(name: string): string | null {
 }
 
 const SAVED_SIGNATURE_KEY = "sitefile.savedSignature";
+
+// Memorable auto-password: word-word-NN. Client-side only; sent to the
+// server exactly like a typed password.
+const PW_WORDS = [
+  "kerb", "gully", "rebar", "gantry", "trench", "piling", "asphalt",
+  "beam", "purlin", "soffit", "chainage", "culvert", "duct", "membrane",
+];
+function generateMemorablePassword(): string {
+  const pick = () => PW_WORDS[Math.floor(Math.random() * PW_WORDS.length)];
+  const a = pick();
+  let b = pick();
+  while (b === a) b = pick();
+  return `${a}-${b}-${String(Math.floor(Math.random() * 90) + 10)}`;
+}
 
 /** Cover photo thumbnail picker — shared by setup form and preview panel. */
 function CoverPhotoPicker({
@@ -212,6 +227,8 @@ interface GenerateDialogProps {
   onGenerated: () => void;
   /** period_end of the last completed report, if any (YYYY-MM-DD). */
   lastPeriodEnd?: string | null;
+  /** The standing draft — pre-approves narrative/issues/signature. */
+  draftPayload?: ReportDraftPayload | null;
 }
 
 export function GenerateDialog({
@@ -220,6 +237,7 @@ export function GenerateDialog({
   projectId,
   onGenerated,
   lastPeriodEnd,
+  draftPayload,
 }: GenerateDialogProps) {
   // Default period: day after the last completed report through today, or
   // the current month to date when no reports exist. Computed once per mount
@@ -238,8 +256,19 @@ export function GenerateDialog({
   });
   const [periodStart, setPeriodStart] = useState(defaults.start);
   const [periodEnd, setPeriodEnd] = useState(defaults.end);
-  const [password, setPassword] = useState("");
-  const [signatures, setSignatures] = useState<SignatureInput[]>([]);
+  const [protectPdf, setProtectPdf] = useState(true);
+  const [password, setPassword] = useState(() => generateMemorablePassword());
+  const [signatures, setSignatures] = useState<SignatureInput[]>(() =>
+    draftPayload?.signature?.name
+      ? [
+          {
+            role: "contractor",
+            name: draftPayload.signature.name,
+            title: draftPayload.signature.title ?? "",
+          },
+        ]
+      : []
+  );
   const [drawingRole, setDrawingRole] = useState<string | null>(null);
   // Typed-signature confirm step: preview the rendered script signature
   // before it's applied — mirrors the draw pad's explicit Save.
@@ -249,12 +278,16 @@ export function GenerateDialog({
   } | null>(null);
   // Narrative: AI drafts once, PM edits are preserved; Re-draft is explicit.
   // Empty = the report uses the deterministic auto-written summary.
-  const [narrative, setNarrative] = useState("");
+  const [narrative, setNarrative] = useState(
+    () => draftPayload?.narrative?.join("\n\n") ?? ""
+  );
   const [lastDraft, setLastDraft] = useState<string | null>(null);
   // Key issues: an explicit list (seeded from programme risks, edited by
   // the PM). A separate draft input feeds it — but an un-added draft is
   // still included on generate, so typed text is never silently lost.
-  const [keyIssues, setKeyIssues] = useState<string[]>([]);
+  const [keyIssues, setKeyIssues] = useState<string[]>(
+    () => draftPayload?.keyIssues ?? []
+  );
   const [issueDraft, setIssueDraft] = useState("");
   // Exec-summary Key Risks & Observations override. null = untouched (the
   // server derives them); seeded from the preview response so the PM edits
@@ -274,7 +307,9 @@ export function GenerateDialog({
   const hsTouched = Object.values(hs).some((v) => v.trim() !== "");
 
   // Cover hero photo — per report, optional; null keeps today's cover.
-  const [coverEvidenceId, setCoverEvidenceId] = useState<string | null>(null);
+  const [coverEvidenceId, setCoverEvidenceId] = useState<string | null>(
+    () => draftPayload?.coverEvidenceId ?? null
+  );
   const { data: coverPhotoData } = trpc.evidence.list.useInfiniteQuery(
     { projectId, limit: 12, type: "photo" },
     {
@@ -505,7 +540,7 @@ export function GenerateDialog({
     }
     generateMutation.mutate({
       ...content,
-      password: password || undefined,
+      password: protectPdf && password ? password : undefined,
     });
   }
 
@@ -823,19 +858,39 @@ export function GenerateDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="report-password">Report password (optional)</Label>
-            <Input
-              id="report-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Leave blank for no password"
-            />
-            <p className="text-xs text-muted-foreground">
-              If set, the PDF itself is encrypted — this password is needed to
-              download the report from Sitefile and to open the file wherever
-              it&apos;s sent. It can&apos;t be recovered later, so keep a note of it.
-            </p>
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+              <Checkbox
+                checked={protectPdf}
+                onCheckedChange={(v) => setProtectPdf(v === true)}
+              />
+              Protect the PDF with a password
+            </label>
+            {protectPdf && (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    id="report-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="font-mono"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    onClick={() => setPassword(generateMemorablePassword())}
+                  >
+                    New
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The PDF itself is encrypted with this password. You&apos;ll
+                  be able to see it again on the Send screen — share it with
+                  your client by text or call, never in the same email as the
+                  link.
+                </p>
+              </>
+            )}
           </div>
 
           {/* Signatures Section */}

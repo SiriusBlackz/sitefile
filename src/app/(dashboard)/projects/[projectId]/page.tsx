@@ -27,6 +27,7 @@ import { formatDateRange } from "@/lib/format";
 import { BillingBanner } from "@/components/projects/billing-banner";
 import { ReportChecklist } from "@/components/projects/report-checklist";
 import { GapListCard } from "@/components/projects/gap-list-card";
+import { PhoneProjectHome } from "@/components/projects/phone-home";
 import { getProjectStatusColor, getProjectStatusLabel } from "@/lib/project-status";
 
 // Error codes meaning "this project isn't reachable" — don't retry, show not-found.
@@ -36,6 +37,16 @@ const UNREACHABLE_CODES = new Set(["NOT_FOUND", "FORBIDDEN", "BAD_REQUEST"]);
 const coarsePointerQuery = "(pointer: coarse)";
 function subscribeCoarsePointer(callback: () => void) {
   const mq = window.matchMedia(coarsePointerQuery);
+  mq.addEventListener("change", callback);
+  return () => mq.removeEventListener("change", callback);
+}
+
+// Phone layout = coarse pointer AND a narrow viewport. Pointer alone
+// misclassifies touch laptops; width alone misclassifies narrow desktop
+// windows. Both together is a phone.
+const narrowQuery = "(max-width: 767px)";
+function subscribeNarrow(callback: () => void) {
+  const mq = window.matchMedia(narrowQuery);
   mq.addEventListener("change", callback);
   return () => mq.removeEventListener("change", callback);
 }
@@ -50,6 +61,12 @@ export default function ProjectDetailPage() {
     () => window.matchMedia(coarsePointerQuery).matches,
     () => false
   );
+  const isNarrow = useSyncExternalStore(
+    subscribeNarrow,
+    () => window.matchMedia(narrowQuery).matches,
+    () => false
+  );
+  const isPhone = isTouch && isNarrow;
 
   const { data: project, isLoading, error } = trpc.project.get.useQuery(
     { id: params.projectId },
@@ -132,6 +149,14 @@ export default function ProjectDetailPage() {
       ],
     },
   ];
+
+
+  // Site Boots' phone home: on a phone the project page IS the home —
+  // hero, due chip, week tracker, big Capture, gap list. Desk keeps the
+  // overview below. Same query cache either way (branch at render).
+  if (isPhone) {
+    return <PhoneProjectHome projectId={project.id} projectName={project.name} />;
+  }
 
   return (
     <div className="space-y-6">

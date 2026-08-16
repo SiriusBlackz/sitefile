@@ -1,4 +1,4 @@
-import { ProjectNav } from "@/components/layout/project-nav";
+import { ProjectDeskNav } from "@/components/layout/project-desknav";
 
 export default async function ProjectLayout({
   children,
@@ -9,10 +9,12 @@ export default async function ProjectLayout({
 }) {
   const { projectId } = await params;
 
+  // Desk: grouped left rail (The Graft's desknav). Phone: no rail — the
+  // project home is the navigator.
   return (
-    <div>
-      <ProjectNav projectId={projectId} />
-      {children}
+    <div className="flex gap-6">
+      <ProjectDeskNav projectId={projectId} />
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }

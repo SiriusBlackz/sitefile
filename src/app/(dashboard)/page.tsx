@@ -6,21 +6,21 @@ import { buttonVariants } from "@/components/ui/button-variants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+
+
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { portfolioPct } from "@/lib/readiness";
+import { daysUntil } from "@/lib/reporting-cadence";
+import { formatDate } from "@/lib/format";
+import { CalendarClock, FileText } from "lucide-react";
 import {
   FolderKanban,
   Plus,
   ListChecks,
   Camera,
-  ImageIcon,
+
   AlertTriangle,
   TrendingUp,
 } from "lucide-react";
@@ -106,12 +106,13 @@ function describeActivity(
 
 export default function DashboardPage() {
   const {
-    data: rows,
+    data: portfolio,
     isLoading: rowsLoading,
     error: rowsError,
     refetch: refetchRows,
     isRefetching: rowsRefetching,
-  } = trpc.dashboard.projectsTable.useQuery();
+  } = trpc.dashboard.portfolio.useQuery();
+  const rows = portfolio?.projects;
   const { data: activity = [], isLoading: activityLoading } =
     trpc.dashboard.recentActivity.useQuery();
 
@@ -184,45 +185,13 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Projects</CardTitle>
-          </CardHeader>
-          <CardContent className="px-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-6">Project</TableHead>
-                    <TableHead className="w-[280px]">Progress</TableHead>
-                    <TableHead>Current Task</TableHead>
-                    <TableHead className="pr-6 text-right">Evidence</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rowsLoading
-                    ? [0, 1, 2].map((i) => (
-                        <TableRow key={i}>
-                          <TableCell className="pl-6">
-                            <div className="h-4 w-32 animate-pulse rounded bg-muted" />
-                          </TableCell>
-                          <TableCell>
-                            <div className="h-4 w-full animate-pulse rounded bg-muted" />
-                          </TableCell>
-                          <TableCell>
-                            <div className="h-4 w-40 animate-pulse rounded bg-muted" />
-                          </TableCell>
-                          <TableCell className="pr-6 text-right">
-                            <div className="ml-auto h-4 w-8 animate-pulse rounded bg-muted" />
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    : rows?.map((row) => <ProjectRow key={row.id} row={row} />)}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {rowsLoading
+            ? [0, 1, 2].map((i) => (
+                <div key={i} className="h-40 animate-pulse rounded-xl border bg-muted" />
+              ))
+            : rows?.map((p) => <PortfolioCard key={p.id} project={p} />)}
+        </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -342,58 +311,7 @@ export default function DashboardPage() {
   );
 }
 
-type ProjectRowData = {
-  id: string;
-  name: string;
-  status: string | null;
-  tasks: { total: number; completed: number };
-  evidenceCount: number;
-  currentTask: { id: string; name: string } | null;
-};
 
-function ProjectRow({ row }: { row: ProjectRowData }) {
-  const { total, completed } = row.tasks;
-  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-  return (
-    <TableRow className="group">
-      <TableCell className="pl-6 font-medium">
-        <Link
-          href={`/projects/${row.id}`}
-          className="hover:underline group-hover:text-primary"
-        >
-          {row.name}
-        </Link>
-      </TableCell>
-      <TableCell>
-        {total === 0 ? (
-          <span className="text-xs text-muted-foreground">No tasks yet</span>
-        ) : (
-          <div className="space-y-1.5">
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-all"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums">
-              <span>
-                {completed} / {total} tasks
-              </span>
-              <span>{pct}%</span>
-            </div>
-          </div>
-        )}
-      </TableCell>
-      <TableCell className="max-w-[280px] truncate text-sm text-muted-foreground">
-        {row.currentTask?.name ?? "—"}
-      </TableCell>
-      <TableCell className="pr-6 text-right tabular-nums">
-        {row.evidenceCount}
-      </TableCell>
-    </TableRow>
-  );
-}
 
 function formatRelativeTime(date: Date): string {
   const now = new Date();
@@ -407,4 +325,109 @@ function formatRelativeTime(date: Date): string {
   if (diffHr < 24) return `${diffHr}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+type PortfolioProject = {
+  id: string;
+  name: string;
+  reference: string | null;
+  status: string | null;
+  nextReportDue: string | null;
+  periodStart: string;
+  taskCount: number;
+  photosThisPeriod: number;
+  unlinked: number;
+  programmeConfirmedThisPeriod: boolean;
+  lastReport: {
+    id: string;
+    number: number;
+    status: string | null;
+    sentAt: string | null;
+    openedAt: string | null;
+  } | null;
+  draft: {
+    narrativeApprovedAt: string | null;
+    issuesSignedOffAt: string | null;
+    signedAt: string | null;
+  } | null;
+};
+
+function PortfolioCard({ project: p }: { project: PortfolioProject }) {
+  const pct = portfolioPct(p);
+  const days = p.nextReportDue ? daysUntil(p.nextReportDue) : null;
+  const R = 16;
+  const C = 2 * Math.PI * R;
+  const receipt = p.lastReport
+    ? p.lastReport.openedAt
+      ? `№ ${p.lastReport.number} sent · opened ${formatDate(p.lastReport.openedAt)}`
+      : p.lastReport.sentAt
+        ? `№ ${p.lastReport.number} sent · not yet opened`
+        : `№ ${p.lastReport.number} generated · not sent`
+    : "No reports yet";
+
+  return (
+    <Link
+      href={`/projects/${p.id}`}
+      className="block rounded-xl border bg-card p-4 transition-shadow hover:shadow-md"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold">{p.name}</h3>
+          {p.reference && (
+            <p className="font-mono text-[10px] text-muted-foreground">
+              {p.reference}
+            </p>
+          )}
+        </div>
+        <svg width="40" height="40" viewBox="0 0 40 40" aria-label={`${pct}% report-ready`}>
+          <circle cx="20" cy="20" r={R} fill="none" strokeWidth="4" className="stroke-muted" />
+          <circle
+            cx="20"
+            cy="20"
+            r={R}
+            fill="none"
+            strokeWidth="4"
+            strokeLinecap="round"
+            className="stroke-primary"
+            strokeDasharray={`${(pct / 100) * C} ${C}`}
+            transform="rotate(-90 20 20)"
+          />
+          <text x="20" y="24" textAnchor="middle" className="fill-foreground font-mono text-[9px] font-bold">
+            {pct}%
+          </text>
+        </svg>
+      </div>
+
+      <div className="mt-3 space-y-1.5 text-xs">
+        {p.nextReportDue && days !== null && (
+          <p
+            className={cn(
+              "flex items-center gap-1.5 font-medium",
+              days < 0
+                ? "text-red-600 dark:text-red-400"
+                : days <= 7
+                  ? "text-(--accent-ink)"
+                  : "text-muted-foreground"
+            )}
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            {days < 0
+              ? `Report overdue — was due ${formatDate(p.nextReportDue)}`
+              : days === 0
+                ? "Report due today"
+                : `Report due ${formatDate(p.nextReportDue)} · ${days}d`}
+          </p>
+        )}
+        <p className="flex items-center gap-1.5 text-muted-foreground">
+          <Camera className="h-3.5 w-3.5" />
+          {p.photosThisPeriod} photo{p.photosThisPeriod === 1 ? "" : "s"} this period
+          {p.unlinked > 0 ? ` · ${p.unlinked} to sort` : ""}
+        </p>
+        <p className="flex items-center gap-1.5 text-muted-foreground">
+          <FileText className="h-3.5 w-3.5" />
+          {receipt}
+        </p>
+      </div>
+    </Link>
+  );
 }

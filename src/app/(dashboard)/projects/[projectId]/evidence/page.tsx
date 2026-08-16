@@ -67,16 +67,19 @@ function TaskLinkerWithSuggestions({
 function EvidenceNoteEditor({
   evidenceId,
   initialNote,
+  onSaved,
 }: {
   evidenceId: string;
   initialNote: string | null;
+  onSaved?: () => void;
 }) {
   const utils = trpc.useUtils();
   const [note, setNote] = useState(initialNote ?? "");
   const updateNote = trpc.evidence.updateNote.useMutation({
     onSuccess: () => {
-      toast.success("Note saved");
+      toast.success("Caption saved");
       utils.evidence.list.invalidate();
+      onSaved?.();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -118,6 +121,9 @@ export default function EvidencePage() {
   // footer from Cancel to the Next step / Save for later pair.
   const [hasUploaded, setHasUploaded] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Honesty chips: All / Unlinked / No GPS / This week — counts that are
+  // also filters. The numbers ARE the honesty.
+  const [chip, setChip] = useState<"all" | "unlinked" | "nogps" | "week">("all");
   const [taskFilter, setTaskFilter] = useState<string>("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -146,6 +152,7 @@ export default function EvidencePage() {
 
   const { data: tasks = [] } = trpc.task.list.useQuery({ projectId });
   const { data: uploaders = [] } = trpc.evidence.uploaders.useQuery({ projectId });
+  const { data: evidenceCount } = trpc.evidence.count.useQuery({ projectId });
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     trpc.evidence.list.useInfiniteQuery(
@@ -158,6 +165,11 @@ export default function EvidencePage() {
         type: (typeFilter as "photo" | "video") || undefined,
         search: debouncedSearch || undefined,
         uploadedBy: uploaderFilter || undefined,
+        unlinkedOnly: chip === "unlinked" || undefined,
+        noGpsOnly: chip === "nogps" || undefined,
+        ...(chip === "week"
+          ? { dateFrom: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10) }
+          : {}),
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
@@ -456,6 +468,34 @@ export default function EvidencePage() {
               </Button>
             )}
           </div>
+        </div>
+      )}
+
+      {(evidenceCount?.count ?? 0) > 0 && (
+        <div role="tablist" aria-label="Gallery filters" className="flex flex-wrap gap-1.5">
+          {(
+            [
+              ["all", `All ${evidenceCount?.count ?? 0}`],
+              ["unlinked", `Unlinked ${(evidenceCount?.count ?? 0) - (evidenceCount?.linked ?? 0)}`],
+              ["nogps", `No GPS ${evidenceCount?.noGps ?? 0}`],
+              ["week", `This week ${evidenceCount?.thisWeek ?? 0}`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={chip === key}
+              onClick={() => setChip(key)}
+              className={cn(
+                "min-h-9 rounded-full border px-3 text-xs font-medium",
+                chip === key
+                  ? "border-foreground bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       )}
 

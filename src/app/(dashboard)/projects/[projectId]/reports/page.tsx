@@ -15,6 +15,7 @@ export default function ReportsPage() {
   // Bumped on each open so GenerateDialog remounts with fresh default dates.
   const [generateKey, setGenerateKey] = useState(0);
   const utils = trpc.useUtils();
+  const { data: draft } = trpc.report.getDraft.useQuery({ projectId });
   // Report ids seen as "generating", so we can toast when they finish.
   const generatingIdsRef = useRef<Set<string>>(new Set());
 
@@ -83,6 +84,7 @@ export default function ReportsPage() {
         onOpenChange={setGenerateOpen}
         projectId={projectId}
         onGenerated={() => utils.report.list.invalidate({ projectId })}
+        draftPayload={(draft?.payload as import("@/lib/report-draft").ReportDraftPayload) ?? null}
         lastPeriodEnd={reports
           .filter((r) => r.status === "completed")
           .reduce<string | null>(

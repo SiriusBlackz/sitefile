@@ -100,6 +100,25 @@ export function EvidenceCard({ item, onClick, selected, onToggleSelect }: Eviden
             <Check className="h-3.5 w-3.5" />
           </button>
         )}
+        {/* On-frame link/GPS status — honesty at a glance (photos only;
+            videos carry their own bottom-left badge). */}
+        {!isVideo && (
+          <div className="absolute bottom-1.5 left-1.5">
+            {!hasGps ? (
+              <Badge className="bg-red-600/90 px-1.5 text-[9px] font-bold text-white">
+                NO GPS
+              </Badge>
+            ) : item.linkedTasks.length > 0 ? (
+              <Badge className="bg-green-600/90 px-1.5 text-[9px] font-bold text-white">
+                LINKED
+              </Badge>
+            ) : (
+              <Badge className="bg-amber-500/90 px-1.5 text-[9px] font-bold text-black">
+                UNLINKED
+              </Badge>
+            )}
+          </div>
+        )}
         {hasGps && (
           <div className="absolute top-1.5 right-1.5">
             <Badge variant="secondary" className="gap-1 text-xs bg-background/80 backdrop-blur-sm">

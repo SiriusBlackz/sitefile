@@ -25,6 +25,21 @@ export default function TasksPage() {
   } | null>(null);
 
   const utils = trpc.useUtils();
+  // Programme-as-living-document: each period asks for a re-import or a
+  // one-tap confirmation. Shown once a first report exists.
+  const { data: gaps } = trpc.project.gapList.useQuery({ id: projectId });
+  const confirmProgramme = trpc.project.confirmProgramme.useMutation({
+    onSuccess: () => {
+      utils.project.gapList.invalidate({ id: projectId });
+      toast.success("Programme confirmed for this period");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const showRefreshCard =
+    gaps != null &&
+    gaps.lastReportNumber != null &&
+    !gaps.programmeConfirmedThisPeriod &&
+    gaps.taskCount > 0;
   const { data: tasks = [], isLoading } = trpc.task.list.useQuery({
     projectId,
   });
@@ -145,6 +160,36 @@ export default function TasksPage() {
   return (
     <div className="space-y-4">
       <ProjectBreadcrumb items={[{ label: "Tasks" }]} />
+
+      {showRefreshCard && (
+        <div className="rounded-lg border border-primary/50 bg-accent/60 p-4">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-(--accent-ink)">
+            New period · programme refresh
+          </p>
+          <h3 className="mt-1 text-sm font-semibold">
+            Programme updated this period?
+          </h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Report № {(gaps?.lastReportNumber ?? 0) + 1}&apos;s period is open.
+            If your planner issued a new revision, re-import it — the Gantt,
+            lookahead and variance depend on it. If nothing changed, confirm
+            and move on.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => setImportOpen(true)}>
+              Re-import the latest revision
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={confirmProgramme.isPending}
+              onClick={() => confirmProgramme.mutate({ id: projectId })}
+            >
+              No new rev — confirm progress
+            </Button>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-2xl font-bold tracking-tight">Tasks</h2>
         <div className="flex flex-wrap items-center gap-2">
