@@ -66,8 +66,8 @@ export function PhotoMapPage({
         {data.zonesConfigured > 0 && (
           <>
             ; <strong>{data.verifiedInZones}</strong>{" "}
-            {data.verifiedInZones === 1 ? "was" : "were"} verified inside
-            defined site zones
+            {data.verifiedInZones === 1 ? "falls" : "fall"} within the
+            project&apos;s configured site zones
           </>
         )}
         .{data.overflow > 0 && ` ${data.overflow} further location${data.overflow === 1 ? "" : "s"} not pinned for legibility.`}

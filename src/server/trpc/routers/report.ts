@@ -77,13 +77,18 @@ export const reportRouter = createTRPCRouter({
           periodEnd: true,
           status: true,
           passwordHash: true,
+          reportData: true,
           createdAt: true,
         },
       });
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
       await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
-      const { passwordHash, ...row } = report;
-      return { ...row, hasPassword: passwordHash != null };
+      const { passwordHash, reportData, ...row } = report;
+      // Only the document fingerprint escapes reportData — the blob can
+      // carry legacy inline PDF bytes.
+      const pdfSha256 =
+        (reportData as { pdfSha256?: string } | null)?.pdfSha256 ?? null;
+      return { ...row, hasPassword: passwordHash != null, pdfSha256 };
     }),
 
   generate: protectedProcedure
@@ -262,6 +267,28 @@ export const reportRouter = createTRPCRouter({
       }
 
       writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "generate", entityType: "report", entityId: report.id, metadata: { reportNumber, periodStart: input.periodStart, periodEnd: input.periodEnd, sections: input.sections } });
+
+      // Structured approval event: binds each provided sign-off to the
+      // authenticated account, the report row and a timestamp — the
+      // record behind the PDF's "Electronically Approved" badges.
+      if (input.signatures?.length) {
+        writeAuditLogAsync(ctx.db, {
+          projectId: input.projectId,
+          userId: ctx.userId,
+          action: "approve",
+          entityType: "report",
+          entityId: report.id,
+          metadata: {
+            reportNumber,
+            approvals: input.signatures.map((s) => ({
+              role: s.role,
+              name: s.name,
+              title: s.title ?? null,
+              method: s.imageDataUrl ? "signature-image" : "typed-name",
+            })),
+          },
+        });
+      }
       // Never return the full row: it carries passwordHash.
       return { id: report.id, reportNumber, status: report.status };
     }),

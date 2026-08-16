@@ -902,8 +902,10 @@ export function GenerateDialog({
             <p className="text-xs text-muted-foreground">
               Enter a name, then sign it — &quot;Sign with typed name&quot;
               renders the name as a signature, or draw one by hand. Either
-              marks the block as digitally signed; a name alone just pre-fills
-              the block for wet-ink signing after printing.
+              marks the block &quot;Electronically Approved&quot; and records
+              the approval against your account; a name alone just pre-fills
+              the block for wet-ink signing after printing. The client&apos;s
+              block always prints empty for them to sign.
             </p>
 
             {SIGNATURE_ROLES.map(({ role, label }) => {

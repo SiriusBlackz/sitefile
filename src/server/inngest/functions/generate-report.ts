@@ -93,10 +93,16 @@ export const generateReport = inngest.createFunction(
       const key = `projects/${projectId}/reports/report-${existing.reportNumber}.pdf`;
       await uploadToStorage(key, pdfBuffer, "application/pdf");
 
+      // Document fingerprint of the exact issued file (post-encryption) —
+      // lets anyone later prove a PDF in circulation is the one generated.
+      const { createHash } = await import("node:crypto");
+      const pdfSha256 = createHash("sha256").update(pdfBuffer).digest("hex");
+
       return {
         storageKey: key,
         reportNumber: existing.reportNumber,
         pdfBytes: pdfBuffer.length,
+        pdfSha256,
         stats: reportData.summaryStats,
         meta: reportData.meta,
       };
@@ -115,6 +121,7 @@ export const generateReport = inngest.createFunction(
           reportData: {
             stats: result.stats,
             meta: result.meta,
+            pdfSha256: result.pdfSha256,
           },
         })
         .where(eq(reports.id, reportId));

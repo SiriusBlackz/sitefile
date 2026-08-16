@@ -1076,11 +1076,13 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
 
   if (periodEvidence.length > 0) {
     // Only cross-reference the verification page when the recipe includes it.
+    // Claims stay within what the system actually proves: metadata is
+    // recorded as supplied by the device, not independently verified.
     const metadataSentence = sections.verification
-      ? "Capture timestamps and camera metadata are preserved for every item — see Verification & Metadata."
-      : "Capture timestamps and camera metadata are preserved for every item.";
+      ? "Device-supplied capture timestamps and camera metadata are recorded unchanged for every item — see Verification & Metadata."
+      : "Device-supplied capture timestamps and camera metadata are recorded unchanged for every item.";
     paragraphs.push(
-      `Of the ${periodEvidence.length} evidence item${periodEvidence.length === 1 ? "" : "s"} captured this period, ${withGps} carr${withGps === 1 ? "ies" : "y"} GPS positions and ${gpsVerifiedByZone} ${gpsVerifiedByZone === 1 ? "was" : "were"} verified inside defined site zones. ${metadataSentence}`
+      `Of the ${periodEvidence.length} evidence item${periodEvidence.length === 1 ? "" : "s"} captured this period, ${withGps} carr${withGps === 1 ? "ies" : "y"} GPS positions and ${gpsVerifiedByZone} fall${gpsVerifiedByZone === 1 ? "s" : ""} within the project's configured site zones. ${metadataSentence}`
     );
   }
 

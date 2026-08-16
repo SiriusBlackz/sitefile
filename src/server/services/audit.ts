@@ -22,6 +22,7 @@ export type AuditAction =
   | "confirm_programme"
   | "import"
   | "rebaseline"
+  | "approve"
   | "subscribe"
   | "payment_failed"
   | "cancel_subscription"

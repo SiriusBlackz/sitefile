@@ -111,7 +111,7 @@ export function VerificationPage({
         <h3>Data Integrity</h3>
         <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
           <IntegrityCard
-            label="EXIF Preserved"
+            label="Camera Metadata Present"
             value={`${exifRate}%`}
             detail={`${stats.withExifData} of ${stats.totalEvidence} items`}
             color={rateColor(exifRate)}
@@ -124,7 +124,7 @@ export function VerificationPage({
           />
           {stats.zonesConfigured > 0 && (
             <IntegrityCard
-              label="Zone Verified"
+              label="Within Site Zones"
               value={stats.withGpsCoords > 0 ? `${zoneRate}%` : "—"}
               detail={
                 stats.withGpsCoords > 0
@@ -136,10 +136,13 @@ export function VerificationPage({
           )}
         </div>
         <div className="text-xs text-muted" style={{ marginBottom: 24, lineHeight: 1.6 }}>
-          These rates describe the metadata embedded by the capturing devices
-          (camera model, timestamps, location). Lower rates typically reflect
-          device settings or photos imported from other sources, not an issue
-          with the evidence itself.
+          These rates describe metadata (camera model, timestamps, location)
+          as supplied by the capturing device or app and recorded unchanged
+          by Sitefile — they are not independently verified. Lower rates
+          typically reflect device settings or photos imported from other
+          sources, not an issue with the evidence itself. &ldquo;Within site
+          zones&rdquo; means the reported coordinates fall inside a zone
+          drawn for this project.
         </div>
 
         {/* Upload timing analysis. The arrow is spelled out — the glyph

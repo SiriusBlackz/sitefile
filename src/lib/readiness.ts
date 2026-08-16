@@ -185,7 +185,7 @@ export function buildRecipeRows(gaps: GapSnapshot): ReadinessRow[] {
       label: "Sign-off",
       detail: d?.signedAt
         ? "Signed — today"
-        : "Tap to sign — blocks send until signed",
+        : "Tap to sign — unsigned reports print an empty signature block",
       state: d?.signedAt ? "done" : "open",
       href: "/reports",
     },
@@ -313,7 +313,7 @@ export function buildGapRows(gaps: GapSnapshot): ReadinessRow[] {
     rows.push({
       key: "sign",
       label: "Sign the report",
-      detail: "Blocks send until done",
+      detail: "Unsigned reports go out with an empty signature block",
       state: "open",
       href: "/reports",
     });

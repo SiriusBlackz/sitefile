@@ -101,8 +101,9 @@ export function paginateSummary(
   });
   blocks.push({
     item: { type: "stats" },
-    // The baseline strip under the cards adds one line of height.
-    height: STAT_CARDS_H + (stats.baseline ? 34 : 0),
+    // The baseline strip and the method-disclosure line under the cards
+    // add their own height.
+    height: STAT_CARDS_H + (stats.baseline ? 34 : 0) + 26,
   });
   if (stats.sinceLastReport) {
     blocks.push({ item: { type: "delta" }, height: DELTA_STRIP_H });
@@ -199,6 +200,21 @@ function renderItem(item: SummaryItem, key: number, stats: SummaryStats) {
         <div key={key}>
           <StatCards stats={stats} />
           {stats.baseline && <BaselineStrip baseline={stats.baseline} />}
+          {/* Declared method — a disclosed simple measure is defensible;
+              a silent one reads as false precision. */}
+          <div
+            style={{
+              margin: stats.baseline ? "-14px 0 24px" : "-14px 0 24px",
+              fontSize: 8.5,
+              color: "#94a3b8",
+              lineHeight: 1.5,
+            }}
+          >
+            Method: progress figures are the simple average of activity
+            percent-complete across the programme, unweighted by duration,
+            quantity or value. Planned progress assumes linear elapsed time
+            within each activity&apos;s programmed dates.
+          </div>
         </div>
       );
     case "delta":
@@ -296,17 +312,17 @@ function BaselineStrip({ baseline }: { baseline: BaselineComparison }) {
       {fmt(baseline.currentCompletion)} —{" "}
       {slip === 0 ? (
         <span style={{ color: "#166534", fontWeight: 600 }}>
-          in line with the accepted baseline
+          in line with the baseline programme
         </span>
       ) : (
         <span style={{ color: slip > 0 ? "#991b1b" : "#166534", fontWeight: 600 }}>
           {Math.abs(slip)} day{Math.abs(slip) === 1 ? "" : "s"}{" "}
-          {slip > 0 ? "later" : "earlier"} than the accepted baseline
+          {slip > 0 ? "later" : "earlier"} than the baseline programme
         </span>
       )}{" "}
       of {fmt(baseline.baselineCompletion)}
       {baseline.setAt
-        ? ` (baseline ${baseline.source === "rebaseline" ? "re-set" : "set at first import"})`
+        ? ` (reference baseline ${baseline.source === "rebaseline" ? "re-set by the contractor" : "recorded at first import"})`
         : ""}
       .
     </div>

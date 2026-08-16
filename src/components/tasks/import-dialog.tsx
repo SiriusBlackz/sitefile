@@ -796,8 +796,8 @@ export function ImportDialog({
                     baselineInfo.setAt
                       ? `, set ${new Date(baselineInfo.setAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
                       : ""
-                  }) stays fixed — this import updates the current programme, and reports show variance against the baseline.`
-                : "This first import also becomes your baseline — the accepted programme reports measure slippage against. Later re-imports update the current programme only."}
+                  }) stays fixed — this import updates the current programme, and reports show variance against that baseline. If it isn't your accepted programme revision, re-baseline from the Programme screen.`
+                : "This first import is also recorded as your reference baseline for variance reporting. Make sure it's the accepted programme revision — you can re-baseline later if not. Re-imports after this update the current programme only."}
             </p>
 
             <div className="space-y-1">

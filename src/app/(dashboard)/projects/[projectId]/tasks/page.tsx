@@ -215,7 +215,8 @@ export default function TasksPage() {
               ? ` on ${new Date(baseline.setAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
               : ""}
             . Re-imports update the current programme only — reports show
-            variance against this baseline.
+            variance against this reference baseline. If it isn&apos;t the
+            accepted revision, re-baseline.
           </p>
           {confirmRebaseline ? (
             <span className="flex items-center gap-2">

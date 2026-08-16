@@ -156,6 +156,14 @@ export default function SendPage() {
                 {formatDate(report.periodStart)} — {formatDate(report.periodEnd)}
                 {sealed ? " · PDF generated" : " · still generating"}
               </p>
+              {report.pdfSha256 && (
+                <p
+                  className="mt-1 truncate font-mono text-[10px] text-muted-foreground/70"
+                  title={`SHA-256 fingerprint of the issued PDF — proves a file in circulation is this exact document: ${report.pdfSha256}`}
+                >
+                  Document fingerprint (SHA-256): {report.pdfSha256}
+                </p>
+              )}
             </div>
 
             {report.hasPassword && (

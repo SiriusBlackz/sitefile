@@ -113,7 +113,10 @@ function SignatureBlock({
   signature?: SignatureData;
 }) {
   // A typed name alone only pre-fills the block for wet-ink signing.
-  // "Digitally Signed" (and the green treatment) requires a drawn signature.
+  // The green treatment requires a signature image. Labelled
+  // "Electronically Approved", not "Digitally Signed" — the approval is
+  // recorded against the authenticated account, but it is not a
+  // cryptographic digital signature and must not claim to be.
   const isSigned = !!signature?.imageDataUrl;
 
   return (
@@ -140,7 +143,7 @@ function SignatureBlock({
             className="badge badge-green"
             style={{ fontSize: 8 }}
           >
-            Digitally Signed
+            Electronically Approved
           </span>
         )}
       </div>
