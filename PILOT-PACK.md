@@ -45,13 +45,18 @@ outside work — it's disclosed, and you'd be using it free as a pilot."*
 > document?" *(Let them answer. Typical: hours-to-a-day per cycle.)*
 
 **Show (8 min)** — the loop, on your phone + laptop:
-1. Phone: take a photo on the capture screen — point out GPS and time
-   are recorded automatically.
-2. Laptop: photo appears in the project; link it to a programme task in
-   two clicks (show the AI suggestion with its plain-English reason).
-3. Generate the report: show the finished PDF — **their logo, their
-   colour**, narrative summary, programme chart, photo records,
-   verification page. "This took one click."
+1. Phone: open the project — point out the home screen tells the site
+   team exactly what the next report still needs. Take a photo on the
+   capture screen — GPS and time recorded automatically, works offline.
+2. Laptop: photo appears in the Yard; confirm the suggested task link in
+   one tap (show the batch grouping — "a day's photos, one tap").
+3. Report draft: show the checklist filling itself in — narrative
+   drafted for you, weather and milestone variance automatic. Show the
+   finished PDF — **their logo, their colour**, narrative, programme
+   chart, photo map, photo records, verification page.
+4. **The receipt** (close on this): send it, then show the delivery
+   receipt — "you'll see the moment your client opens it. No more 'did
+   you get my report?'"
 
 **Offer (3 min)** — the trade:
 > "I want one contractor to run this on a real job for a reporting
@@ -83,21 +88,27 @@ time.
 loaded. Your logo and your client's logo are on the reports.
 
 **On site (phone):**
-- Open **www.sitefile.app** on your phone → Capture
+- Open **www.sitefile.app** on your phone — the home screen shows one
+  big **Capture** button and exactly what the next report still needs
 - Take photos as you normally would — location and time are recorded
-  automatically
-- Add a one-line note when it's useful ("pit 1 excavated, awaiting
-  inspection") — your notes appear in the client report
+  automatically; works with no signal (photos upload when you're back
+  in coverage)
+- Add a one-line caption when it's useful ("pit 1 excavated, awaiting
+  inspection") — captions become the photo titles in the client report
 
 **In the office (laptop):**
-- **Evidence** tab: check photos landed, accept the suggested task links
-  (or pick from the list)
-- **Reports** tab → Generate Report → pick the period → sign → done.
-  Send the PDF to your client as usual — it's password-protected if you
-  set a password.
+- **Gallery**: check photos landed; the **Yard** groups unlinked photos
+  and suggests the task for each batch — confirm a day's worth in one tap
+- **Report draft**: a checklist shows what's left — read the drafted
+  summary, tick the key issues, sign with your name
+- **Review & send**: the PDF is generated with a password already set;
+  send it from your own email or WhatsApp (the password goes separately,
+  by text or call). The send screen shows a live receipt — you'll see
+  when your client opens it.
 
 **Rules of thumb:** photos any day, links once a week, report once a
-cycle. Nothing to install — it's a website that works on any phone.
+cycle. Nothing to install — it's a website that works on any phone (add
+it to your home screen and it behaves like an app).
 
 **Stuck?** WhatsApp Derian: **[PHONE]** — replies same evening.
 Anything confusing or broken, say so bluntly: that's the deal.
