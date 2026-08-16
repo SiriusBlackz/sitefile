@@ -84,8 +84,9 @@ placeholders before sending.)*
 use your work email. You'll get a code by email — check spam the first
 time.
 
-**2 · Your project is set up for you.** Your programme tasks are already
-loaded. Your logo and your client's logo are on the reports.
+**2 · I've already set your project up.** The programme you gave me is
+loaded, and your logo and your client's logo are on the reports — sign
+in and it's all there waiting.
 
 **On site (phone):**
 - Open **www.sitefile.app** on your phone — the home screen shows one
