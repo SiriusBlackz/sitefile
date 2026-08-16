@@ -411,6 +411,36 @@ export const reportDraftsRelations = relations(reportDrafts, ({ one }) => ({
   }),
 }));
 
+// ─── Programme Baselines ────────────────────────────────────────────────────
+// The accepted/contract programme, snapshotted once (first import by
+// default) and held fixed while re-imports replace the *current*
+// programme each period. Reports measure slippage against this snapshot.
+// One row per project; re-baselining replaces it (audit-logged).
+
+export const programmeBaselines = pgTable("programme_baselines", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .unique()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  setBy: uuid("set_by").references(() => users.id),
+  setAt: timestamp("set_at", { withTimezone: true, mode: "date" }).defaultNow(),
+  /** "first-import" | "rebaseline" — how this snapshot came to be. */
+  source: text("source").notNull().default("first-import"),
+  /** { tasks: [{ sourceRef, name, plannedStart, plannedEnd, isMilestone }] } */
+  snapshot: jsonb("snapshot").notNull(),
+}).enableRLS();
+
+export const programmeBaselinesRelations = relations(
+  programmeBaselines,
+  ({ one }) => ({
+    project: one(projects, {
+      fields: [programmeBaselines.projectId],
+      references: [projects.id],
+    }),
+  })
+);
+
 // ─── Report Shares (send & receipt) ─────────────────────────────────────────
 // A share is a tokenised public link to a completed report. The client's
 // interactions with it (opened the page, downloaded the PDF) are logged as

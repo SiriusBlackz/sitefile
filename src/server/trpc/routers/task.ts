@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, asc, and, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
-import { tasks, projects } from "@/server/db/schema";
+import { tasks, projects, programmeBaselines } from "@/server/db/schema";
 import { TASK_STATUSES } from "@/server/db/enums";
 import { detectAndParse } from "@/server/services/programme-import";
 import {
@@ -556,8 +556,115 @@ export const taskRouter = createTRPCRouter({
           .set({ programmeConfirmedAt: new Date() })
           .where(eq(projects.id, input.projectId));
 
+        // First import becomes the baseline (the accepted programme).
+        // Later re-imports replace only the current programme — the
+        // baseline stays fixed so reports can measure slippage against it.
+        const existingBaseline = await tx.query.programmeBaselines.findFirst({
+          where: eq(programmeBaselines.projectId, input.projectId),
+          columns: { id: true },
+        });
+        if (!existingBaseline) {
+          await tx.insert(programmeBaselines).values({
+            projectId: input.projectId,
+            setBy: ctx.userId,
+            source: "first-import",
+            snapshot: {
+              tasks: parsedTasks.map((pt) => ({
+                sourceRef: pt.sourceRef,
+                name: pt.name,
+                plannedStart: pt.plannedStart,
+                plannedEnd: pt.plannedEnd,
+                isMilestone: ("isMilestone" in pt ? pt.isMilestone : false) ?? false,
+              })),
+            },
+          });
+        }
+
         writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "import", entityType: "task", entityId: input.projectId, metadata: { count: parsedTasks.length, format } });
         return { imported: parsedTasks.length, format };
       });
+    }),
+
+  /** The project's baseline snapshot metadata — null until first import. */
+  baselineInfo: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const row = await ctx.db.query.programmeBaselines.findFirst({
+        where: eq(programmeBaselines.projectId, input.projectId),
+        columns: { setAt: true, source: true, snapshot: true },
+      });
+      if (!row) return null;
+      const snap = row.snapshot as { tasks?: unknown[] } | null;
+      return {
+        setAt: row.setAt?.toISOString() ?? null,
+        source: row.source,
+        taskCount: snap?.tasks?.length ?? 0,
+      };
+    }),
+
+  /**
+   * Re-baseline: snapshot the CURRENT programme as the new accepted
+   * baseline. A contractual act (variance history resets), so it is
+   * explicit, admin-gated and audit-logged — never automatic.
+   */
+  setBaseline: adminProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId, {
+        requireActive: true,
+      });
+      const current = await ctx.db.query.tasks.findMany({
+        where: eq(tasks.projectId, input.projectId),
+        columns: {
+          sourceRef: true,
+          name: true,
+          plannedStart: true,
+          plannedEnd: true,
+          isMilestone: true,
+        },
+        orderBy: [asc(tasks.sortOrder)],
+      });
+      if (current.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No programme to baseline — import one first.",
+        });
+      }
+      const snapshot = {
+        tasks: current.map((t) => ({
+          sourceRef: t.sourceRef,
+          name: t.name,
+          plannedStart: t.plannedStart,
+          plannedEnd: t.plannedEnd,
+          isMilestone: t.isMilestone ?? false,
+        })),
+      };
+      await ctx.db
+        .insert(programmeBaselines)
+        .values({
+          projectId: input.projectId,
+          setBy: ctx.userId,
+          source: "rebaseline",
+          snapshot,
+        })
+        .onConflictDoUpdate({
+          target: programmeBaselines.projectId,
+          set: {
+            setBy: ctx.userId,
+            setAt: new Date(),
+            source: "rebaseline",
+            snapshot,
+          },
+        });
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.projectId,
+        userId: ctx.userId,
+        action: "rebaseline",
+        entityType: "task",
+        entityId: input.projectId,
+        metadata: { count: current.length },
+      });
+      return { count: current.length };
     }),
 });

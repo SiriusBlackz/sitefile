@@ -21,6 +21,7 @@ export type AuditAction =
   | "reveal_password"
   | "confirm_programme"
   | "import"
+  | "rebaseline"
   | "subscribe"
   | "payment_failed"
   | "cancel_subscription"
