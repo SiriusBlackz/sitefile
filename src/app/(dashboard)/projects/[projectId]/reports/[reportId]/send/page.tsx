@@ -38,6 +38,7 @@ export default function SendPage() {
   const utils = trpc.useUtils();
 
   const { data: report } = trpc.report.get.useQuery({ id: reportId });
+  const { data: project } = trpc.project.get.useQuery({ id: projectId });
   const { data: shares = [] } = trpc.report.shareStatus.useQuery(
     { reportId },
     { refetchInterval: 8000 }
@@ -111,7 +112,7 @@ export default function SendPage() {
     const url = await ensureShare();
     if (!url) return;
     const subject = encodeURIComponent(
-      `Progress Report №${report!.reportNumber}`
+      `${project?.name ? `${project.name} — ` : ""}Progress Report №${report!.reportNumber}`
     );
     const body = encodeURIComponent(
       `Please find our Progress Report №${report!.reportNumber} for the period ${formatDate(report!.periodStart)} – ${formatDate(report!.periodEnd)}:\n\n${url}\n\n` +
@@ -127,7 +128,7 @@ export default function SendPage() {
     const url = await ensureShare();
     if (!url) return;
     const text = encodeURIComponent(
-      `Progress Report №${report!.reportNumber}: ${url}` +
+      `${project?.name ? `${project.name} — ` : ""}Progress Report №${report!.reportNumber}: ${url}` +
         (report!.hasPassword ? " (password to follow separately)" : "")
     );
     window.open(`https://wa.me/?text=${text}`, "_blank", "noopener");
