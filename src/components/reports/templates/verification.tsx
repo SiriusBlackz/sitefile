@@ -9,6 +9,9 @@ export interface VerificationStats {
   zonesConfigured: number;
   averageUploadDelay: string; // human-readable, e.g. "2h 15m"
   maxUploadDelay: string;
+  /** Items with both capture and upload timestamps — 0 means the timing
+   * table cannot be computed and prints an explanation instead. */
+  delaySamples: number;
   evidenceByType: { type: string; count: number }[];
   auditTrailSummary: AuditEntry[];
   /** Aggregated action counts for the whole period (entries list is capped). */
@@ -139,32 +142,51 @@ export function VerificationPage({
           with the evidence itself.
         </div>
 
-        {/* Upload timing analysis */}
+        {/* Upload timing analysis. The arrow is spelled out — the glyph
+            set in serverless Chromium's minimal fonts drops "→". */}
         <h3>Upload vs Capture Timing</h3>
-        <table style={{ marginBottom: 24 }}>
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th>Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Average delay (capture → upload)</td>
-              <td>{stats.averageUploadDelay}</td>
-            </tr>
-            <tr>
-              <td>Maximum delay</td>
-              <td>{stats.maxUploadDelay}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div className="text-xs text-muted" style={{ marginTop: -16, marginBottom: 24, lineHeight: 1.6 }}>
-          Capture timestamps are recorded by the device at the moment a photo
-          is taken and preserved unchanged — the delay between capture and
-          upload does not affect the evidential record of when work was
-          photographed.
-        </div>
+        {stats.delaySamples > 0 ? (
+          <>
+            <table style={{ marginBottom: 24 }}>
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Average delay (capture to upload)</td>
+                  <td>{stats.averageUploadDelay}</td>
+                </tr>
+                <tr>
+                  <td>Maximum delay</td>
+                  <td>{stats.maxUploadDelay}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="text-xs text-muted" style={{ marginTop: -16, marginBottom: 24, lineHeight: 1.6 }}>
+              Capture timestamps are recorded by the device at the moment a
+              photo is taken and preserved unchanged — the delay between
+              capture and upload does not affect the evidential record of
+              when work was photographed.
+              {stats.delaySamples < stats.totalEvidence &&
+                ` Based on the ${stats.delaySamples} of ${stats.totalEvidence} items carrying an embedded capture timestamp.`}
+            </div>
+          </>
+        ) : (
+          <div
+            className="text-xs text-muted"
+            style={{ marginBottom: 24, lineHeight: 1.6 }}
+          >
+            None of this period&apos;s items carry an embedded capture
+            timestamp (typically photos forwarded through messaging apps or
+            imported from other sources), so capture-to-upload timing cannot
+            be computed. These items are recorded by their upload time
+            instead. Photos taken through the Sitefile camera embed capture
+            time and position automatically.
+          </div>
+        )}
 
         {/* Evidence by type */}
         <h3>Evidence Breakdown</h3>

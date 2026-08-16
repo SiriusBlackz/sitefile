@@ -37,16 +37,19 @@ export function ProgrammeTimeline({
   periodEnd: string;
   startPage: number;
 }) {
-  // Calculate timeline bounds — use project period or task extremes
+  // Timeline bounds: task extremes stretched to always include the
+  // reporting period and today. A fully-elapsed programme (all dates in
+  // the past) would otherwise push the period band, evidence markers and
+  // Today line off-chart — the legend would promise things the chart
+  // never shows.
+  const todayIso = new Date().toISOString().split("T")[0];
   const allDates = tasks.flatMap((t) =>
     [t.plannedStart, t.plannedEnd, t.actualStart, t.actualEnd].filter(Boolean) as string[]
   );
-  const timelineStart = allDates.length > 0
-    ? allDates.reduce((min, d) => (d < min ? d : min))
-    : periodStart;
-  const timelineEnd = allDates.length > 0
-    ? allDates.reduce((max, d) => (d > max ? d : max))
-    : periodEnd;
+  const evDates = tasks.flatMap((t) => t.evidenceDates);
+  const boundsPool = [...allDates, ...evDates, periodStart, periodEnd, todayIso];
+  const timelineStart = boundsPool.reduce((min, d) => (d < min ? d : min));
+  const timelineEnd = boundsPool.reduce((max, d) => (d > max ? d : max));
 
   const startMs = new Date(timelineStart + "T00:00:00").getTime();
   const endMs = new Date(timelineEnd + "T00:00:00").getTime();
@@ -211,9 +214,8 @@ export function ProgrammeTimeline({
 
           {/* Today line */}
           {(() => {
-            const todayIso = new Date().toISOString().split("T")[0];
             const pct = dateToPercent(todayIso);
-            if (pct > 0 && pct < 100) {
+            if (pct > 0 && pct <= 100) {
               return (
                 <div
                   style={{

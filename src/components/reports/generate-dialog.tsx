@@ -39,10 +39,13 @@ interface SignatureInput {
   imageDataUrl?: string;
 }
 
+// Only the sending side signs here. The client's block always prints as
+// empty wet-ink lines — a client signature typed in by the PM would render
+// as "Digitally Signed" on a contractual document, which misrepresents who
+// signed it. (Remote client sign-off is a post-pilot flow.)
 const SIGNATURE_ROLES = [
   { role: "contractor" as const, label: "Contractor" },
   { role: "project_manager" as const, label: "Project Manager" },
-  { role: "client" as const, label: "Client" },
 ];
 
 /**

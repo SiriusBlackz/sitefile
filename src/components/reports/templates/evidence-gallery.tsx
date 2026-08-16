@@ -13,11 +13,14 @@ export interface GalleryEvidence {
   publicUrl: string;
   originalFilename: string | null;
   capturedAt: string | null;
+  uploadedAt?: string | null;
   latitude: number | null;
   longitude: number | null;
   uploaderName: string | null;
   uploaderRole: string | null;
   note: string | null;
+  /** Set when this photo already appears under an earlier task group. */
+  alsoShownUnder?: string | null;
 }
 
 /** A slice of one task's photos that fits on a single gallery page. */
@@ -249,10 +252,21 @@ function CardMeta({ ev }: { ev: GalleryEvidence }) {
             : "Progress photo"}
       </div>
       <div style={{ color: "#64748b", lineHeight: 1.7 }}>
-        {ev.capturedAt && <div>Captured {formatDateTime(ev.capturedAt)}</div>}
-        {ev.latitude != null && ev.longitude != null && (
+        {ev.capturedAt ? (
+          <div>Captured {formatDateTime(ev.capturedAt)}</div>
+        ) : ev.uploadedAt ? (
+          <div>Uploaded {formatDateTime(ev.uploadedAt)} · no embedded capture time</div>
+        ) : null}
+        {ev.latitude != null && ev.longitude != null ? (
           <div>
             GPS: {ev.latitude.toFixed(5)}, {ev.longitude.toFixed(5)}
+          </div>
+        ) : (
+          <div>GPS: not recorded</div>
+        )}
+        {ev.alsoShownUnder && (
+          <div style={{ fontStyle: "italic" }}>
+            Also shown under “{ev.alsoShownUnder}”
           </div>
         )}
         {/* Uploader attribution intentionally omitted from gallery cards

@@ -26,6 +26,8 @@ export function LookaheadPage({
   windowStart,
   windowEnd,
   startPage,
+  programmeElapsed = false,
+  programmeLastDate = null,
 }: {
   meta: ReportMeta;
   entries: LookaheadEntry[];
@@ -34,6 +36,9 @@ export function LookaheadPage({
   windowStart: string;
   windowEnd: string;
   startPage: number;
+  /** Every programmed date predates the reporting period. */
+  programmeElapsed?: boolean;
+  programmeLastDate?: string | null;
 }) {
   const overflow = totalCount - entries.length;
 
@@ -44,6 +49,28 @@ export function LookaheadPage({
         Programme activities falling due between {formatDate(windowStart)} and{" "}
         {formatDate(windowEnd)}.
       </div>
+
+      {programmeElapsed && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: "10px 14px",
+            border: "1px solid #fcd34d",
+            borderRadius: 6,
+            background: "#fffbeb",
+            fontSize: 10,
+            color: "#92400e",
+            lineHeight: 1.6,
+          }}
+        >
+          The current programme revision ends
+          {programmeLastDate ? ` on ${formatDate(programmeLastDate)}` : ""} —
+          before this reporting period. Nothing is programmed within the
+          lookahead window, so the items below are carried over from the
+          previous revision. A re-baselined programme is required for a
+          meaningful forecast.
+        </div>
+      )}
 
       <table>
         <thead>

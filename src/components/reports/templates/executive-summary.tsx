@@ -36,6 +36,17 @@ export interface SummaryStats {
   weather?: PeriodWeather | null;
   /** PM-entered H&S figures, when provided. */
   healthSafety?: HealthSafetyStats | null;
+  /** Current programme completion vs the accepted baseline, when one exists. */
+  baseline?: BaselineComparison | null;
+}
+
+export interface BaselineComparison {
+  setAt: string | null; // ISO datetime the baseline was snapshotted
+  source: string; // "first-import" | "rebaseline"
+  baselineCompletion: string | null; // ISO date — baseline programme end
+  currentCompletion: string | null; // ISO date — current programme end
+  /** Days the programmed completion has moved vs baseline (+ = later). */
+  slipDays: number | null;
 }
 
 export interface ReportNarrative {
@@ -88,7 +99,11 @@ export function paginateSummary(
       height: paraHeight(p) + (i === 0 ? H3_H : 0),
     });
   });
-  blocks.push({ item: { type: "stats" }, height: STAT_CARDS_H });
+  blocks.push({
+    item: { type: "stats" },
+    // The baseline strip under the cards adds one line of height.
+    height: STAT_CARDS_H + (stats.baseline ? 34 : 0),
+  });
   if (stats.sinceLastReport) {
     blocks.push({ item: { type: "delta" }, height: DELTA_STRIP_H });
   }
@@ -180,7 +195,12 @@ function renderItem(item: SummaryItem, key: number, stats: SummaryStats) {
         </div>
       );
     case "stats":
-      return <StatCards key={key} stats={stats} />;
+      return (
+        <div key={key}>
+          <StatCards stats={stats} />
+          {stats.baseline && <BaselineStrip baseline={stats.baseline} />}
+        </div>
+      );
     case "delta":
       return stats.sinceLastReport ? (
         <DeltaStrip key={key} delta={stats.sinceLastReport} />
@@ -246,6 +266,49 @@ function StatCards({ stats }: { stats: SummaryStats }) {
         value={String(stats.evidenceThisPeriod)}
         color="#6366f1"
       />
+    </div>
+  );
+}
+
+/** One-line planned-completion movement against the accepted baseline. */
+function BaselineStrip({ baseline }: { baseline: BaselineComparison }) {
+  if (!baseline.currentCompletion || !baseline.baselineCompletion) return null;
+  const slip = baseline.slipDays ?? 0;
+  const fmt = (iso: string) =>
+    new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  return (
+    <div
+      style={{
+        margin: "-14px 0 24px",
+        padding: "8px 12px",
+        border: "1px solid #e2e8f0",
+        borderRadius: 6,
+        fontSize: 10,
+        color: "#475569",
+        lineHeight: 1.6,
+      }}
+    >
+      <strong>Programme completion:</strong> currently programmed for{" "}
+      {fmt(baseline.currentCompletion)} —{" "}
+      {slip === 0 ? (
+        <span style={{ color: "#166534", fontWeight: 600 }}>
+          in line with the accepted baseline
+        </span>
+      ) : (
+        <span style={{ color: slip > 0 ? "#991b1b" : "#166534", fontWeight: 600 }}>
+          {Math.abs(slip)} day{Math.abs(slip) === 1 ? "" : "s"}{" "}
+          {slip > 0 ? "later" : "earlier"} than the accepted baseline
+        </span>
+      )}{" "}
+      of {fmt(baseline.baselineCompletion)}
+      {baseline.setAt
+        ? ` (baseline ${baseline.source === "rebaseline" ? "re-set" : "set at first import"})`
+        : ""}
+      .
     </div>
   );
 }

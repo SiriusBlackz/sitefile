@@ -7,11 +7,13 @@ import {
   gpsZones,
   auditLog,
   reports,
+  programmeBaselines,
 } from "@/server/db/schema";
 import { getReadUrl } from "./storage";
 import { generateBeforeAfterPairs } from "./before-after";
 import { fetchPeriodWeather, deriveSiteCoords } from "./weather";
 import { formatDate, formatDateRange } from "@/lib/format";
+import { isPlaceholderOrgName } from "@/lib/org-name";
 import { resolveSections, type ReportSections } from "@/lib/report-sections";
 import type { db as dbType } from "@/server/db";
 
@@ -232,7 +234,9 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   }
 
   const meta: ReportMeta = {
-    organisationName: org.name,
+    // The sign-up placeholder ("…'s Organisation") never prints — the
+    // templates fall back to project-only headers until it's renamed.
+    organisationName: isPlaceholderOrgName(org.name) ? null : org.name,
     logoUrl,
     clientLogoUrl,
     brandColor: org.brandColor,
@@ -359,6 +363,49 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   // PM override from the preview panel replaces the derived list wholesale.
   const resolvedKeyRisks = input.keyRisks ?? keyRisks;
 
+  // Baseline comparison — the accepted programme snapshot, held fixed
+  // while re-imports replace the current one. Matched by sourceRef first,
+  // then by name (planners renumber refs between revisions).
+  interface BaselineTask {
+    sourceRef: string | null;
+    name: string;
+    plannedStart: string | null;
+    plannedEnd: string | null;
+    isMilestone?: boolean;
+  }
+  const baselineRow = await db.query.programmeBaselines.findFirst({
+    where: eq(programmeBaselines.projectId, input.projectId),
+  });
+  const baselineTasks: BaselineTask[] =
+    (baselineRow?.snapshot as { tasks?: BaselineTask[] } | null)?.tasks ?? [];
+  const baselineByRef = new Map<string, BaselineTask>();
+  const baselineByName = new Map<string, BaselineTask>();
+  for (const bt of baselineTasks) {
+    if (bt.sourceRef && !baselineByRef.has(bt.sourceRef))
+      baselineByRef.set(bt.sourceRef, bt);
+    const nameKey = bt.name.trim().toLowerCase();
+    if (!baselineByName.has(nameKey)) baselineByName.set(nameKey, bt);
+  }
+  const baselineFor = (t: { sourceRef: string | null; name: string }) =>
+    (t.sourceRef ? baselineByRef.get(t.sourceRef) : undefined) ??
+    baselineByName.get(t.name.trim().toLowerCase());
+
+  // Whole-programme elapsed check: when every programmed date predates
+  // the reporting period, the milestone and lookahead tables are history,
+  // not forecast — the templates say so instead of printing a wall of
+  // unexplained OVERDUE.
+  let programmeLastDate: string | null = null;
+  for (const t of allTasks) {
+    const d = t.plannedEnd ?? t.plannedStart;
+    if (d && (programmeLastDate == null || d > programmeLastDate)) {
+      programmeLastDate = d;
+    }
+  }
+  const programmeElapsed =
+    allTasks.length > 0 &&
+    programmeLastDate != null &&
+    programmeLastDate < input.periodStart;
+
   // 6b. Key Dates & Milestones — explicitly flagged tasks plus
   // zero-duration activities (the planner's convention for milestones
   // when the format has no explicit flag). Variance is measured against
@@ -394,7 +441,17 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
         state = "forecast";
         varianceDays = 0;
       }
-      return { name: t.name, planned, actual, state, varianceDays };
+      const bt = baselineFor(t);
+      const baselineDate = bt ? (bt.plannedEnd ?? bt.plannedStart) : null;
+      return {
+        name: t.name,
+        planned,
+        actual,
+        state,
+        varianceDays,
+        baseline: baselineDate,
+        baselineVarianceDays: baselineDate ? diffDays(planned, baselineDate) : null,
+      };
     })
     // Large programmes repeat identical milestones across WBS branches.
     .filter((e) => {
@@ -503,6 +560,29 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   );
   const lookahead = allLookahead.slice(0, LOOKAHEAD_MAX);
 
+  // Programmed completion vs the accepted baseline's — the headline
+  // slippage number a client reads first.
+  let baselineComparison: SummaryStats["baseline"] = null;
+  if (baselineRow && baselineTasks.length > 0) {
+    let baselineCompletion: string | null = null;
+    for (const bt of baselineTasks) {
+      const d = bt.plannedEnd ?? bt.plannedStart;
+      if (d && (baselineCompletion == null || d > baselineCompletion)) {
+        baselineCompletion = d;
+      }
+    }
+    baselineComparison = {
+      setAt: baselineRow.setAt?.toISOString() ?? null,
+      source: baselineRow.source,
+      baselineCompletion,
+      currentCompletion: programmeLastDate,
+      slipDays:
+        baselineCompletion && programmeLastDate
+          ? diffDays(programmeLastDate, baselineCompletion)
+          : null,
+    };
+  }
+
   const summaryStats: SummaryStats = {
     totalTasks: leafTasks.length,
     completedTasks,
@@ -515,6 +595,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     totalEvidence: allEvidence.length,
     evidenceThisPeriod: periodEvidence.length,
     keyRisks: resolvedKeyRisks,
+    baseline: baselineComparison,
   };
 
   // 7. Timeline tasks
@@ -538,11 +619,15 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   walk(null, 0);
 
   const timelineTasks: TimelineTask[] = flatWithDepth.map((t) => {
-    // Find evidence dates for this task (from period evidence which has links)
+    // Find evidence dates for this task (from period evidence which has
+    // links). Photos without an embedded capture timestamp fall back to
+    // their upload date — the same rule that admits them to the period —
+    // so they still earn a marker on the Gantt.
     const evidenceDates: string[] = [];
     for (const ev of periodEvidence) {
-      if (ev.capturedAt && ev.links.some((l) => l.task.id === t.id)) {
-        evidenceDates.push(ev.capturedAt.toISOString().split("T")[0]);
+      const at = ev.capturedAt ?? ev.uploadedAt;
+      if (at && ev.links.some((l) => l.task.id === t.id)) {
+        evidenceDates.push(at.toISOString().split("T")[0]);
       }
     }
 
@@ -586,6 +671,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       publicUrl: readUrl ?? "",
       originalFilename: ev.originalFilename,
       capturedAt: ev.capturedAt?.toISOString() ?? null,
+      uploadedAt: ev.uploadedAt?.toISOString() ?? null,
       latitude: ev.latitude,
       longitude: ev.longitude,
       uploaderName: ev.uploader?.name ?? null,
@@ -595,6 +681,9 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   }
 
   if (sections.gallery) {
+    // A photo linked to several tasks prints under each — cross-referenced
+    // so the gallery doesn't read as padded with duplicates.
+    const firstTaskForEvidence = new Map<string, string>();
     for (const ev of periodEvidence) {
       for (const link of ev.links) {
         let gt = taskEvidenceMap.get(link.task.id);
@@ -609,7 +698,12 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
           };
           taskEvidenceMap.set(link.task.id, gt);
         }
-        gt.evidence.push(await toGalleryEvidence(ev));
+        const firstTask = firstTaskForEvidence.get(ev.id);
+        gt.evidence.push({
+          ...(await toGalleryEvidence(ev)),
+          alsoShownUnder: firstTask && firstTask !== link.task.name ? firstTask : null,
+        });
+        if (!firstTask) firstTaskForEvidence.set(ev.id, link.task.name);
       }
     }
     for (const gt of taskEvidenceMap.values()) {
@@ -878,6 +972,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     zonesConfigured: zones.length,
     averageUploadDelay: formatDuration(avgDelay),
     maxUploadDelay: formatDuration(maxDelay),
+    delaySamples: delayCount,
     evidenceByType: Array.from(typeMap.entries()).map(([type, count]) => ({
       type,
       count,
@@ -989,6 +1084,49 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     );
   }
 
+  // Key Issues that merely repeat the Executive Summary's Key Risks print
+  // the same bullets twice a page apart — drop the exact repeats (the PM's
+  // own additions always survive). An emptied list drops the section.
+  const riskSet = new Set(resolvedKeyRisks.map((r) => r.trim()));
+  const dedupedKeyIssues = (input.keyIssues ?? []).filter(
+    (i, idx, arr) =>
+      !riskSet.has(i.trim()) &&
+      arr.findIndex((x) => x.trim() === i.trim()) === idx
+  );
+
+  // Client counter-signing is a future flow — a client signature typed in
+  // by the PM must never print as signed, whatever the dialog sends.
+  const safeSignatures = (input.signatures ?? []).filter(
+    (s) => s.role !== "client"
+  );
+
+  // Sections the recipe wanted but the data can't support — surfaced on
+  // the Contents page instead of vanishing without a trace.
+  const omittedSections: { title: string; reason: string }[] = [];
+  if (sections.photoMap && photoMap == null) {
+    const anyGps = periodEvidence.some(
+      (e) => e.latitude != null && e.longitude != null
+    );
+    omittedSections.push({
+      title: "Photo Location Map",
+      reason: anyGps
+        ? "map imagery unavailable at generation time"
+        : "no GPS-tagged photos this period",
+    });
+  }
+  if (sections.beforeAfter && beforeAfterPairs.length === 0) {
+    omittedSections.push({
+      title: "Before & After Comparison",
+      reason: "no matched photo pairs yet — pairs build as photos accumulate per task and zone",
+    });
+  }
+  if (sections.gallery && galleryTasks.length === 0) {
+    omittedSections.push({
+      title: "Progress Records",
+      reason: "no photos captured this period",
+    });
+  }
+
   return {
     meta,
     reportNumber,
@@ -1000,16 +1138,19 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     lookahead,
     lookaheadTotal: allLookahead.length,
     lookaheadWindow: { start: lookaheadStart, end: lookaheadEnd },
+    programmeElapsed,
+    programmeLastDate,
     narrative: {
       paragraphs: input.narrative?.length ? input.narrative : paragraphs,
     },
-    keyIssues: input.keyIssues ?? [],
+    keyIssues: dedupedKeyIssues,
     timelineTasks,
     galleryTasks,
     beforeAfterPairs,
     verificationStats,
     photoMap,
-    signatures: input.signatures ?? [],
+    omittedSections,
+    signatures: safeSignatures,
   };
 }
 
@@ -1029,7 +1170,7 @@ function joinList(items: string[], max = 5): string {
 export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherReportData>>): Promise<string> {
   // Dynamic import to avoid Turbopack's react-dom/server static analysis block
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, narrative, keyIssues, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, photoMap, signatures } =
+  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, programmeElapsed, programmeLastDate, narrative, keyIssues, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, photoMap, omittedSections, signatures } =
     data;
 
   // Page numbers are computed in ONE pass using the same pagination
@@ -1098,7 +1239,14 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const children = [
     createElement(CoverPage, { key: "cover", meta }),
     ...(hasToc
-      ? [createElement(TableOfContents, { key: "toc", meta, entries: tocEntries })]
+      ? [
+          createElement(TableOfContents, {
+            key: "toc",
+            meta,
+            entries: tocEntries,
+            omitted: omittedSections,
+          }),
+        ]
       : []),
     createElement(ExecutiveSummary, {
       key: "summary",
@@ -1126,6 +1274,8 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
             totalCount: keyDatesTotal,
             dataDate,
             startPage: keyDatesPage,
+            programmeElapsed,
+            programmeLastDate,
           }),
         ]
       : []),
@@ -1151,6 +1301,8 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
             windowStart: lookaheadWindow.start,
             windowEnd: lookaheadWindow.end,
             startPage: lookaheadPage,
+            programmeElapsed,
+            programmeLastDate,
           }),
         ]
       : []),
@@ -1259,9 +1411,9 @@ export async function htmlToPdf(html: string): Promise<Buffer> {
 }
 
 function formatDuration(ms: number): string {
-  if (ms === 0) return "N/A";
   const hours = Math.floor(ms / (1000 * 60 * 60));
   const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours === 0 && minutes === 0) return "under a minute";
   if (hours > 24) {
     const days = Math.floor(hours / 24);
     return `${days}d ${hours % 24}h`;

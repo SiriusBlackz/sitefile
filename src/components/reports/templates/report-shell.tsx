@@ -8,7 +8,8 @@ import type { ReactNode } from "react";
  */
 
 export interface ReportMeta {
-  organisationName: string;
+  /** Null when the org still carries its sign-up placeholder name. */
+  organisationName: string | null;
   logoUrl: string | null;
   clientLogoUrl?: string | null;
   brandColor?: string | null;
@@ -172,7 +173,8 @@ export function PageFooter({ meta, pageNum }: { meta: ReportMeta; pageNum: numbe
   return (
     <div className="page-footer">
       <span>
-        {meta.organisationName} — {meta.projectName}
+        {meta.organisationName ? `${meta.organisationName} — ` : ""}
+        {meta.projectName}
         {meta.projectReference ? ` (${meta.projectReference})` : ""}
       </span>
       <span>

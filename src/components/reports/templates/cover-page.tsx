@@ -5,33 +5,36 @@ export function CoverPage({ meta }: { meta: ReportMeta }) {
 
   return (
     <div className="page" style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
-      {/* Logo area */}
-      <div style={{ textAlign: "center", marginBottom: 48 }}>
-        {meta.logoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- Puppeteer static HTML
-          <img
-            src={meta.logoUrl}
-            alt={meta.organisationName}
-            style={{ maxHeight: 80, maxWidth: 280, objectFit: "contain" }}
-          />
-        ) : (
-          // No logo uploaded: a clean typographic masthead reads better on a
-          // client document than a faux-logo pill.
-          <div
-            style={{
-              fontSize: 26,
-              fontWeight: 700,
-              color: "#0f172a",
-              letterSpacing: 0.5,
-              paddingBottom: 10,
-              borderBottom: "3px solid #0f172a",
-              display: "inline-block",
-            }}
-          >
-            {meta.organisationName}
-          </div>
-        )}
-      </div>
+      {/* Logo area. An unnamed org (sign-up placeholder) gets neither
+          masthead nor faux name — the project title carries the cover. */}
+      {(meta.logoUrl || meta.organisationName) && (
+        <div style={{ textAlign: "center", marginBottom: 48 }}>
+          {meta.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Puppeteer static HTML
+            <img
+              src={meta.logoUrl}
+              alt={meta.organisationName ?? "Contractor logo"}
+              style={{ maxHeight: 80, maxWidth: 280, objectFit: "contain" }}
+            />
+          ) : (
+            // No logo uploaded: a clean typographic masthead reads better on a
+            // client document than a faux-logo pill.
+            <div
+              style={{
+                fontSize: 26,
+                fontWeight: 700,
+                color: "#0f172a",
+                letterSpacing: 0.5,
+                paddingBottom: 10,
+                borderBottom: "3px solid #0f172a",
+                display: "inline-block",
+              }}
+            >
+              {meta.organisationName}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Title block */}
       <div style={{ textAlign: "center", marginBottom: meta.coverPhotoUrl ? 28 : 48 }}>
@@ -95,7 +98,9 @@ export function CoverPage({ meta }: { meta: ReportMeta }) {
       >
         <table style={{ fontSize: 12 }}>
           <tbody>
-            <DetailRow label="Contractor" value={meta.organisationName} />
+            {meta.organisationName && (
+              <DetailRow label="Contractor" value={meta.organisationName} />
+            )}
             {meta.clientName && (
               <DetailRow label="Client" value={meta.clientName} />
             )}

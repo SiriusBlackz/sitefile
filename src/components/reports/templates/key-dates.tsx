@@ -13,6 +13,10 @@ export interface KeyDateEntry {
   state: "actualised" | "overdue" | "forecast";
   /** Days late (+) or early (−); for overdue rows, days past planned as of the data date. */
   varianceDays: number;
+  /** The accepted baseline's date for this milestone, when matched. */
+  baseline?: string | null;
+  /** Days the current planned date has moved vs baseline (+ = later). */
+  baselineVarianceDays?: number | null;
 }
 
 export function KeyDatesPage({
@@ -21,6 +25,8 @@ export function KeyDatesPage({
   totalCount,
   dataDate,
   startPage,
+  programmeElapsed = false,
+  programmeLastDate = null,
 }: {
   meta: ReportMeta;
   entries: KeyDateEntry[];
@@ -28,6 +34,9 @@ export function KeyDatesPage({
   totalCount: number;
   dataDate: string;
   startPage: number;
+  /** Every programmed date predates the reporting period. */
+  programmeElapsed?: boolean;
+  programmeLastDate?: string | null;
 }) {
   const overflow = totalCount - entries.length;
 
@@ -39,22 +48,51 @@ export function KeyDatesPage({
         {formatDate(dataDate)} (data date).
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Milestone</th>
-            <th style={{ textAlign: "right" }}>Planned</th>
-            <th style={{ textAlign: "right" }}>Actual</th>
-            <th style={{ textAlign: "right" }}>Variance</th>
-            <th style={{ textAlign: "right" }}>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((e, i) => (
-            <MilestoneRow key={i} entry={e} />
-          ))}
-        </tbody>
-      </table>
+      {programmeElapsed && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: "10px 14px",
+            border: "1px solid #fcd34d",
+            borderRadius: 6,
+            background: "#fffbeb",
+            fontSize: 10,
+            color: "#92400e",
+            lineHeight: 1.6,
+          }}
+        >
+          The current programme revision ends
+          {programmeLastDate ? ` on ${formatDate(programmeLastDate)}` : ""} —
+          before this reporting period. Overdue variances below measure
+          against that historical revision and should be read alongside a
+          re-baselined programme, not as current forecast slippage.
+        </div>
+      )}
+
+      {(() => {
+        const hasBaseline = entries.some((e) => e.baseline != null);
+        return (
+          <table>
+            <thead>
+              <tr>
+                <th>Milestone</th>
+                {hasBaseline && <th style={{ textAlign: "right" }}>Baseline</th>}
+                <th style={{ textAlign: "right" }}>
+                  {hasBaseline ? "Current" : "Planned"}
+                </th>
+                <th style={{ textAlign: "right" }}>Actual</th>
+                <th style={{ textAlign: "right" }}>Variance</th>
+                <th style={{ textAlign: "right" }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e, i) => (
+                <MilestoneRow key={i} entry={e} showBaseline={hasBaseline} />
+              ))}
+            </tbody>
+          </table>
+        );
+      })()}
 
       {overflow > 0 && (
         <div className="text-xs text-muted" style={{ marginTop: 8 }}>
@@ -76,7 +114,13 @@ export function KeyDatesPage({
   );
 }
 
-function MilestoneRow({ entry }: { entry: KeyDateEntry }) {
+function MilestoneRow({
+  entry,
+  showBaseline = false,
+}: {
+  entry: KeyDateEntry;
+  showBaseline?: boolean;
+}) {
   const late = entry.varianceDays > 0;
   const early = entry.varianceDays < 0;
 
@@ -101,10 +145,31 @@ function MilestoneRow({ entry }: { entry: KeyDateEntry }) {
         ? { cls: "badge-red", label: "Overdue" }
         : { cls: "badge-gray", label: "Forecast" };
 
+  const drift = entry.baselineVarianceDays ?? 0;
   return (
     <tr>
       <td>{entry.name}</td>
-      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>{formatDate(entry.planned)}</td>
+      {showBaseline && (
+        <td style={{ textAlign: "right", whiteSpace: "nowrap", color: "#64748b" }}>
+          {entry.baseline ? formatDate(entry.baseline) : "—"}
+        </td>
+      )}
+      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+        {formatDate(entry.planned)}
+        {showBaseline && entry.baseline && drift !== 0 && (
+          <span
+            style={{
+              marginLeft: 4,
+              fontSize: 8,
+              fontWeight: 600,
+              color: drift > 0 ? "#991b1b" : "#166534",
+            }}
+          >
+            {drift > 0 ? "+" : "−"}
+            {Math.abs(drift)}d
+          </span>
+        )}
+      </td>
       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
         {entry.actual ? formatDate(entry.actual) : "—"}
       </td>
