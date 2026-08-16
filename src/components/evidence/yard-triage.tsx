@@ -122,6 +122,15 @@ export function YardTriage({ projectId }: { projectId: string }) {
                       alt={item.note ?? "Site photo"}
                       title={item.note ?? undefined}
                       className="h-14 w-14 shrink-0 rounded-md border object-cover"
+                      onError={(e) => {
+                        // Thumbnail missing or unservable — fall back to the
+                        // original once (same rule as the gallery cards).
+                        const img = e.currentTarget;
+                        if (item.thumbnailUrl && !img.dataset.fellBack) {
+                          img.dataset.fellBack = "true";
+                          img.src = item.publicUrl;
+                        }
+                      }}
                     />
                   ))}
                   {group.items.length > 10 && (
