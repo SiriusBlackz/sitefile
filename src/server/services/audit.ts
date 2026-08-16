@@ -18,6 +18,7 @@ export type AuditAction =
   | "draft_narrative"
   | "share"
   | "revoke_share"
+  | "reveal_password"
   | "confirm_programme"
   | "import"
   | "subscribe"

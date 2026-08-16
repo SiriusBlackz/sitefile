@@ -178,7 +178,33 @@ export const evidenceRouter = createTRPCRouter({
         .from(evidenceLinks)
         .innerJoin(evidence, eq(evidenceLinks.evidenceId, evidence.id))
         .where(and(eq(evidence.projectId, input.projectId), isNull(evidence.deletedAt)));
-      return { count: row?.count ?? 0, linked: linkedRow?.count ?? 0 };
+      const [noGpsRow] = await ctx.db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(evidence)
+        .where(
+          and(
+            eq(evidence.projectId, input.projectId),
+            isNull(evidence.deletedAt),
+            isNull(evidence.latitude)
+          )
+        );
+      const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+      const [weekRow] = await ctx.db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(evidence)
+        .where(
+          and(
+            eq(evidence.projectId, input.projectId),
+            isNull(evidence.deletedAt),
+            sql`coalesce(${evidence.capturedAt}, ${evidence.uploadedAt}) >= ${weekAgo.toISOString()}::timestamptz`
+          )
+        );
+      return {
+        count: row?.count ?? 0,
+        linked: linkedRow?.count ?? 0,
+        noGps: noGpsRow?.count ?? 0,
+        thisWeek: weekRow?.count ?? 0,
+      };
     }),
 
   list: protectedProcedure
@@ -192,6 +218,8 @@ export const evidenceRouter = createTRPCRouter({
         dateTo: z.string().optional(),
         type: z.enum(EVIDENCE_TYPES).optional(),
         search: z.string().max(200).optional(),
+        unlinkedOnly: z.boolean().optional(),
+        noGpsOnly: z.boolean().optional(),
         uploadedBy: z.string().uuid().optional(),
       })
     )
@@ -204,6 +232,14 @@ export const evidenceRouter = createTRPCRouter({
 
       if (input.dateFrom) {
         conditions.push(gte(evidence.capturedAt, new Date(input.dateFrom)));
+      }
+      if (input.unlinkedOnly) {
+        conditions.push(
+          sql`not exists (select 1 from evidence_links el where el.evidence_id = ${evidence.id})`
+        );
+      }
+      if (input.noGpsOnly) {
+        conditions.push(isNull(evidence.latitude));
       }
       if (input.dateTo) {
         conditions.push(lte(evidence.capturedAt, new Date(input.dateTo)));

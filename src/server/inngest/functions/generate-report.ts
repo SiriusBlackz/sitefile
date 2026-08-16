@@ -109,7 +109,9 @@ export const generateReport = inngest.createFunction(
         .set({
           status: "completed",
           pdfStorageKey: result.storageKey,
-          passwordCiphertext: null,
+          // Ciphertext is RETAINED on success so the Send screen can
+          // reveal the password to the PM (report.revealPassword,
+          // audit-logged). Still cleared on failure paths.
           reportData: {
             stats: result.stats,
             meta: result.meta,

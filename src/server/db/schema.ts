@@ -387,6 +387,30 @@ export const reportsRelations = relations(reports, ({ one, many }) => ({
   shares: many(reportShares),
 }));
 
+// ─── Report Drafts (the standing draft) ─────────────────────────────────────
+// One live draft per project: the PM's pre-generate state — approved
+// narrative, signed-off issues, signature — set at the desk and shown on
+// the phone home's gap list, so it must live server-side, not in a
+// device's localStorage. Keyed to period_start: a new period resets it.
+
+export const reportDrafts = pgTable("report_drafts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .unique()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  periodStart: date("period_start", { mode: "string" }).notNull(),
+  payload: jsonb("payload").notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
+}).enableRLS();
+
+export const reportDraftsRelations = relations(reportDrafts, ({ one }) => ({
+  project: one(projects, {
+    fields: [reportDrafts.projectId],
+    references: [projects.id],
+  }),
+}));
+
 // ─── Report Shares (send & receipt) ─────────────────────────────────────────
 // A share is a tokenised public link to a completed report. The client's
 // interactions with it (opened the page, downloaded the PDF) are logged as

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, desc, ne, or, isNull, inArray, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
-import { projects, organisations, projectMembers, users, reports, evidence, tasks } from "@/server/db/schema";
+import { projects, organisations, projectMembers, users, reports, evidence, tasks, gpsZones, reportDrafts, reportShares } from "@/server/db/schema";
 import { PROJECT_MEMBER_ROLES, PROJECT_STATUSES } from "@/server/db/enums";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
@@ -250,7 +250,7 @@ export const projectRouter = createTRPCRouter({
       const lastReport = await ctx.db.query.reports.findFirst({
         where: and(eq(reports.projectId, input.id), eq(reports.status, "completed")),
         orderBy: [desc(reports.reportNumber)],
-        columns: { periodEnd: true, reportNumber: true },
+        columns: { id: true, periodEnd: true, reportNumber: true, status: true },
       });
       const periodStartStr = lastReport
         ? lastReport.periodEnd
@@ -284,6 +284,91 @@ export const projectRouter = createTRPCRouter({
         project.programmeConfirmedAt != null &&
         project.programmeConfirmedAt >= periodStart;
 
+      // ── Readiness-engine extensions (src/lib/readiness.ts consumes) ──
+
+      // Photos per day, last 7 calendar days — the phone home week tracker.
+      const dayMs = 86_400_000;
+      const todayUtc = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
+      const photosByDay = Array.from({ length: 7 }, (_, i) => {
+        const day = new Date(todayUtc.getTime() - (6 - i) * dayMs);
+        const dayStr = day.toISOString().slice(0, 10);
+        const count = rows.filter((r) => {
+          const at = r.capturedAt ?? r.uploadedAt;
+          return at != null && at.toISOString().slice(0, 10) === dayStr;
+        }).length;
+        return { date: dayStr, count };
+      });
+
+      const [zoneCountRow] = await ctx.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(gpsZones)
+        .where(eq(gpsZones.projectId, input.id));
+
+      // In-progress activities with zero linked photos this period — the
+      // honesty box and the phone home's danger rows.
+      const zeroPhotoTasks = await ctx.db
+        .select({
+          id: tasks.id,
+          name: tasks.name,
+          progressPct: sql<number>`coalesce(${tasks.progressPct}, 0)::int`,
+        })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.projectId, input.id),
+            eq(tasks.status, "in_progress"),
+            sql`not exists (
+              select 1 from evidence_links el
+              join evidence e on e.id = el.evidence_id
+              where el.task_id = ${tasks.id}
+                and e.deleted_at is null
+                and coalesce(e.captured_at, e.uploaded_at) >= ${periodStart.toISOString()}::timestamptz
+            )`
+          )
+        )
+        .limit(3);
+
+      // Last completed report's delivery state (share created = sent).
+      let lastReportOut: {
+        id: string;
+        number: number;
+        status: string | null;
+        sentAt: string | null;
+        openedAt: string | null;
+      } | null = null;
+      if (lastReport) {
+        const share = await ctx.db.query.reportShares.findFirst({
+          where: eq(reportShares.reportId, lastReport.id),
+          orderBy: [desc(reportShares.createdAt)],
+          with: { events: true },
+        });
+        const opened =
+          share?.events
+            .filter((e) => e.event === "opened" && e.createdAt)
+            .map((e) => e.createdAt!)
+            .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+        lastReportOut = {
+          id: lastReport.id,
+          number: lastReport.reportNumber,
+          status: lastReport.status,
+          sentAt: share?.createdAt?.toISOString() ?? null,
+          openedAt: opened?.toISOString() ?? null,
+        };
+      }
+
+      // The standing draft's approval states (stale period ⇒ ignored).
+      const draftRow = await ctx.db.query.reportDrafts.findFirst({
+        where: eq(reportDrafts.projectId, input.id),
+      });
+      const payload =
+        draftRow && draftRow.periodStart === periodStartStr
+          ? (draftRow.payload as {
+              narrativeApprovedAt?: string | null;
+              issuesSignedOffAt?: string | null;
+              signedAt?: string | null;
+            })
+          : null;
+
       return {
         nextReportDue: project.nextReportDue,
         reportingFrequency: project.reportingFrequency,
@@ -294,7 +379,39 @@ export const projectRouter = createTRPCRouter({
         unlinked,
         uncaptioned,
         programmeConfirmedThisPeriod,
+        photosByDay,
+        zoneCount: zoneCountRow?.count ?? 0,
+        zeroPhotoTasks,
+        lastReport: lastReportOut,
+        draft: payload
+          ? {
+              narrativeApprovedAt: payload.narrativeApprovedAt ?? null,
+              issuesSignedOffAt: payload.issuesSignedOffAt ?? null,
+              signedAt: payload.signedAt ?? null,
+            }
+          : null,
       };
+    }),
+
+  // Closes the reporting period after send: clears the standing draft so
+  // the next period starts honest. Does NOT touch nextReportDue — report
+  // generation already advanced it.
+  closePeriod: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.id, ctx.orgId, ctx.userId);
+      await ctx.db
+        .delete(reportDrafts)
+        .where(eq(reportDrafts.projectId, input.id));
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.id,
+        userId: ctx.userId,
+        action: "update",
+        entityType: "project",
+        entityId: input.id,
+        metadata: { event: "close_period" },
+      });
+      return { ok: true };
     }),
 
   archive: adminProcedure

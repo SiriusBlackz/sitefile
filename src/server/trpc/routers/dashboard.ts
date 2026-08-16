@@ -6,6 +6,9 @@ import {
   tasks,
   evidence,
   auditLog,
+  reports,
+  reportShares,
+  reportDrafts,
 } from "@/server/db/schema";
 import type { Context } from "../context";
 
@@ -43,6 +46,151 @@ async function listAccessibleProjects(
 }
 
 export const dashboardRouter = createTRPCRouter({
+  // Portfolio: everything the org home needs for its per-project cards
+  // in a handful of grouped queries — never N per-project gapList calls.
+  portfolio: protectedProcedure.query(async ({ ctx }) => {
+    const accessible = await listAccessibleProjects(ctx);
+    const ids = accessible.map((p) => p.id);
+    if (ids.length === 0) return { projects: [] };
+
+    const projectRows = await ctx.db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        reference: projects.reference,
+        status: projects.status,
+        startDate: projects.startDate,
+        nextReportDue: projects.nextReportDue,
+        reportingFrequency: projects.reportingFrequency,
+        programmeConfirmedAt: projects.programmeConfirmedAt,
+      })
+      .from(projects)
+      .where(inArray(projects.id, ids));
+
+    // Last completed report per project.
+    const lastReports = await ctx.db
+      .select({
+        id: reports.id,
+        projectId: reports.projectId,
+        reportNumber: reports.reportNumber,
+        status: reports.status,
+        periodEnd: reports.periodEnd,
+        createdAt: reports.createdAt,
+      })
+      .from(reports)
+      .where(
+        and(
+          inArray(reports.projectId, ids),
+          eq(reports.status, "completed"),
+          sql`${reports.reportNumber} = (
+            select max(r2.report_number) from reports r2
+            where r2.project_id = ${reports.projectId} and r2.status = 'completed'
+          )`
+        )
+      );
+    const lastByProject = new Map(lastReports.map((r) => [r.projectId, r]));
+
+    // Delivery state for those reports.
+    const lastIds = lastReports.map((r) => r.id);
+    const shares = lastIds.length
+      ? await ctx.db.query.reportShares.findMany({
+          where: inArray(reportShares.reportId, lastIds),
+          with: { events: true },
+        })
+      : [];
+    const shareByReport = new Map<string, (typeof shares)[number]>();
+    for (const sh of shares) {
+      const prev = shareByReport.get(sh.reportId);
+      if (!prev || (sh.createdAt && prev.createdAt && sh.createdAt > prev.createdAt)) {
+        shareByReport.set(sh.reportId, sh);
+      }
+    }
+
+    // Task counts per project.
+    const taskCounts = await ctx.db
+      .select({ projectId: tasks.projectId, count: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(inArray(tasks.projectId, ids))
+      .groupBy(tasks.projectId);
+    const taskCountBy = new Map(taskCounts.map((t) => [t.projectId, t.count]));
+
+    // Evidence rows (per-period photo + unlinked counts computed in JS —
+    // the period boundary differs per project).
+    const evRows = await ctx.db
+      .select({
+        projectId: evidence.projectId,
+        capturedAt: evidence.capturedAt,
+        uploadedAt: evidence.uploadedAt,
+        linkCount: sql<number>`(select count(*) from evidence_links el where el.evidence_id = ${evidence.id})::int`,
+      })
+      .from(evidence)
+      .where(and(inArray(evidence.projectId, ids), isNull(evidence.deletedAt)));
+
+    const drafts = await ctx.db.query.reportDrafts.findMany({
+      where: inArray(reportDrafts.projectId, ids),
+    });
+    const draftBy = new Map(drafts.map((d) => [d.projectId, d]));
+
+    const out = projectRows.map((p) => {
+      const last = lastByProject.get(p.id) ?? null;
+      const periodStartStr =
+        last?.periodEnd ?? p.startDate ?? new Date().toISOString().slice(0, 10);
+      const periodStart = new Date(periodStartStr + "T00:00:00Z");
+      const mine = evRows.filter((e) => e.projectId === p.id);
+      const inPeriod = mine.filter((e) => {
+        const at = e.capturedAt ?? e.uploadedAt;
+        return at != null && at >= periodStart;
+      });
+      const share = last ? (shareByReport.get(last.id) ?? null) : null;
+      const opened =
+        share?.events
+          .filter((e) => e.event === "opened" && e.createdAt)
+          .map((e) => e.createdAt!)
+          .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+      const draft = draftBy.get(p.id);
+      const payload =
+        draft && draft.periodStart === periodStartStr
+          ? (draft.payload as {
+              narrativeApprovedAt?: string | null;
+              issuesSignedOffAt?: string | null;
+              signedAt?: string | null;
+            })
+          : null;
+      return {
+        id: p.id,
+        name: p.name,
+        reference: p.reference,
+        status: p.status,
+        nextReportDue: p.nextReportDue,
+        reportingFrequency: p.reportingFrequency,
+        periodStart: periodStartStr,
+        taskCount: taskCountBy.get(p.id) ?? 0,
+        photosThisPeriod: inPeriod.length,
+        unlinked: inPeriod.filter((e) => e.linkCount === 0).length,
+        programmeConfirmedThisPeriod:
+          p.programmeConfirmedAt != null && p.programmeConfirmedAt >= periodStart,
+        lastReport: last
+          ? {
+              id: last.id,
+              number: last.reportNumber,
+              status: last.status,
+              sentAt: share?.createdAt?.toISOString() ?? null,
+              openedAt: opened?.toISOString() ?? null,
+            }
+          : null,
+        draft: payload
+          ? {
+              narrativeApprovedAt: payload.narrativeApprovedAt ?? null,
+              issuesSignedOffAt: payload.issuesSignedOffAt ?? null,
+              signedAt: payload.signedAt ?? null,
+            }
+          : null,
+      };
+    });
+
+    return { projects: out };
+  }),
+
   summary: protectedProcedure.query(async ({ ctx }) => {
     const accessible = await listAccessibleProjects(ctx);
 

@@ -6,6 +6,7 @@ import {
   reports,
   evidence,
   reportShares,
+  reportDrafts,
   projects,
 } from "@/server/db/schema";
 import { randomBytes } from "crypto";
@@ -13,7 +14,10 @@ import { inngest } from "@/server/inngest/client";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 import { signReportToken } from "@/server/services/report-tokens";
-import { encryptReportPassword } from "@/server/services/report-password-crypto";
+import {
+  encryptReportPassword,
+  decryptReportPassword,
+} from "@/server/services/report-password-crypto";
 import { REPORT_SECTION_KEYS } from "@/lib/report-sections";
 import { draftNarrative } from "@/server/services/narrative-draft";
 import {
@@ -442,6 +446,60 @@ export const reportRouter = createTRPCRouter({
     }),
 
 
+  // ── The standing draft ────────────────────────────────────────────────
+  // Pre-generate state (approved narrative, signed-off issues, signature,
+  // section toggles) persisted per project so desk approvals show on the
+  // phone home. One live draft per project, keyed to its period.
+
+  getDraft: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const row = await ctx.db.query.reportDrafts.findFirst({
+        where: eq(reportDrafts.projectId, input.projectId),
+      });
+      if (!row) return null;
+      return {
+        periodStart: row.periodStart,
+        payload: row.payload as Record<string, unknown>,
+        updatedAt: row.updatedAt,
+      };
+    }),
+
+  saveDraft: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        periodStart: z.string().min(1),
+        patch: z.record(z.string(), z.unknown()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const existing = await ctx.db.query.reportDrafts.findFirst({
+        where: eq(reportDrafts.projectId, input.projectId),
+      });
+      // Same period: merge-patch. New/stale period: the patch becomes the
+      // whole payload — the old period's approvals must not leak forward.
+      const payload =
+        existing && existing.periodStart === input.periodStart
+          ? { ...(existing.payload as Record<string, unknown>), ...input.patch }
+          : input.patch;
+      await ctx.db
+        .insert(reportDrafts)
+        .values({
+          projectId: input.projectId,
+          periodStart: input.periodStart,
+          payload,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: reportDrafts.projectId,
+          set: { periodStart: input.periodStart, payload, updatedAt: new Date() },
+        });
+      return { ok: true };
+    }),
+
   // ── Send & receipt ────────────────────────────────────────────────────
   // A share is a tokenised public link to a completed report; the
   // client's opens/downloads become a delivery receipt. Passwords stay
@@ -518,6 +576,36 @@ export const reportRouter = createTRPCRouter({
           openCount: s.events.filter((e) => e.event === "opened").length,
         };
       });
+    }),
+
+  // Reveals a completed report's auto/typed password to the PM on the
+  // Send screen. Audit-logged; the ciphertext is retained at generation
+  // precisely to make this possible (documented trade-off).
+  revealPassword: protectedProcedure
+    .input(z.object({ reportId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const report = await ctx.db.query.reports.findFirst({
+        where: eq(reports.id, input.reportId),
+        columns: { id: true, projectId: true, status: true, passwordCiphertext: true, reportNumber: true },
+      });
+      if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
+      await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
+      if (report.status !== "completed" || !report.passwordCiphertext) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No stored password for this report.",
+        });
+      }
+      const password = decryptReportPassword(report.passwordCiphertext);
+      writeAuditLogAsync(ctx.db, {
+        projectId: report.projectId,
+        userId: ctx.userId,
+        action: "reveal_password",
+        entityType: "report",
+        entityId: report.id,
+        metadata: { reportNumber: report.reportNumber },
+      });
+      return { password };
     }),
 
   revokeShare: protectedProcedure
