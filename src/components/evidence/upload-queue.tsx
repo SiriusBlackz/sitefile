@@ -6,6 +6,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Upload, X, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  beginForegroundUpload,
+  endForegroundUpload,
+} from "@/lib/upload-coordinator";
+import { RotateCcw } from "lucide-react";
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -157,6 +162,45 @@ export function UploadQueue({ projectId, onUploadComplete }: UploadQueueProps) {
     [projectId, getUploadUrl, confirm, updateItem]
   );
 
+  async function runPool(items: QueueItem[]) {
+    beginForegroundUpload();
+    try {
+      const work = [...items];
+      const workers = Array.from(
+        { length: Math.min(3, work.length) },
+        async () => {
+          for (let item = work.shift(); item; item = work.shift()) {
+            await processFile(item);
+          }
+        }
+      );
+      await Promise.all(workers);
+    } finally {
+      endForegroundUpload();
+    }
+    onUploadComplete?.();
+    setQueue((prev) => {
+      const failed = prev.filter((i) => i.status === "error").length;
+      if (failed > 0) {
+        toast.error(
+          `${failed} file${failed === 1 ? "" : "s"} failed to upload — use Retry on each row.`
+        );
+      }
+      return prev;
+    });
+  }
+
+  async function retryItem(item: QueueItem) {
+    beginForegroundUpload();
+    try {
+      updateItem(item.id, { status: "pending", error: undefined, progress: 0 });
+      await processFile({ ...item, status: "pending", error: undefined });
+    } finally {
+      endForegroundUpload();
+    }
+    onUploadComplete?.();
+  }
+
   function handleFiles(files: FileList | null) {
     if (!files) return;
 
@@ -186,12 +230,9 @@ export function UploadQueue({ projectId, onUploadComplete }: UploadQueueProps) {
 
     setQueue((q) => [...q, ...newItems]);
 
-    // Process all new files
-    for (const item of newItems) {
-      processFile(item).then(() => {
-        onUploadComplete?.();
-      });
-    }
+    // Bounded concurrency: 3 uploads at a time. Firing the whole batch at
+    // once hammered the rate budget and made big drops fail unpredictably.
+    void runPool(newItems);
   }
 
   function removeItem(id: string) {
@@ -289,6 +330,16 @@ export function UploadQueue({ projectId, onUploadComplete }: UploadQueueProps) {
                 )}
                 {(item.status === "uploading" || item.status === "confirming") && (
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+                {item.status === "error" && (
+                  <Button
+                    variant="outline"
+                    size="icon-xs"
+                    aria-label={`Retry ${item.file.name}`}
+                    onClick={() => retryItem(item)}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </Button>
                 )}
                 {(item.status === "done" || item.status === "error") && (
                   <Button

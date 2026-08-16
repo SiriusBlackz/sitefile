@@ -33,6 +33,8 @@ export interface OfflineCapture {
  */
 export interface CaptureStaging {
   sessionId: string;
+  /** Project the capture belongs to — powers the resume banner. */
+  projectId?: string;
   photos: {
     id: string;
     blob: Blob;
@@ -153,6 +155,32 @@ export async function getStashedCapture(
     req.onsuccess = () => resolve((req.result as CaptureStaging) ?? null);
     req.onerror = () => reject(req.error);
   });
+}
+
+/**
+ * All stashed capture sessions, pruning anything older than 7 days.
+ * Powers the "unfinished capture" resume banner — stashed photos must
+ * never be silently invisible.
+ */
+export async function listStashedCaptures(): Promise<CaptureStaging[]> {
+  const db = await openDB();
+  const all = await new Promise<CaptureStaging[]>((resolve, reject) => {
+    const tx = db.transaction(STAGING_STORE, "readonly");
+    const req = tx.objectStore(STAGING_STORE).getAll();
+    req.onsuccess = () => resolve((req.result as CaptureStaging[]) ?? []);
+    req.onerror = () => reject(req.error);
+  });
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const fresh = all.filter((s2) => s2.createdAt >= cutoff);
+  const stale = all.filter((s2) => s2.createdAt < cutoff);
+  for (const s2 of stale) {
+    try {
+      await clearStashedCapture(s2.sessionId);
+    } catch {
+      // best-effort prune
+    }
+  }
+  return fresh.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function clearStashedCapture(sessionId: string): Promise<void> {

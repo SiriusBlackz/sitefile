@@ -31,6 +31,10 @@ import {
 } from "@/lib/offline-queue";
 import { usePWA } from "@/lib/use-pwa";
 import { pointInPolygon } from "@/lib/geo";
+import {
+  beginForegroundUpload,
+  endForegroundUpload,
+} from "@/lib/upload-coordinator";
 import { MapPin, SkipForward } from "lucide-react";
 
 // Image types accepted by evidence.getUploadUrl (kept in sync with the
@@ -191,6 +195,15 @@ function ReviewContent() {
 
   // Upload a single photo
   async function uploadOne(photo: ReviewPhoto) {
+    beginForegroundUpload();
+    try {
+      await uploadOneInner(photo);
+    } finally {
+      endForegroundUpload();
+    }
+  }
+
+  async function uploadOneInner(photo: ReviewPhoto) {
     const blob = photo.blob;
     // Library-picked photos may not be JPEG — honour the blob's real type,
     // narrowed to the types the upload endpoint accepts.
@@ -311,11 +324,29 @@ function ReviewContent() {
     }
 
     setUploading(true);
-    const pending = photos.filter((p) => p.status === "pending");
-    for (const photo of pending) {
-      await uploadOne(photo);
+    beginForegroundUpload();
+    let failures = 0;
+    try {
+      // Failed photos are retryable — a partial batch must never dead-end.
+      const targets = photos.filter(
+        (p) => p.status === "pending" || p.status === "error"
+      );
+      for (const photo of targets) {
+        await uploadOneInner(photo);
+      }
+    } finally {
+      endForegroundUpload();
+      setUploading(false);
     }
-    setUploading(false);
+    setPhotos((prev) => {
+      failures = prev.filter((p) => p.status === "error").length;
+      if (failures > 0) {
+        toast.error(
+          `${failures} photo${failures === 1 ? "" : "s"} failed to upload — tap Retry to try again.`
+        );
+      }
+      return prev;
+    });
   }
 
   const doneCount = photos.filter((p) => p.status === "done").length;
@@ -429,8 +460,26 @@ function ReviewContent() {
       </div>
 
       {/* Edit panel for selected photo */}
-      {selected && selected.status === "pending" && (
+      {selected &&
+        (selected.status === "pending" || selected.status === "error") && (
         <div className="flex-1 overflow-y-auto bg-zinc-950 px-4 py-3 space-y-3">
+          {selected.status === "error" && (
+            <div
+              role="alert"
+              className="space-y-2 rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-2"
+            >
+              <p className="text-xs text-red-400">
+                Upload failed{selected.error ? ` — ${selected.error}` : ""}.
+                Your photo is safe on this phone.
+              </p>
+              <button
+                onClick={() => uploadOne(selected)}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground active:brightness-95"
+              >
+                Retry this photo
+              </button>
+            </div>
+          )}
           {(() => {
             const suggestion = suggestFor(selected);
             if (selected.taskId) return null;
@@ -593,7 +642,12 @@ function ReviewContent() {
       {!allDone && (
         <button
           onClick={uploadAll}
-          disabled={uploading || photos.every((p) => p.status !== "pending")}
+          disabled={
+            uploading ||
+            photos.every(
+              (p) => p.status !== "pending" && p.status !== "error"
+            )
+          }
           className="flex items-center justify-center gap-2 bg-primary py-4 text-sm font-semibold text-primary-foreground active:brightness-95 disabled:bg-zinc-800 disabled:text-zinc-500 safe-bottom"
         >
           {uploading ? (
@@ -609,8 +663,9 @@ function ReviewContent() {
           ) : (
             <>
               <Upload className="h-4 w-4" />
-              Upload {photos.filter((p) => p.status === "pending").length} Photo
-              {photos.filter((p) => p.status === "pending").length !== 1 ? "s" : ""}
+              {photos.some((p) => p.status === "pending")
+                ? `Upload ${photos.filter((p) => p.status === "pending" || p.status === "error").length} Photo${photos.filter((p) => p.status === "pending" || p.status === "error").length !== 1 ? "s" : ""}`
+                : `Retry ${photos.filter((p) => p.status === "error").length} failed`}
             </>
           )}
         </button>

@@ -16,6 +16,7 @@
 "use client";
 
 import { createTRPCProxyClient, httpBatchLink, TRPCClientError } from "@trpc/client";
+import { isForegroundUploading } from "./upload-coordinator";
 import superjson from "superjson";
 import type { AppRouter } from "@/server/trpc/routers/_app";
 import {
@@ -72,6 +73,11 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
   }
   if (processing) {
     return { attempted: 0, succeeded: 0, failed: 0, remaining: 0, skipped: true };
+  }
+  // Foreground uploads own the rate budget — the drain waits its turn.
+  if (isForegroundUploading()) {
+    const remaining = (await getPendingQueue()).length;
+    return { attempted: 0, succeeded: 0, failed: 0, remaining, skipped: true };
   }
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     const remaining = (await getPendingQueue()).length;
@@ -201,7 +207,8 @@ function isPermanentError(err: unknown): boolean {
     if (typeof status === "number" && status >= 400 && status < 500) {
       // 401 is special — auth might come back if user re-signs-in. Treat
       // as transient so a re-login picks the queue back up automatically.
-      if (status === 401) return false;
+      // 429 is a rate-limit backoff, not a defect — always retryable.
+      if (status === 401 || status === 429) return false;
       return true;
     }
   }
@@ -210,7 +217,7 @@ function isPermanentError(err: unknown): boolean {
     const match = /HTTP (\d{3})/.exec(err.message);
     if (match) {
       const status = parseInt(match[1], 10);
-      if (status === 401) return false;
+      if (status === 401 || status === 429) return false;
       return status >= 400 && status < 500;
     }
   }

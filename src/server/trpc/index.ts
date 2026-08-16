@@ -2,7 +2,20 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 import type { Context } from "./context";
-import { checkRateLimit, MUTATION_CONFIG } from "@/server/services/rate-limit";
+import {
+  checkRateLimit,
+  MUTATION_CONFIG,
+  UPLOAD_MUTATION_CONFIG,
+} from "@/server/services/rate-limit";
+
+// The three per-photo mutations get their own generous budget: a Friday
+// photo dump is 2-3 mutations per photo, and the general 30/min budget
+// (sized for form-style actions) silently killed batches at ~4 photos.
+const UPLOAD_PATHS = new Set([
+  "evidence.getUploadUrl",
+  "evidence.confirm",
+  "evidence.link",
+]);
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -47,7 +60,7 @@ export const createTRPCRouter = t.router;
 
 export const publicProcedure = t.procedure;
 
-export const protectedProcedure = t.procedure.use(async ({ ctx, type, next }) => {
+export const protectedProcedure = t.procedure.use(async ({ ctx, type, path, next }) => {
   if (!ctx.userId || !ctx.orgId) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
@@ -60,7 +73,10 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, type, next }) =>
   // Rate limit mutations by user ID. Queries pass through unlimited —
   // ordinary browsing fires many reads and must never blank out pages.
   if (type === "mutation") {
-    const { allowed } = checkRateLimit(`user:${ctx.userId}`, MUTATION_CONFIG);
+    const isUpload = UPLOAD_PATHS.has(path);
+    const { allowed } = isUpload
+      ? checkRateLimit(`user:${ctx.userId}:upload`, UPLOAD_MUTATION_CONFIG)
+      : checkRateLimit(`user:${ctx.userId}`, MUTATION_CONFIG);
     if (!allowed) {
       throw new TRPCError({
         code: "TOO_MANY_REQUESTS",

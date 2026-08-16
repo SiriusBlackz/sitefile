@@ -31,6 +31,14 @@ const DEFAULT_CONFIG: RateLimitConfig = {
   windowMs: 60_000, // 60 requests per minute
 };
 
+// Per-photo upload mutations (getUploadUrl/confirm/link) — a photo costs
+// 2-3 of these, so the 30/min budget capped real batches at ~4 photos.
+// 240/min ≈ 80 photos/min: generous for humans, still a ceiling for abuse.
+export const UPLOAD_MUTATION_CONFIG: RateLimitConfig = {
+  max: 240,
+  windowMs: 60_000,
+};
+
 const MUTATION_CONFIG: RateLimitConfig = {
   max: 30,
   windowMs: 60_000, // 30 mutations per minute

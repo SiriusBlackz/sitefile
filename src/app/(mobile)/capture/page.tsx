@@ -14,7 +14,8 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { usePWA } from "@/lib/use-pwa";
-import { stashCapture } from "@/lib/offline-queue";
+import { stashCapture, getQueueCount } from "@/lib/offline-queue";
+import { ResumeCaptureBanner } from "@/components/capture/resume-capture-banner";
 
 interface CapturedPhoto {
   id: string;
@@ -64,6 +65,24 @@ function CaptureContent() {
   // Honesty at capture time: if location is denied/unavailable the crew
   // should know NOW, not when the report can't verify the photos.
   const [gpsDenied, setGpsDenied] = useState(false);
+  // Offline-queue depth — the QUEUE badge keeps waiting photos visible
+  // on the one screen a field user actually lives on.
+  const [queueCount, setQueueCount] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () =>
+      getQueueCount()
+        .then((n) => {
+          if (!cancelled) setQueueCount(n);
+        })
+        .catch(() => {});
+    tick();
+    const t = setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
 
   const { isOnline } = usePWA();
 
@@ -230,6 +249,7 @@ function CaptureContent() {
     try {
       await stashCapture({
         sessionId,
+        projectId,
         photos: photos.map((p) => ({
           id: p.id,
           blob: p.blob,
@@ -270,6 +290,7 @@ function CaptureContent() {
 
   return (
     <>
+      <ResumeCaptureBanner projectId={projectId} dark />
       {/* Camera viewfinder */}
       <div className="relative flex-1 bg-black">
         <video
@@ -313,6 +334,11 @@ function CaptureContent() {
             {!isOnline && (
               <Badge className="bg-amber-500/90 text-white text-[10px]">
                 Offline
+              </Badge>
+            )}
+            {queueCount > 0 && (
+              <Badge className="bg-zinc-800/90 text-[10px] text-amber-300">
+                {queueCount} queued
               </Badge>
             )}
             {photos.length > 0 && (
