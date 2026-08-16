@@ -587,82 +587,98 @@ export default function EvidencePage() {
           if (!open) setSelectedItem(null);
         }}
       >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
+        {/* Desk-first detail: the photo gets the width it deserves on the
+            left, the whole workbench (metadata, caption, linking, delete)
+            sits in one visible column on the right — no scroll-hunting.
+            Phones keep the stacked layout. */}
+        <DialogContent className="gap-0 p-0 sm:max-w-lg md:max-w-5xl">
+          <DialogHeader className="border-b px-4 py-3">
+            <DialogTitle className="pr-8 text-base">
               {currentItem?.note ??
                 currentItem?.originalFilename ??
                 "Evidence Detail"}
             </DialogTitle>
           </DialogHeader>
           {currentItem && (
-            <div className="space-y-4">
-              {currentItem.type === "video" ? (
-                <video
-                  src={currentItem.publicUrl}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className="w-full rounded-lg"
-                />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element -- user-uploaded R2 content
-                <img
-                  src={currentItem.publicUrl}
-                  alt={currentItem.originalFilename ?? ""}
-                  className="w-full rounded-lg"
-                />
-              )}
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Captured
-                  </p>
-                  <p>{formatDateTime(currentItem.capturedAt)}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Uploaded by
-                  </p>
-                  <p>{currentItem.uploader?.name ?? "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Location
-                  </p>
-                  <p>
-                    {currentItem.latitude != null && currentItem.longitude != null
-                      ? `${currentItem.latitude.toFixed(5)}, ${currentItem.longitude.toFixed(5)}`
-                      : "No location data"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Device
-                  </p>
-                  <p>{currentItem.deviceInfo ?? "—"}</p>
-                </div>
+            <div className="md:grid md:max-h-[78vh] md:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
+              <div className="flex items-center justify-center bg-black/90 md:min-h-[420px]">
+                {currentItem.type === "video" ? (
+                  <video
+                    src={currentItem.publicUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="max-h-[40vh] w-full md:max-h-[78vh]"
+                  />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element -- user-uploaded R2 content
+                  <img
+                    src={currentItem.publicUrl}
+                    alt={currentItem.originalFilename ?? ""}
+                    className="max-h-[40vh] w-full object-contain md:max-h-[78vh]"
+                  />
+                )}
               </div>
-              <EvidenceNoteEditor
-                key={currentItem.id}
-                evidenceId={currentItem.id}
-                initialNote={currentItem.note}
-              />
-              <TaskLinkerWithSuggestions
-                evidenceId={currentItem.id}
-                projectId={projectId}
-                linkedTaskIds={currentItem.linkedTasks.map((t) => t.taskId)}
-              />
-              <div className="flex justify-end border-t pt-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  <Trash2 className="mr-1 h-4 w-4" />
-                  Delete
-                </Button>
+              <div className="space-y-4 overflow-y-auto p-4">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Captured
+                    </p>
+                    <p>{formatDateTime(currentItem.capturedAt)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Uploaded by
+                    </p>
+                    <p>{currentItem.uploader?.name ?? "—"}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Location
+                    </p>
+                    {currentItem.latitude != null &&
+                    currentItem.longitude != null ? (
+                      <p>
+                        {currentItem.latitude.toFixed(5)},{" "}
+                        {currentItem.longitude.toFixed(5)}
+                      </p>
+                    ) : (
+                      <p className="text-amber-700 dark:text-amber-400">
+                        No location recorded — link it to a task below and it
+                        still counts in the report (marked “GPS: not
+                        recorded”).
+                      </p>
+                    )}
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Device
+                    </p>
+                    <p>{currentItem.deviceInfo ?? "—"}</p>
+                  </div>
+                </div>
+                <EvidenceNoteEditor
+                  key={currentItem.id}
+                  evidenceId={currentItem.id}
+                  initialNote={currentItem.note}
+                />
+                <TaskLinkerWithSuggestions
+                  evidenceId={currentItem.id}
+                  projectId={projectId}
+                  linkedTaskIds={currentItem.linkedTasks.map((t) => t.taskId)}
+                />
+                <div className="flex justify-end border-t pt-3">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" />
+                    Delete
+                  </Button>
+                </div>
               </div>
             </div>
           )}

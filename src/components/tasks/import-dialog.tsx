@@ -115,6 +115,13 @@ export function ImportDialog({
     0
   );
 
+  // Baseline behaviour copy — the first import is snapshotted as the
+  // accepted baseline; re-imports only replace the current programme.
+  const { data: baselineInfo } = trpc.task.baselineInfo.useQuery(
+    { projectId },
+    { enabled: open }
+  );
+
   const previewMutation = trpc.task.previewImport.useMutation({
     onSuccess: (data) => {
       setError("");
@@ -313,6 +320,40 @@ export function ImportDialog({
       ...preview,
       tasks: preview.tasks.filter((t) => t.sourceRef !== sourceRef),
     });
+  }
+
+  /**
+   * Import hygiene — programmes exported from planning tools routinely
+   * carry resource/owner codes ("MCL", "MAG"), placeholder rows ("TBC")
+   * and duplicated rows as if they were activities. They sail straight
+   * into the client-facing Gantt and milestone tables unless the PM
+   * drops them here.
+   */
+  function suspectReason(
+    task: ParsedTaskPreview,
+    all: ParsedTaskPreview[]
+  ): string | null {
+    const name = task.name.trim();
+    if (/^(tbc|tbd|n\/?a|x+)$/i.test(name)) return "Placeholder name";
+    if (/^[A-Z]{2,5}$/.test(name))
+      return "Looks like a resource or owner code, not an activity";
+    const tokens = name.split(/[/,&]+/).map((s) => s.trim()).filter(Boolean);
+    if (
+      tokens.length > 1 &&
+      tokens.every((t) => t.length <= 14) &&
+      tokens.some((t) => /^[A-Z]{2,5}$/.test(t))
+    )
+      return "Reads like a list of resources, not an activity";
+    const dupe = all.find(
+      (t) =>
+        t.sourceRef !== task.sourceRef &&
+        t.name.trim() === name &&
+        t.plannedStart === task.plannedStart &&
+        t.plannedEnd === task.plannedEnd &&
+        all.indexOf(t) < all.indexOf(task)
+    );
+    if (dupe) return "Duplicate of another row (same name and dates)";
+    return null;
   }
 
   function getDepth(
@@ -572,6 +613,51 @@ export function ImportDialog({
               </p>
             )}
 
+            {(() => {
+              const flagged = preview.tasks.filter((t) =>
+                suspectReason(t, preview.tasks)
+              );
+              // xlsx re-parses server-side from the file, so row removal
+              // only applies to the XML / PDF paths.
+              const canRemove = preview.format !== "xlsx";
+              if (flagged.length === 0) return null;
+              return (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/20">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-amber-900 dark:text-amber-200">
+                      {flagged.length} row{flagged.length === 1 ? "" : "s"}{" "}
+                      {flagged.length === 1 ? "doesn't" : "don't"} look like
+                      real activities
+                    </p>
+                    <p className="mt-0.5 text-amber-800 dark:text-amber-300/90">
+                      Resource codes, placeholders and duplicates print
+                      straight into the client report&apos;s programme and
+                      milestone tables. Flagged rows are marked ⚑ below — keep
+                      any that are genuine.
+                    </p>
+                    {canRemove && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 border-amber-400 text-amber-900 hover:bg-amber-100 dark:text-amber-200"
+                        onClick={() =>
+                          setPreview({
+                            ...preview,
+                            tasks: preview.tasks.filter(
+                              (t) => !suspectReason(t, preview.tasks)
+                            ),
+                          })
+                        }
+                      >
+                        Remove all {flagged.length} flagged rows
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="max-h-64 overflow-y-auto rounded-lg border">
               <Table>
                 <TableHeader>
@@ -580,34 +666,52 @@ export function ImportDialog({
                     <TableHead>Start</TableHead>
                     <TableHead>End</TableHead>
                     <TableHead className="text-right">Progress</TableHead>
-                    {preview.format === "pdf" && <TableHead />}
+                    {preview.format !== "xlsx" && <TableHead />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {preview.tasks.map((task) => {
                     const depth = getDepth(task, preview.tasks);
                     const editable = preview.format === "pdf";
+                    const flagReason = suspectReason(task, preview.tasks);
                     return (
-                      <TableRow key={task.sourceRef}>
+                      <TableRow
+                        key={task.sourceRef}
+                        className={
+                          flagReason
+                            ? "bg-amber-50/60 dark:bg-amber-950/10"
+                            : undefined
+                        }
+                      >
                         <TableCell>
-                          {editable ? (
-                            <Input
-                              value={task.name}
-                              onChange={(e) =>
-                                updatePreviewTask(
-                                  task.sourceRef,
-                                  "name",
-                                  e.target.value
-                                )
-                              }
-                              style={{ marginLeft: `${depth * 16}px` }}
-                              className="h-7 text-sm"
-                            />
-                          ) : (
-                            <span style={{ paddingLeft: `${depth * 16}px` }}>
-                              {task.name}
-                            </span>
-                          )}
+                          <span className="flex items-center gap-1.5">
+                            {flagReason && (
+                              <span
+                                title={flagReason}
+                                className="shrink-0 text-amber-600 dark:text-amber-400"
+                              >
+                                ⚑
+                              </span>
+                            )}
+                            {editable ? (
+                              <Input
+                                value={task.name}
+                                onChange={(e) =>
+                                  updatePreviewTask(
+                                    task.sourceRef,
+                                    "name",
+                                    e.target.value
+                                  )
+                                }
+                                style={{ marginLeft: `${depth * 16}px` }}
+                                className="h-7 text-sm"
+                              />
+                            ) : (
+                              <span style={{ paddingLeft: `${depth * 16}px` }}>
+                                {task.name}
+                              </span>
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {editable ? (
@@ -668,7 +772,7 @@ export function ImportDialog({
                             `${task.progressPct}%`
                           )}
                         </TableCell>
-                        {editable && (
+                        {preview.format !== "xlsx" && (
                           <TableCell>
                             <button
                               onClick={() => deletePreviewTask(task.sourceRef)}
@@ -685,6 +789,16 @@ export function ImportDialog({
                 </TableBody>
               </Table>
             </div>
+
+            <p className="text-xs text-muted-foreground">
+              {baselineInfo
+                ? `Your baseline (${baselineInfo.taskCount} activities${
+                    baselineInfo.setAt
+                      ? `, set ${new Date(baselineInfo.setAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                      : ""
+                  }) stays fixed — this import updates the current programme, and reports show variance against the baseline.`
+                : "This first import also becomes your baseline — the accepted programme reports measure slippage against. Later re-imports update the current programme only."}
+            </p>
 
             <div className="space-y-1">
               <div className="flex items-center gap-2">

@@ -10,6 +10,7 @@ import {
   buildGapRows,
   dueChip,
   readinessPct,
+  rowHref,
   type GapSnapshot,
 } from "@/lib/readiness";
 import { ResumeCaptureBanner } from "@/components/capture/resume-capture-banner";
@@ -267,7 +268,7 @@ export function PhoneProjectHome({
             {rows.map((row) => (
               <li key={row.key}>
                 <Link
-                  href={`/projects/${projectId}${row.href}`}
+                  href={rowHref(projectId, row.href)}
                   className={cn(
                     "flex items-start gap-3 rounded-xl border p-3 active:bg-muted/50",
                     row.state === "danger" && "border-red-400/50 bg-red-500/5"

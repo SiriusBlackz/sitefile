@@ -8,17 +8,27 @@ import type { DraftStates } from "@/lib/report-draft";
  */
 
 export interface GapSnapshot {
+  /** False while the org still carries its sign-up placeholder name —
+   * reports suppress the name entirely until it's set. */
+  brandingSet: boolean;
   nextReportDue: string | null;
   reportingFrequency: string | null;
   lastReportNumber: number | null;
   periodStart: string;
   taskCount: number;
+  /** Latest programmed date across all tasks — before periodStart means
+   * the imported programme is fully elapsed. */
+  programmeLastDate: string | null;
   photosThisPeriod: number;
   unlinked: number;
   uncaptioned: number;
+  /** In-period photos with no embedded capture timestamp (dated by upload). */
+  noCaptureTime: number;
   programmeConfirmedThisPeriod: boolean;
   zoneCount: number;
   zeroPhotoTasks: { id: string; name: string; progressPct: number }[];
+  /** Tasks still marked not-started that have photos this period. */
+  misStatusTasks: { id: string; name: string; photoCount: number }[];
   photosByDay: { date: string; count: number }[];
   lastReport: {
     id: string;
@@ -37,21 +47,43 @@ export interface ReadinessRow {
   label: string;
   detail: string;
   state: RowState;
-  /** Project-relative href of the screen that fixes it ("" = overview). */
+  /** Project-relative href of the screen that fixes it ("" = overview).
+   * A leading "@" marks an app-absolute path (e.g. "@/account") —
+   * resolve with rowHref(), not string concatenation. */
   href: string;
+}
+
+/** Resolves a row's href — project-relative by default, app-absolute
+ * when prefixed with "@" (org-level fixes like the Account page). */
+export function rowHref(projectId: string, href: string): string {
+  return href.startsWith("@") ? href.slice(1) : `/projects/${projectId}${href}`;
+}
+
+/** True when every programmed date sits before the current period —
+ * an imported programme that has fully elapsed prints every milestone
+ * as overdue and turns the lookahead into carried-over noise. */
+export function programmeElapsed(gaps: GapSnapshot): boolean {
+  return (
+    gaps.taskCount > 0 &&
+    gaps.programmeLastDate != null &&
+    gaps.programmeLastDate < gaps.periodStart
+  );
 }
 
 /** The desk builder's 11-row section recipe, in prototype order. */
 export function buildRecipeRows(gaps: GapSnapshot): ReadinessRow[] {
   const d = gaps.draft;
   const programmeReady = gaps.taskCount > 0;
+  const elapsed = programmeElapsed(gaps);
   const rows: ReadinessRow[] = [
     {
       key: "cover",
       label: "Cover — hero photo & branding",
-      detail: "Always included",
-      state: "done",
-      href: "/reports",
+      detail: gaps.brandingSet
+        ? "Always included"
+        : "Your company name is still the sign-up placeholder — set it on the Account page or the cover prints without one",
+      state: gaps.brandingSet ? "done" : "open",
+      href: gaps.brandingSet ? "/reports" : "@/account",
     },
     {
       key: "narrative",
@@ -74,28 +106,34 @@ export function buildRecipeRows(gaps: GapSnapshot): ReadinessRow[] {
     {
       key: "milestones",
       label: "Milestones & key dates",
-      detail: programmeReady
-        ? "Derived from the programme"
-        : "Waiting for programme import",
-      state: programmeReady ? "done" : "waiting",
+      detail: elapsed
+        ? "Programme fully elapsed — every milestone will print as overdue. Re-import the current revision"
+        : programmeReady
+          ? "Derived from the programme"
+          : "Waiting for programme import",
+      state: elapsed ? "danger" : programmeReady ? "done" : "waiting",
       href: "/tasks",
     },
     {
       key: "timeline",
       label: "Programme timeline",
-      detail: programmeReady
-        ? `${gaps.taskCount} activities, evidence-dotted`
-        : "Waiting for programme import",
-      state: programmeReady ? "done" : "waiting",
+      detail: elapsed
+        ? "Every activity ends before this period — the Gantt reads as history, not progress"
+        : programmeReady
+          ? `${gaps.taskCount} activities, evidence-dotted`
+          : "Waiting for programme import",
+      state: elapsed ? "danger" : programmeReady ? "done" : "waiting",
       href: "/tasks",
     },
     {
       key: "lookahead",
       label: "Lookahead — next period",
-      detail: programmeReady
-        ? "Auto from the programme"
-        : "Waiting for programme import",
-      state: programmeReady ? "done" : "waiting",
+      detail: elapsed
+        ? "Nothing is programmed ahead — the lookahead would only list carried-over items"
+        : programmeReady
+          ? "Auto from the programme"
+          : "Waiting for programme import",
+      state: elapsed ? "danger" : programmeReady ? "done" : "waiting",
       href: "/tasks",
     },
     {
@@ -131,7 +169,7 @@ export function buildRecipeRows(gaps: GapSnapshot): ReadinessRow[] {
       detail:
         gaps.zeroPhotoTasks.length > 0
           ? `${gaps.zeroPhotoTasks[0].name} has 0 photos this period — tap to capture`
-          : "Pairs build from linked photos",
+          : "Auto-pairs each task's earliest and latest photo — shoot the same spot over the period and the pair builds itself",
       state: gaps.zeroPhotoTasks.length > 0 ? "danger" : "done",
       href: "/evidence",
     },
@@ -164,6 +202,15 @@ export function readinessPct(gaps: GapSnapshot): number {
 /** The phone home's gap list — actionable rows only, in priority order. */
 export function buildGapRows(gaps: GapSnapshot): ReadinessRow[] {
   const rows: ReadinessRow[] = [];
+  if (!gaps.brandingSet) {
+    rows.push({
+      key: "branding",
+      label: "Name your company",
+      detail: "Reports print your name and logo on every page — 2 minutes on the Account page",
+      state: "open",
+      href: "@/account",
+    });
+  }
   if (!gaps.nextReportDue) {
     rows.push({
       key: "deadline",
@@ -179,6 +226,14 @@ export function buildGapRows(gaps: GapSnapshot): ReadinessRow[] {
       label: "Load the programme",
       detail: "Desk job, once — AI reads the PDF your planner issues",
       state: "open",
+      href: "/tasks",
+    });
+  } else if (programmeElapsed(gaps)) {
+    rows.push({
+      key: "programme-elapsed",
+      label: "Programme is out of date",
+      detail: "Every activity ends before this period — re-import the current revision or the report prints all-overdue",
+      state: "danger",
       href: "/tasks",
     });
   } else if (!gaps.programmeConfirmedThisPeriod && gaps.lastReportNumber != null) {
@@ -197,6 +252,15 @@ export function buildGapRows(gaps: GapSnapshot): ReadinessRow[] {
       detail: "Proposed from photo clusters — taps, not cartography",
       state: "open",
       href: "/zones",
+    });
+  }
+  for (const t of gaps.misStatusTasks.slice(0, 2)) {
+    rows.push({
+      key: `misstatus-${t.id}`,
+      label: `${t.name}: photos linked but still "Not started"`,
+      detail: `${t.photoCount} photo${t.photoCount === 1 ? "" : "s"} this period — update its status or the report prints the contradiction`,
+      state: "open",
+      href: "/tasks",
     });
   }
   for (const t of gaps.zeroPhotoTasks.slice(0, 2)) {

@@ -6,6 +6,7 @@ import { projects, organisations, projectMembers, users, reports, evidence, task
 import { PROJECT_MEMBER_ROLES, PROJECT_STATUSES } from "@/server/db/enums";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
+import { isPlaceholderOrgName } from "@/lib/org-name";
 import { getPublicUrl, uploadToStorage } from "@/server/services/storage";
 import {
   getOrCreateCustomer,
@@ -274,11 +275,26 @@ export const projectRouter = createTRPCRouter({
       });
       const unlinked = inPeriod.filter((r) => r.linkCount === 0).length;
       const uncaptioned = inPeriod.filter((r) => !r.note?.trim()).length;
+      // Photos with no embedded capture timestamp are dated by upload —
+      // the builder declares this before the report does.
+      const noCaptureTime = inPeriod.filter((r) => r.capturedAt == null).length;
 
       const [taskCountRow] = await ctx.db
-        .select({ count: sql<number>`count(*)::int` })
+        .select({
+          count: sql<number>`count(*)::int`,
+          // Latest programmed date — a value before the period start means
+          // the imported programme is fully elapsed (needs a re-baseline
+          // or a current revision before variance figures mean anything).
+          lastDate: sql<string | null>`max(coalesce(${tasks.plannedEnd}, ${tasks.plannedStart}))`,
+        })
         .from(tasks)
         .where(eq(tasks.projectId, input.id));
+
+      const orgRow = await ctx.db.query.organisations.findFirst({
+        where: eq(organisations.id, ctx.orgId),
+        columns: { name: true },
+      });
+      const brandingSet = !isPlaceholderOrgName(orgRow?.name);
 
       const programmeConfirmedThisPeriod =
         project.programmeConfirmedAt != null &&
@@ -318,6 +334,40 @@ export const projectRouter = createTRPCRouter({
             eq(tasks.projectId, input.id),
             eq(tasks.status, "in_progress"),
             sql`not exists (
+              select 1 from evidence_links el
+              join evidence e on e.id = el.evidence_id
+              where el.task_id = ${tasks.id}
+                and e.deleted_at is null
+                and coalesce(e.captured_at, e.uploaded_at) >= ${periodStart.toISOString()}::timestamptz
+            )`
+          )
+        )
+        .limit(3);
+
+      // The opposite contradiction: photos linked this period to a task
+      // still marked not-started — the report would print "Not started ·
+      // 6 photos" side by side unless the status is updated.
+      const misStatusTasks = await ctx.db
+        .select({
+          id: tasks.id,
+          name: tasks.name,
+          // NB: literal tasks.id — interpolating ${tasks.id} in a SELECT
+          // projection renders unqualified ("id"), which is ambiguous
+          // inside the subquery's joins.
+          photoCount: sql<number>`(
+            select count(*) from evidence_links el
+            join evidence e on e.id = el.evidence_id
+            where el.task_id = tasks.id
+              and e.deleted_at is null
+              and coalesce(e.captured_at, e.uploaded_at) >= ${periodStart.toISOString()}::timestamptz
+          )::int`,
+        })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.projectId, input.id),
+            eq(tasks.status, "not_started"),
+            sql`exists (
               select 1 from evidence_links el
               join evidence e on e.id = el.evidence_id
               where el.task_id = ${tasks.id}
@@ -370,18 +420,22 @@ export const projectRouter = createTRPCRouter({
           : null;
 
       return {
+        brandingSet,
         nextReportDue: project.nextReportDue,
         reportingFrequency: project.reportingFrequency,
         lastReportNumber: lastReport?.reportNumber ?? null,
         periodStart: periodStartStr,
         taskCount: taskCountRow?.count ?? 0,
+        programmeLastDate: taskCountRow?.lastDate ?? null,
         photosThisPeriod: inPeriod.length,
         unlinked,
         uncaptioned,
+        noCaptureTime,
         programmeConfirmedThisPeriod,
         photosByDay,
         zoneCount: zoneCountRow?.count ?? 0,
         zeroPhotoTasks,
+        misStatusTasks,
         lastReport: lastReportOut,
         draft: payload
           ? {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { formatDate } from "@/lib/format";
 import {
   buildRecipeRows,
   readinessPct,
+  rowHref,
   type GapSnapshot,
   type ReadinessRow,
 } from "@/lib/readiness";
@@ -129,7 +130,9 @@ export function ReportBuilderPanel({
 
   return (
     <div className="flex gap-4">
-      <Card className="min-w-0 flex-1">
+      {/* The recipe stays a readable column; the preview takes the rest
+          of the desk — the report is the point of the screen. */}
+      <Card className="min-w-0 flex-1 lg:max-w-xl lg:flex-none">
         <CardContent className="p-4 sm:p-5">
           {/* Readiness header */}
           <div className="flex flex-wrap items-center gap-4">
@@ -186,19 +189,49 @@ export function ReportBuilderPanel({
             </Button>
           </div>
 
-          {/* Honesty box */}
-          {gaps.zeroPhotoTasks.length > 0 && (
+          {/* Honesty box — every contradiction the report would print,
+              named before the client ever sees it. */}
+          {(gaps.zeroPhotoTasks.length > 0 ||
+            gaps.misStatusTasks.length > 0 ||
+            gaps.noCaptureTime > 0) && (
             <div className="mt-4 rounded-lg border border-dashed border-primary/50 bg-accent/50 p-3">
               <p className="font-mono text-[10px] uppercase tracking-widest text-(--accent-ink)">
                 Honesty check
                 {days !== null && days > 0 ? `, ${days} days before send` : ""}
               </p>
-              <p className="mt-1 text-sm">
-                &laquo;{gaps.zeroPhotoTasks[0].name}&raquo; is{" "}
-                {gaps.zeroPhotoTasks[0].progressPct}% complete with zero photos
-                this period. The report will say so unless evidence arrives —
-                nudge the site team now, not on the deadline.
-              </p>
+              <div className="mt-1 space-y-1.5 text-sm">
+                {gaps.zeroPhotoTasks.length > 0 && (
+                  <p>
+                    &laquo;{gaps.zeroPhotoTasks[0].name}&raquo; is{" "}
+                    {gaps.zeroPhotoTasks[0].progressPct}% complete with zero
+                    photos this period. The report will say so unless evidence
+                    arrives — nudge the site team now, not on the deadline.
+                  </p>
+                )}
+                {gaps.misStatusTasks.length > 0 && (
+                  <p>
+                    &laquo;{gaps.misStatusTasks[0].name}&raquo; has{" "}
+                    {gaps.misStatusTasks[0].photoCount} photo
+                    {gaps.misStatusTasks[0].photoCount === 1 ? "" : "s"} this
+                    period but is still marked <em>Not started</em>
+                    {gaps.misStatusTasks.length > 1
+                      ? ` (and ${gaps.misStatusTasks.length - 1} more like it)`
+                      : ""}
+                    . Update its status on the Programme screen or the report
+                    prints the contradiction.
+                  </p>
+                )}
+                {gaps.noCaptureTime > 0 && (
+                  <p>
+                    {gaps.noCaptureTime} photo
+                    {gaps.noCaptureTime === 1 ? "" : "s"} this period{" "}
+                    {gaps.noCaptureTime === 1 ? "carries" : "carry"} no embedded
+                    capture time (typically forwarded via messaging apps) —
+                    they&apos;re dated by upload and the Verification page
+                    declares it.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -242,7 +275,7 @@ export function ReportBuilderPanel({
                     </span>
                     {!interactive.has(row.key) && row.state !== "done" && (
                       <Link
-                        href={`/projects/${projectId}${row.href}`}
+                        href={rowHref(projectId, row.href)}
                         onClick={(e) => e.stopPropagation()}
                         className={cn(
                           buttonVariants({ variant: "ghost", size: "sm" }),
@@ -400,12 +433,14 @@ export function ReportBuilderPanel({
         </CardContent>
       </Card>
 
-      {/* Live A4 preview — desk only */}
-      <div className="hidden w-[340px] shrink-0 lg:block">
-        <Card>
-          <CardContent className="space-y-2 p-3">
+      {/* Live A4 preview — desk only. Fills the remaining width and
+          scales the 210mm page to fit, so the report reads at desk size
+          instead of postage-stamp size. */}
+      <div className="hidden min-w-0 flex-1 lg:block">
+        <Card className="h-full">
+          <CardContent className="flex h-full flex-col space-y-2 p-3">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-medium">Live preview</p>
+              <p className="text-xs font-medium">Live preview — as the client sees it</p>
               <Button
                 variant="outline"
                 size="sm"
@@ -416,14 +451,9 @@ export function ReportBuilderPanel({
               </Button>
             </div>
             {previewHtml ? (
-              <iframe
-                title="Report preview"
-                sandbox=""
-                srcDoc={previewHtml}
-                className="h-[460px] w-full origin-top rounded border bg-white"
-              />
+              <A4Preview html={previewHtml} />
             ) : (
-              <div className="flex h-[460px] items-center justify-center rounded border border-dashed text-center text-xs text-muted-foreground">
+              <div className="flex min-h-[70vh] flex-1 items-center justify-center rounded border border-dashed text-center text-xs text-muted-foreground">
                 The report as the client will see it —<br />
                 contractor branding, honest gaps included.
               </div>
@@ -431,6 +461,42 @@ export function ReportBuilderPanel({
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+/** Scales the 210mm (794px) report page to the pane's width. */
+function A4Preview({ html }: { html: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const update = () =>
+      setScale(Math.min(1.25, Math.max(0.3, el.clientWidth / 794)));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div
+      ref={wrapRef}
+      className="min-h-[70vh] flex-1 overflow-auto rounded border bg-muted/40"
+    >
+      <iframe
+        title="Report preview"
+        sandbox=""
+        srcDoc={html}
+        style={{
+          width: 794,
+          height: `calc(max(70vh, 100%) / ${scale})`,
+          minHeight: `calc(70vh / ${scale})`,
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+        }}
+        className="bg-white"
+      />
     </div>
   );
 }

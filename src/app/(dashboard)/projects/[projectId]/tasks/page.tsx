@@ -40,6 +40,19 @@ export default function TasksPage() {
     gaps.lastReportNumber != null &&
     !gaps.programmeConfirmedThisPeriod &&
     gaps.taskCount > 0;
+
+  // Baseline = the accepted programme, snapshotted at first import and
+  // held fixed while re-imports replace the current one.
+  const { data: baseline } = trpc.task.baselineInfo.useQuery({ projectId });
+  const [confirmRebaseline, setConfirmRebaseline] = useState(false);
+  const setBaseline = trpc.task.setBaseline.useMutation({
+    onSuccess: (d) => {
+      utils.task.baselineInfo.invalidate({ projectId });
+      setConfirmRebaseline(false);
+      toast.success(`Baseline re-set from the current programme (${d.count} activities)`);
+    },
+    onError: (err) => toast.error(err.message),
+  });
   const { data: tasks = [], isLoading } = trpc.task.list.useQuery({
     projectId,
   });
@@ -188,6 +201,53 @@ export default function TasksPage() {
               No new rev — confirm progress
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Baseline strip — reports measure slippage against this snapshot */}
+      {baseline && gaps != null && gaps.taskCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed px-4 py-2.5">
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Baseline:</span>{" "}
+            {baseline.taskCount} activities,{" "}
+            {baseline.source === "rebaseline" ? "re-set" : "set at first import"}
+            {baseline.setAt
+              ? ` on ${new Date(baseline.setAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+              : ""}
+            . Re-imports update the current programme only — reports show
+            variance against this baseline.
+          </p>
+          {confirmRebaseline ? (
+            <span className="flex items-center gap-2">
+              <span className="text-xs text-destructive">
+                Replaces the baseline — variance history resets.
+              </span>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={setBaseline.isPending}
+                onClick={() => setBaseline.mutate({ projectId })}
+              >
+                Confirm re-baseline
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmRebaseline(false)}
+              >
+                Cancel
+              </Button>
+            </span>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground"
+              onClick={() => setConfirmRebaseline(true)}
+            >
+              Re-baseline to current programme
+            </Button>
+          )}
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
