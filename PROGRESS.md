@@ -1361,3 +1361,91 @@ recruitment (week of 28 Jul, GO-LIVE-PLAN.md).**
    (needs new tRPC endpoints + indexes)
 3. **Evidence-as-workspace reframe** — bigger IA decision (demote
    Overview when project has evidence)
+
+## Go-Live Sprint (2026-08-01 → 2026-08-16)
+
+Full session-by-session detail lives in the assistant memory log; this
+is the phase-level record. Everything below is pushed + deployed.
+
+### Pilot readiness & run-through fixes (1–14 Aug)
+- **Pilot kit v1** (1 Aug): 6-slide pitch deck + A4 onboarding sheet;
+  Clerk instance renamed to Sitefile; S-Strata logo shipped; Mapbox
+  zones live for the first time (token added, later URL-restricted to
+  prod — server fetches spoof Referer, static map inlined as data URI).
+- **Self-serve run-through fix rounds 1–5** (3–14 Aug): report preview
+  workspace (near-fullscreen edit + re-render cycle), per-report cover
+  photo, photo captions as report titles, editable Key Risks, Key
+  Issues list UI, evidence-period warnings in generate dialog, zones
+  geocoder, typed signatures with confirm step, flow-continuity
+  next-step buttons across import→photos→link→zones→report.
+- **Report enrichments**: weather (Open-Meteo, site coords derived
+  from zones/EXIF), since-last-report deltas, H&S block, photo
+  location map (satellite + zone overlays + numbered pins), key dates
+  & milestones with variance, lookahead, section recipes per reporting
+  frequency, AI-drafted narrative (draft-once, PM edits preserved),
+  paginated executive summary.
+- **Infra incidents survived**: Supabase 2-free-project account limit
+  paused prod mid-day (remy paused to free the slot; Pro upgrade is a
+  hard precondition of pilot onboarding); Mapbox account 403 episode.
+
+### The Graft — full UI/brand conversion (14–16 Aug)
+- 3-agent blind design competition (Site Boots / Friday Report / One
+  Thread) → judged → user-picked composite "The Graft" → approved.
+- **Brand cutover**: refined S-Strata mark (squared bars, amber
+  spine), site-dust/tarmac-ink/beacon-amber tokens, amber-ink
+  dual-token for text contrast.
+- **Full parity build**: phone home as the navigator (readiness ring,
+  due chip, week tracker, giant Capture CTA with live zone line, gap
+  list), grouped desknav, 11-row report builder with tap-to-approve
+  narrative/issues/sign + honesty box + live A4 preview, send page
+  (password reveal, mailto/WhatsApp compose, delivery receipt
+  timeline, close-the-period rollover), portfolio dashboard, Yard
+  batch triage, zone harvest from GPS clusters, glove-first capture.
+- **Upload pipeline hardened**: path-based 240/min upload budget,
+  retry UX everywhere, offline-drain coordination, stash resume.
+- **Send & receipt**: report_shares/report_share_events, public
+  tokenised /r/[token] + PDF endpoint, live opened/downloaded receipt.
+- New tables since the original schema: report_drafts, report_shares,
+  report_share_events, programme_baselines, upload_intents,
+  stripe_events (migrations 0010–0014, all applied).
+
+### Report-output review remediation + defensibility (16 Aug)
+- Reviewed the app's own generated "TRS Report" as a critic + digested
+  an external professional review (SITEFILE_REPORT_OUTPUT_REVIEW.md).
+  Verdict both times: pilot-ready as an evidence-backed, human-reviewed
+  draft; not (and not claimed to be) unsupervised contract-grade.
+- **Fixed**: placeholder org name never prints (+ branding gates in
+  readiness), Key Issues↔Key Risks dedupe, client sign-off block
+  always prints empty (client removed from signature dialog), Gantt
+  axis clamped to include period+today, upload-date/no-GPS/cross-ref
+  declarations in gallery, verification page truth fixes, omitted
+  sections declared on Contents, import hygiene flags (resource codes/
+  TBC/duplicates) with one-tap removal, elapsed-programme guardrails
+  (app rows + amber PDF banners), status-vs-evidence contradiction
+  prompts, no-capture-time disclosure.
+- **Baseline programme**: first import auto-snapshots the reference
+  baseline; re-imports update current only; Key Dates baseline column
+  + drift; exec-summary completion-vs-baseline strip; re-baseline
+  action (admin, audited). Mid-project pilots: import accepted
+  original first, then current revision.
+- **Defensibility pass**: "Camera Metadata Present"/"Within Site
+  Zones" wording (recorded-as-supplied, not "verified"),
+  "Electronically Approved" replaces "Digitally Signed" + structured
+  approval audit event, progress-method disclosure line, honest
+  sign-off copy, SHA-256 document fingerprint on every issued PDF.
+- **Desktop-first pass**: org sidebar collapses to icon rail inside a
+  project, photo detail is a wide two-pane workbench, report preview
+  fills the desk at measured A4 scale.
+
+### Pilot kit v3 (16 Aug) — `pilot-pitch/` (gitignored)
+8-slide deck in the Graft brand: pain → **"Do the maths"**
+(£200–500/report, £2,500–6,000/yr vs £99/mo, run-your-own-numbers
+framing + dispute-armour/proof-of-delivery/punch-above-your-weight) →
+3 steps with live phone screenshots → current report pages incl. photo
+map → honest evidence claims → **send & receipt slide** → free-pilot
+offer with maths callback. Onboarding A4 updated to real navigation +
+concierge wording ("I've already set your project up"). PILOT-PACK.md
+script closes on the receipt. Regenerate: `node pilot-pitch/src/render.mjs`.
+
+**Remaining before "live": pick the contractor, pitch, onboard
+(Supabase Pro + agreement/DPA at "yes"), one unsupervised cycle.**

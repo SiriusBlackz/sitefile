@@ -24,6 +24,8 @@ The LinkedIn flagship post ("contractors on a live programme now report through 
 
 **Update 22 Jul:** week-of-21-Jul workstream complete (incl. prod smoke test PASSED + unplanned RLS hardening). Prod is clean: 0 users, 0 test data. Pre-pilot cosmetic worth doing before onboarding: rename Clerk Production instance "My Application" → "Sitefile" (Clerk Dashboard → Settings — fixes sign-in card + email sender name; dashboard-only, no API). Known non-blocker: first photo's thumbnail can take ~2 min on a cold Inngest start.
 
+**Update 16 Aug:** product far beyond the 19-Jul baseline — full Graft UI/brand conversion, send & delivery receipts, baseline programme, AI narrative, weather/H&S/photo-map report sections, and a defensibility pass so every PDF claim matches what the system proves (see PROGRESS.md "Go-Live Sprint"). Two independent report reviews (own + external) both conclude: **pilot-ready now** as an evidence-backed, human-reviewed draft. Pitch kit v3 ready in `pilot-pitch/` (8-slide deck with the money maths + receipt story, onboarding A4, script in PILOT-PACK.md). Formerly-deferred items since shipped: Mapbox zones, AI PDF import, real PDF encryption, marketing page, logo. **The only open step is the human one: pick the contractor and pitch.** Standing trigger unchanged: Supabase Pro + pilot agreement/DPA the moment a contractor says yes. Note for mid-project pilots: import their original accepted programme first (becomes the variance baseline), then the current revision.
+
 ## The plan
 
 Scoped to the hours that exist: evening/weekend sessions, LinkedIn routines untouched.

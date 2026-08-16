@@ -55,6 +55,19 @@ Sitefile is a **Contractor Progress Evidence Tracker** — a web app where const
 
 ## Database schema
 
+> **Spec vs truth:** the SQL below is the original design spec.
+> `src/server/db/schema.ts` is the source of truth and has since grown:
+> `report_drafts` (standing pre-generate draft per project),
+> `report_shares` + `report_share_events` (send & delivery receipts),
+> `programme_baselines` (accepted-programme snapshot for variance),
+> `upload_intents`, `stripe_events`; plus columns like
+> `projects.next_report_due`, `projects.programme_confirmed_at`,
+> `tasks.is_milestone`, `evidence.deleted_at`,
+> `reports.password_ciphertext`. `audit_log.project_id` DOES cascade
+> on delete in the real schema. RLS is enabled on all tables but has
+> no policies — tenant isolation is application-layer
+> (`assertProjectAccess`).
+
 ```sql
 -- Organisations (multi-tenant root)
 CREATE TABLE organisations (
@@ -455,12 +468,36 @@ NEXT_PUBLIC_MAPBOX_TOKEN=pk.eyJ1...
 
 ---
 
-## Report template (7 pages)
+## Report template
 
-1. **Cover** — Logo, contractor name, project ref, contract type, report number, period, generation timestamp
-2. **Executive summary** — Planned vs actual %, variance, tasks completed/in-progress/delayed, evidence count, key risks
-3. **Programme timeline** — Gantt bars with evidence markers (amber dots) pinned to capture dates
-4. **Evidence gallery** — Photos grouped by task; each with timestamp, GPS coords, uploader name/role, annotation
-5. **Before/after** — AI-paired earliest + latest photos per task per GPS zone
-6. **Verification** — EXIF preservation status, GPS verification rate, upload vs capture time analysis, audit trail summary
-7. **Sign-off** — Contractor, PM, Client signature blocks + legal disclaimer
+Sections (assembled per the project's reporting-frequency recipe +
+per-run toggles; empty/unsupported sections are declared on the
+Contents page, never silently dropped):
+
+1. **Cover** — logo (placeholder org names never print), project ref, contract type, report number, period, optional PM-chosen hero photo, client logo
+2. **Contents** — with an "omitted this period + why" box
+3. **Executive summary** — narrative (AI-drafted, PM-approved), planned vs actual with disclosed method line, baseline-completion strip, weather, since-last-report deltas, H&S block, key risks
+4. **Key issues & early warnings** — PM-signed list (deduped vs key risks)
+5. **Key dates & milestones** — planned/actual/variance + baseline column with drift
+6. **Programme timeline** — Gantt with evidence dots; axis always spans period + today; elapsed-programme banner when stale
+7. **Lookahead — next period** — window mirrors the reporting cadence
+8. **Photo location map** — satellite static map, zone overlays, numbered pins
+9. **Progress records** — photos grouped by task, captions as titles, capture/upload dates, GPS or "not recorded"
+10. **Before/after** — earliest + latest per task per zone
+11. **Verification & metadata** — honest wording ("Camera Metadata Present", "Within Site Zones"), timing analysis, audit trail
+12. **Sign-off** — contractor + PM "Electronically Approved" blocks (approval audit-logged); client block always prints empty for wet-ink; disclaimer
+
+Issued PDFs are AES-256 encrypted when password-protected and carry a
+SHA-256 fingerprint stored in `report_data` and shown on the Send page.
+
+## UI model ("The Graft", Aug 2026)
+
+Phone home IS the navigator (readiness ring, due chip, week tracker,
+giant Capture CTA, gap list — no tabs); desk uses a grouped left
+desknav (Every day / Setup·per period / Send) and the org sidebar
+collapses to an icon rail inside a project. Brand tokens: site-dust
+`#F2F1ED` ground, tarmac ink `#191C20`, beacon amber `#E8940A`
+(`--accent-ink #8F5F00` for amber-as-text). One readiness engine
+(`src/lib/readiness.ts`) drives the phone gap list, the 11-row report
+builder, rings, portfolio cards and desknav dots. Post-launch phase
+history lives in PROGRESS.md ("Go-Live Sprint").
