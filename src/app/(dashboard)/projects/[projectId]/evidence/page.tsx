@@ -124,6 +124,9 @@ export default function EvidencePage() {
   // Honesty chips: All / Unlinked / No GPS / This week — counts that are
   // also filters. The numbers ARE the honesty.
   const [chip, setChip] = useState<"all" | "unlinked" | "nogps" | "week">("all");
+  // Computed in the chip's click handler, not during render — Date.now()
+  // in render is impure and fails the react-compiler lint.
+  const [weekStart, setWeekStart] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState<string>("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -172,9 +175,7 @@ export default function EvidencePage() {
         uploadedBy: uploaderFilter || undefined,
         unlinkedOnly: chip === "unlinked" || undefined,
         noGpsOnly: chip === "nogps" || undefined,
-        ...(chip === "week"
-          ? { dateFrom: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10) }
-          : {}),
+        ...(chip === "week" && weekStart ? { dateFrom: weekStart } : {}),
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
@@ -553,7 +554,16 @@ export default function EvidencePage() {
               key={key}
               role="tab"
               aria-selected={chip === key}
-              onClick={() => setChip(key)}
+              onClick={() => {
+                setChip(key);
+                if (key === "week") {
+                  setWeekStart(
+                    new Date(Date.now() - 7 * 86_400_000)
+                      .toISOString()
+                      .slice(0, 10)
+                  );
+                }
+              }}
               className={cn(
                 "min-h-9 rounded-full border px-3 text-xs font-medium",
                 chip === key
