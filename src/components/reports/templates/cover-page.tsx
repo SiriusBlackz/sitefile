@@ -109,7 +109,7 @@ export function CoverPage({ meta }: { meta: ReportMeta }) {
             )}
             <DetailRow label="Report Number" value={`#${meta.reportNumber}`} />
             <DetailRow label="Reporting Period" value={periodFormatted} />
-            <DetailRow label="Generated" value={formatDateTime(meta.generatedAt)} />
+            <DetailRow label="Report Date" value={formatDate(meta.generatedAt)} />
           </tbody>
         </table>
       </div>
@@ -190,20 +190,12 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
+  // Accepts date-only strings (periods) and full ISO timestamps (generatedAt).
+  const date = new Date(iso.includes("T") ? iso : iso + "T00:00:00");
+  return date.toLocaleDateString("en-GB", {
     day: "numeric",
     month: "long",
     year: "numeric",
-  });
-}
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-GB", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   });
 }
 

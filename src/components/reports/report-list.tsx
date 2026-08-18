@@ -118,7 +118,7 @@ export function ReportList({ reports }: ReportListProps) {
               <TableHead>Period</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Protected</TableHead>
-              <TableHead>Generated</TableHead>
+              <TableHead>Report Date</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
