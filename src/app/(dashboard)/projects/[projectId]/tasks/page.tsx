@@ -310,7 +310,11 @@ export default function TasksPage() {
               </Button>
             </div>
           )}
-          <GanttChart tasks={tasks} evidenceMarkers={evidenceMarkers} />
+          <GanttChart
+            tasks={tasks}
+            evidenceMarkers={evidenceMarkers}
+            onDelete={(id) => deleteMutation.mutate({ id })}
+          />
         </>
       )}
 

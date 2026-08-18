@@ -11,7 +11,14 @@ import {
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ZoomIn, ZoomOut } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Trash2, ZoomIn, ZoomOut } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -37,6 +44,7 @@ interface EvidenceMarker {
 interface GanttChartProps {
   tasks: GanttTask[];
   evidenceMarkers: EvidenceMarker[];
+  onDelete?: (id: string) => void;
 }
 
 // ─── Status helpers ─────────────────────────────────────────────────────────
@@ -84,7 +92,8 @@ const ROW_HEIGHT = 36;
 const HEADER_HEIGHT = 44;
 const LABEL_WIDTH = 240;
 
-export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
+export function GanttChart({ tasks, evidenceMarkers, onDelete }: GanttChartProps) {
+  const [deleteConfirm, setDeleteConfirm] = useState<GanttTask | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState<ZoomLevel>("weeks");
 
@@ -283,7 +292,7 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
                   <div
                     key={task.id}
                     className={cn(
-                      "flex items-center gap-1.5 border-b px-3 text-sm truncate",
+                      "group flex items-center gap-1.5 border-b px-3 text-sm truncate",
                       !hasBar && "text-muted-foreground"
                     )}
                     style={{
@@ -295,7 +304,18 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
                       className="h-2 w-2 rounded-full shrink-0"
                       style={{ background: status.color }}
                     />
-                    <span className="truncate">{task.name}</span>
+                    <span className="min-w-0 flex-1 truncate">{task.name}</span>
+                    {onDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="shrink-0 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                        onClick={() => setDeleteConfirm(task)}
+                        aria-label={`Delete ${task.name}`}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
                 );
               })}
@@ -437,6 +457,38 @@ export function GanttChart({ tasks, evidenceMarkers }: GanttChartProps) {
           </div>
         </div>
       </div>
+
+      <Dialog
+        open={deleteConfirm !== null}
+        onOpenChange={() => setDeleteConfirm(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Task</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Are you sure you want to delete{" "}
+            <span className="font-medium text-foreground">
+              {deleteConfirm?.name}
+            </span>
+            ? Child tasks will be moved up to the parent level.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteConfirm) onDelete?.(deleteConfirm.id);
+                setDeleteConfirm(null);
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }
