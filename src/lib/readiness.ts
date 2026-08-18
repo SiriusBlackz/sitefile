@@ -29,6 +29,11 @@ export interface GapSnapshot {
   zeroPhotoTasks: { id: string; name: string; progressPct: number }[];
   /** Tasks still marked not-started that have photos this period. */
   misStatusTasks: { id: string; name: string; photoCount: number }[];
+  /** Tasks past their planned start but still "Not started" (and not yet
+   * past their planned end). Status is manual — these only nudge. */
+  shouldHaveStarted: number;
+  /** Tasks past their planned end but not completed/delayed. */
+  pastPlannedEnd: number;
   photosByDay: { date: string; count: number }[];
   lastReport: {
     id: string;
@@ -161,7 +166,7 @@ export function buildRecipeRows(gaps: GapSnapshot): ReadinessRow[] {
           : gaps.unlinked > 0
             ? "open"
             : "done",
-      href: "/evidence?view=yard",
+      href: "/evidence",
     },
     {
       key: "beforeafter",
@@ -245,13 +250,31 @@ export function buildGapRows(gaps: GapSnapshot): ReadinessRow[] {
       href: "/tasks",
     });
   }
-  if (gaps.taskCount > 0 && gaps.zoneCount === 0) {
+  if ((gaps.taskCount > 0 || gaps.photosThisPeriod > 0) && gaps.zoneCount === 0) {
     rows.push({
       key: "zones",
       label: "Confirm your zones",
       detail: "Proposed from photo clusters — taps, not cartography",
       state: "open",
       href: "/zones",
+    });
+  }
+  if (gaps.shouldHaveStarted > 0) {
+    rows.push({
+      key: "date-start",
+      label: `${gaps.shouldHaveStarted} task${gaps.shouldHaveStarted === 1 ? "" : "s"} past planned start but "Not started"`,
+      detail: "Update the status or the dates — the report prints the mismatch",
+      state: "open",
+      href: "/tasks",
+    });
+  }
+  if (gaps.pastPlannedEnd > 0) {
+    rows.push({
+      key: "date-overdue",
+      label: `${gaps.pastPlannedEnd} task${gaps.pastPlannedEnd === 1 ? "" : "s"} past planned finish, not completed`,
+      detail: "Mark complete or delayed, or revise the dates — reports list these under key risks",
+      state: "open",
+      href: "/tasks",
     });
   }
   for (const t of gaps.misStatusTasks.slice(0, 2)) {
@@ -278,7 +301,7 @@ export function buildGapRows(gaps: GapSnapshot): ReadinessRow[] {
       label: `${gaps.unlinked} photo${gaps.unlinked === 1 ? "" : "s"} not linked to a task`,
       detail: "Batch suggestions ready — a ten-minute Yard session",
       state: "open",
-      href: "/evidence?view=yard",
+      href: "/evidence",
     });
   }
   if (gaps.uncaptioned > 0) {

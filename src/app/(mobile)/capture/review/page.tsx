@@ -635,6 +635,17 @@ function ReviewContent() {
               View Gallery
             </Button>
           </div>
+          {/* Forward pointer — without it the flow dead-ends here and
+              zones (which power AI linking) never get drawn. */}
+          <button
+            className="mt-1 text-sm text-amber-400 active:text-amber-300"
+            onClick={async () => {
+              if (sessionId) await clearStashedCapture(sessionId);
+              router.push(`/projects/${projectId}/zones`);
+            }}
+          >
+            Next step: GPS zones →
+          </button>
         </div>
       )}
 

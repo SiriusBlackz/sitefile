@@ -378,6 +378,25 @@ export const projectRouter = createTRPCRouter({
         )
         .limit(3);
 
+      // Date-vs-status contradictions: the programme dates say a task
+      // should have started (or finished) but its manual status disagrees.
+      // Status is never auto-mutated from dates — these counts only nudge.
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const [dateStatusRow] = await ctx.db
+        .select({
+          shouldHaveStarted: sql<number>`count(*) filter (
+            where ${tasks.status} = 'not_started'
+              and ${tasks.plannedStart} < ${todayStr}::date
+              and (${tasks.plannedEnd} is null or ${tasks.plannedEnd} >= ${todayStr}::date)
+          )::int`,
+          pastPlannedEnd: sql<number>`count(*) filter (
+            where ${tasks.status} not in ('completed', 'delayed')
+              and ${tasks.plannedEnd} < ${todayStr}::date
+          )::int`,
+        })
+        .from(tasks)
+        .where(eq(tasks.projectId, input.id));
+
       // Last completed report's delivery state (share created = sent).
       let lastReportOut: {
         id: string;
@@ -436,6 +455,8 @@ export const projectRouter = createTRPCRouter({
         zoneCount: zoneCountRow?.count ?? 0,
         zeroPhotoTasks,
         misStatusTasks,
+        shouldHaveStarted: dateStatusRow?.shouldHaveStarted ?? 0,
+        pastPlannedEnd: dateStatusRow?.pastPlannedEnd ?? 0,
         lastReport: lastReportOut,
         draft: payload
           ? {

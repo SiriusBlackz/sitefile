@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { buildRecipeRows, type GapSnapshot } from "@/lib/readiness";
@@ -15,7 +14,6 @@ import {
   Map,
   Send,
   Settings,
-  Warehouse,
 } from "lucide-react";
 
 /**
@@ -29,7 +27,6 @@ const UNREACHABLE_CODES = new Set(["NOT_FOUND", "FORBIDDEN", "BAD_REQUEST"]);
 
 function DesknavInner({ projectId }: { projectId: string }) {
   const pathname = usePathname();
-  const search = useSearchParams();
   const base = `/projects/${projectId}`;
 
   const { error } = trpc.project.get.useQuery(
@@ -57,24 +54,18 @@ function DesknavInner({ projectId }: { projectId: string }) {
       label: string;
       icon: typeof ListTodo;
       attention?: boolean;
-      isActive: (path: string, view: string | null) => boolean;
+      isActive: (path: string) => boolean;
     }[];
   }[] = [
     {
       label: "Every day",
       items: [
         {
-          href: `${base}/evidence?view=yard`,
-          label: "The Yard",
-          icon: Warehouse,
-          attention: (gaps?.unlinked ?? 0) > 0,
-          isActive: (p, v) => p === `${base}/evidence` && v === "yard",
-        },
-        {
           href: `${base}/evidence`,
-          label: "Gallery",
+          label: "Photos",
           icon: ImageIcon,
-          isActive: (p, v) => p === `${base}/evidence` && v !== "yard",
+          attention: (gaps?.unlinked ?? 0) > 0,
+          isActive: (p) => p === `${base}/evidence`,
         },
         {
           href: `${base}/reports`,
@@ -121,8 +112,6 @@ function DesknavInner({ projectId }: { projectId: string }) {
     },
   ];
 
-  const view = search.get("view");
-
   return (
     <nav className="hidden w-48 shrink-0 md:block">
       <div className="sticky top-4 space-y-5">
@@ -145,7 +134,7 @@ function DesknavInner({ projectId }: { projectId: string }) {
             </p>
             <ul className="space-y-0.5">
               {group.items.map((item) => {
-                const active = item.isActive(pathname, view);
+                const active = item.isActive(pathname);
                 return (
                   <li key={item.label}>
                     <Link
@@ -210,10 +199,5 @@ function DesknavInner({ projectId }: { projectId: string }) {
 }
 
 export function ProjectDeskNav({ projectId }: { projectId: string }) {
-  // useSearchParams requires a Suspense boundary in app router layouts.
-  return (
-    <Suspense fallback={<nav className="hidden w-48 shrink-0 md:block" />}>
-      <DesknavInner projectId={projectId} />
-    </Suspense>
-  );
+  return <DesknavInner projectId={projectId} />;
 }
