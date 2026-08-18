@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { ProjectForm, type ProjectFormValues } from "@/components/projects/project-form";
 import { toast } from "sonner";
 import { BillingBanner } from "@/components/projects/billing-banner";
+import { AddColleagueForm } from "@/components/projects/add-colleague-form";
 import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
 import { getProjectStatusLabel } from "@/lib/project-status";
 import { Button } from "@/components/ui/button";
@@ -314,11 +315,20 @@ export default function ProjectSettingsPage() {
             <span className="font-medium text-foreground">
               Getting site staff in:
             </span>{" "}
-            they sign up at www.sitefile.app/sign-up with their work email —
-            once they appear in your organisation, add them to this project
-            below. They&apos;ll then see it in their app and can capture
-            photos straight to it.
+            add their work email below, then tell them to sign up at
+            www.sitefile.app/sign-up with it — their account lands in your
+            organisation and this project, and they can capture photos
+            straight to it.
           </p>
+          <AddColleagueForm
+            onAdded={(user) => {
+              utils.project.orgUsers.invalidate();
+              addMember.mutate({
+                projectId: params.projectId,
+                userId: user.id,
+              });
+            }}
+          />
           <div className="space-y-2">
             {owners.map((owner) => (
               <div

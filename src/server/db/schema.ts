@@ -42,6 +42,9 @@ export const organisations = pgTable("organisations", {
   companyDetails: text("company_details"),
   subscriptionTier: text("subscription_tier").default("free"),
   stripeCustomerId: text("stripe_customer_id"),
+  // Null = the org hasn't finished (or skipped) the first-run setup
+  // wizard; the dashboard layout redirects it to /onboarding.
+  onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
 }).enableRLS();

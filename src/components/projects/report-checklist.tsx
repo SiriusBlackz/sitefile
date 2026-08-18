@@ -58,13 +58,9 @@ export function ReportChecklist({
   const brandingDone = !!(org?.logoUrl || org?.brandColor || clientLogoSet);
   const teamDone = orgUsers.length > 1;
 
+  // Ordered like the setup wizard: identity (branding, team) first, then
+  // the programme the evidence hangs off.
   const steps: Step[] = [
-    {
-      title: "Load your programme",
-      done: taskCount > 0,
-      desc: "Import your Gantt chart (MS Project, P6, Excel or PDF) — or add tasks by hand.",
-      actions: [{ label: "Import programme", href: `/projects/${projectId}/tasks` }],
-    },
     {
       title: "Add your branding",
       done: brandingDone,
@@ -75,12 +71,18 @@ export function ReportChecklist({
       ],
     },
     {
-      title: "Invite your site team",
+      title: "Add your site team",
       done: teamDone,
-      desc: "Site staff capture photos straight into the project from their phones — they sign up, you add them in project settings.",
+      desc: "Site staff capture photos straight into the project from their phones — add their email in project settings, then they sign up with it.",
       actions: [
         { label: "Team settings", href: `/projects/${projectId}/settings` },
       ],
+    },
+    {
+      title: "Load your programme",
+      done: taskCount > 0,
+      desc: "Import your Gantt chart (MS Project, P6, Excel or PDF) — or add tasks by hand.",
+      actions: [{ label: "Import programme", href: `/projects/${projectId}/tasks` }],
     },
     {
       title: "Capture site photos",

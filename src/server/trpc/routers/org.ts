@@ -2,8 +2,9 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import sharp from "sharp";
+import { randomUUID } from "crypto";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
-import { organisations } from "@/server/db/schema";
+import { organisations, users } from "@/server/db/schema";
 import { getPublicUrl, uploadToStorage } from "@/server/services/storage";
 
 /** Logos arrive as base64 (small files, avoids R2 CORS entirely). */
@@ -84,4 +85,56 @@ export const orgRouter = createTRPCRouter({
       .where(eq(organisations.id, ctx.orgId));
     return { success: true };
   }),
+
+  /** Stamps the first-run setup wizard as finished (or skipped) so the
+   * dashboard layout stops redirecting to /onboarding. protectedProcedure
+   * on purpose: any org member can exit the wizard, not just admins. */
+  completeOnboarding: protectedProcedure.mutation(async ({ ctx }) => {
+    await ctx.db
+      .update(organisations)
+      .set({ onboardingCompletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(organisations.id, ctx.orgId));
+    return { success: true };
+  }),
+
+  /**
+   * Pre-seed a colleague into this organisation by email. No invite email
+   * is sent — the admin tells them to sign up at /sign-up with this
+   * address, and the email-first lookup in ensureUser / the Clerk webhook
+   * claims this row (fills in the real clerkId) instead of provisioning a
+   * fresh empty org. Post-pilot this is replaced by Clerk Invitations.
+   */
+  addColleague: adminProcedure
+    .input(
+      z.object({
+        email: z.string().trim().toLowerCase().email().max(254),
+        name: z.string().trim().min(1).max(120).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.users.findFirst({
+        where: eq(users.email, input.email),
+      });
+      if (existing) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            existing.orgId === ctx.orgId
+              ? "That email is already in your organisation."
+              : "That email already has a Sitefile account. Ask them to contact support to move organisations.",
+        });
+      }
+      const [user] = await ctx.db
+        .insert(users)
+        .values({
+          orgId: ctx.orgId,
+          // Placeholder until they sign up — clerk_id is NOT NULL UNIQUE.
+          clerkId: `invited:${randomUUID()}`,
+          email: input.email,
+          name: input.name || input.email,
+          role: "member",
+        })
+        .returning();
+      return { id: user.id, email: user.email, name: user.name };
+    }),
 });
