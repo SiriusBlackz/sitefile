@@ -133,7 +133,10 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
 
     const map = new mapboxgl.Map({
       container: mapContainer.current,
-      style: "mapbox://styles/mapbox/streets-v12",
+      // Satellite imagery: contractors recognise their site by buildings
+      // and groundworks, not street lines — and it matches the report's
+      // photo-location map style.
+      style: "mapbox://styles/mapbox/satellite-streets-v12",
       center: [-1.5, 53.8], // UK default
       zoom: 6,
     });
@@ -330,10 +333,21 @@ export function ZoneMapEditor({ projectId, mapEnabled }: ZoneMapEditorProps) {
       setSearchResults([]);
       return;
     }
+    // POI types included so site landmarks ("Stansted Airport") resolve,
+    // GB-biased for the pilot, proximity-biased to wherever the map sits.
+    const center = mapRef.current?.getCenter();
+    const params = new URLSearchParams({
+      access_token: token,
+      limit: "5",
+      autocomplete: "true",
+      country: "GB",
+      types: "poi,address,place,postcode,locality",
+    });
+    if (center) params.set("proximity", `${center.lng},${center.lat}`);
     fetch(
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
         query
-      )}.json?access_token=${token}&limit=5`
+      )}.json?${params.toString()}`
     )
       .then((r) => {
         if (!r.ok) {
