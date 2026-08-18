@@ -119,7 +119,7 @@ function CoverPhotoPicker({
         <button
           key={p.id}
           type="button"
-          title={p.note ?? p.originalFilename ?? "Site photo"}
+          title={p.note ?? "Site photo"}
           onClick={() => onChange(value === p.id ? null : p.id)}
           className={cn(
             "h-14 w-20 overflow-hidden rounded-md border transition-shadow",

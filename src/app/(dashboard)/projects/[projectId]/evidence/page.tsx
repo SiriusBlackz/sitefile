@@ -133,7 +133,12 @@ export default function EvidencePage() {
   const [uploaderFilter, setUploaderFilter] = useState<string>("");
   const [selectedItem, setSelectedItem] = useState<EvidenceItem | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Bounded polling while freshly-uploaded photos wait for their Inngest
+  // thumbnails — without it cards keep serving the full-size original
+  // until a manual refresh.
+  const thumbPollCount = useRef(0);
 
   // Debounce search input
   useEffect(() => {
@@ -173,6 +178,19 @@ export default function EvidencePage() {
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+        refetchInterval: (query) => {
+          const missingThumb = query.state.data?.pages.some((p) =>
+            p.items.some((i) => i.type === "photo" && !i.thumbnailUrl)
+          );
+          if (!missingThumb) {
+            thumbPollCount.current = 0;
+            return false;
+          }
+          // ~2 minutes at 4s, then give up (e.g. a failed Inngest run).
+          if (thumbPollCount.current >= 30) return false;
+          thumbPollCount.current += 1;
+          return 4000;
+        },
       }
     );
 
@@ -189,6 +207,21 @@ export default function EvidencePage() {
       setSelectedIds(new Set());
       setSelectMode(false);
       setBulkTaskId("");
+    },
+    onError: (err) => {
+      toast.error(err.message);
+    },
+  });
+
+  const bulkDeleteMutation = trpc.evidence.bulkDelete.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Deleted ${data.deleted} photo${data.deleted === 1 ? "" : "s"}`);
+      setConfirmBulkDelete(false);
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      setBulkTaskId("");
+      utils.evidence.list.invalidate();
+      utils.evidence.count.invalidate();
     },
     onError: (err) => {
       toast.error(err.message);
@@ -360,8 +393,43 @@ export default function EvidencePage() {
               {bulkLinkMutation.isPending ? "Linking..." : "Link"}
             </Button>
           </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={selectedIds.size === 0 || bulkDeleteMutation.isPending}
+            onClick={() => setConfirmBulkDelete(true)}
+          >
+            <Trash2 className="mr-1 h-4 w-4" />
+            Delete
+          </Button>
         </div>
       )}
+
+      <AlertDialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedIds.size} photo{selectedIds.size === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The selected photos will be removed from the gallery and from
+              future reports. This action is recorded in the audit log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={bulkDeleteMutation.isPending}
+              onClick={() =>
+                bulkDeleteMutation.mutate({ evidenceIds: Array.from(selectedIds) })
+              }
+            >
+              {bulkDeleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {filtersOpen && !selectMode && (
         <div className="space-y-3 rounded-lg border p-4">
@@ -543,6 +611,7 @@ export default function EvidencePage() {
           <UploadQueue
             projectId={projectId}
             onUploadComplete={handleUploadComplete}
+            onFileUploaded={() => utils.evidence.list.invalidate()}
           />
           <DialogFooter>
             {hasUploaded ? (
@@ -595,8 +664,9 @@ export default function EvidencePage() {
           <DialogHeader className="border-b px-4 py-3">
             <DialogTitle className="pr-8 text-base">
               {currentItem?.note ??
-                currentItem?.originalFilename ??
-                "Evidence Detail"}
+                (currentItem?.capturedAt
+                  ? `Photo — ${formatDateTime(currentItem.capturedAt)}`
+                  : "Evidence Detail")}
             </DialogTitle>
           </DialogHeader>
           {currentItem && (
@@ -614,7 +684,7 @@ export default function EvidencePage() {
                   // eslint-disable-next-line @next/next/no-img-element -- user-uploaded R2 content
                   <img
                     src={currentItem.publicUrl}
-                    alt={currentItem.originalFilename ?? ""}
+                    alt={currentItem.note ?? ""}
                     className="max-h-[40vh] w-full object-contain md:max-h-[78vh]"
                   />
                 )}
@@ -695,7 +765,7 @@ export default function EvidencePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this evidence?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedItem?.originalFilename ?? "This item"} will be removed
+              {selectedItem?.note ?? "This item"} will be removed
               from the gallery and future reports. Its task links are removed
               too. The deletion is recorded in the audit log.
             </AlertDialogDescription>

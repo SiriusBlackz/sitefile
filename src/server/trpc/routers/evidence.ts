@@ -657,6 +657,50 @@ export const evidenceRouter = createTRPCRouter({
       return { linked: input.evidenceIds.length };
     }),
 
+  bulkDelete: protectedProcedure
+    .input(
+      z.object({
+        evidenceIds: z.array(z.string().uuid()).min(1).max(100),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify all evidence belongs to the same project and user has access
+      const items = await ctx.db.query.evidence.findMany({
+        where: and(inArray(evidence.id, input.evidenceIds), isNull(evidence.deletedAt)),
+        columns: { id: true, projectId: true },
+      });
+      if (items.length !== input.evidenceIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "One or more evidence items not found" });
+      }
+      const projectIds = new Set(items.map((e) => e.projectId));
+      if (projectIds.size !== 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot bulk-delete evidence from multiple projects",
+        });
+      }
+      const [projectId] = [...projectIds];
+      await assertProjectAccess(ctx.db, projectId, ctx.orgId, ctx.userId);
+
+      // Soft delete: rows and stored files are retained for the audit
+      // trail; every read path filters on deleted_at IS NULL.
+      await ctx.db
+        .update(evidence)
+        .set({ deletedAt: new Date() })
+        .where(inArray(evidence.id, input.evidenceIds));
+
+      writeAuditLogAsync(ctx.db, {
+        projectId,
+        userId: ctx.userId,
+        action: "bulk_delete",
+        entityType: "evidence",
+        entityId: projectId,
+        metadata: { evidenceCount: input.evidenceIds.length, evidenceIds: input.evidenceIds },
+      });
+
+      return { deleted: input.evidenceIds.length };
+    }),
+
   uploaders: protectedProcedure
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {

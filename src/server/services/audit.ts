@@ -27,6 +27,7 @@ export type AuditAction =
   | "payment_failed"
   | "cancel_subscription"
   | "bulk_link"
+  | "bulk_delete"
   | "add_member"
   | "remove_member";
 

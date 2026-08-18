@@ -36,7 +36,11 @@ interface QueueItem {
 
 interface UploadQueueProps {
   projectId: string;
+  /** Fires once when the whole batch has finished. */
   onUploadComplete?: () => void;
+  /** Fires after each file is confirmed, so callers can refresh the grid
+      as photos land instead of waiting for the slowest file. */
+  onFileUploaded?: () => void;
 }
 
 async function extractExif(
@@ -105,7 +109,7 @@ function uploadFile(
   });
 }
 
-export function UploadQueue({ projectId, onUploadComplete }: UploadQueueProps) {
+export function UploadQueue({ projectId, onUploadComplete, onFileUploaded }: UploadQueueProps) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const getUploadUrl = trpc.evidence.getUploadUrl.useMutation();
@@ -154,12 +158,13 @@ export function UploadQueue({ projectId, onUploadComplete }: UploadQueueProps) {
         });
 
         updateItem(item.id, { status: "done" });
+        onFileUploaded?.();
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
         updateItem(item.id, { status: "error", error: message });
       }
     },
-    [projectId, getUploadUrl, confirm, updateItem]
+    [projectId, getUploadUrl, confirm, updateItem, onFileUploaded]
   );
 
   async function runPool(items: QueueItem[]) {

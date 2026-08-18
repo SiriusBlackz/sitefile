@@ -71,7 +71,7 @@ export function EvidenceCard({ item, onClick, selected, onToggleSelect }: Eviden
           /* eslint-disable-next-line @next/next/no-img-element -- user-uploaded R2 content */
           <img
             src={item.thumbnailUrl ?? item.publicUrl}
-            alt={item.originalFilename ?? "Evidence photo"}
+            alt={item.note ?? "Evidence photo"}
             className="h-full w-full object-cover"
             loading="lazy"
             onError={(e) => {
@@ -129,7 +129,8 @@ export function EvidenceCard({ item, onClick, selected, onToggleSelect }: Eviden
       </div>
       <div className="p-2 space-y-1">
         {/* Caption-first: the note is the photo's report title; raw camera
-            filenames (IMG_1234.jpg) are a muted fallback, not a headline. */}
+            filenames (IMG_1234.jpg) never show — the fallback is a dated
+            placeholder that nudges towards adding a caption. */}
         <p
           className={
             item.note
@@ -137,7 +138,10 @@ export function EvidenceCard({ item, onClick, selected, onToggleSelect }: Eviden
               : "text-xs truncate text-muted-foreground"
           }
         >
-          {item.note ?? item.originalFilename ?? "Untitled — add a caption"}
+          {item.note ??
+            (capturedDate
+              ? `Photo — ${capturedDate}`
+              : "Untitled — add a caption")}
         </p>
         {capturedDate && (
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
