@@ -54,3 +54,8 @@ betatest.md
 production key.png
 Maintenance/
 pilot-pitch/
+
+# third-party sample reports / local QA scratch — never commit
+TRS Report.pdf
+scripts/qa-tmp/
+scripts/tmp-qa-seed.ts
