@@ -31,9 +31,19 @@ jobs:
           echo "supabase rest status: $status"
           [ "$status" = "200" ]
 
-      - name: Ping app health endpoint (DB reachability + uptime signal)
+      - name: Ping app health endpoint (DB + tRPC module graph + sharp)
         run: |
-          status=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://www.sitefile.app/api/health")
-          echo "health status: $status"
-          [ "$status" = "200" ]
+          body=$(curl -s -m 20 "https://www.sitefile.app/api/health")
+          echo "health body: $body"
+          echo "$body" | grep -q '"ok":true'
+
+      # The API can be dead while /api/health is green if a check regresses
+      # — assert the real tRPC route serves JSON, not Next's HTML /500 page.
+      # (2026-09-01: sharp's libvips went missing on Vercel and every tRPC
+      # call served HTML for 3 days behind a green health check.)
+      - name: Assert tRPC route serves JSON (any status, never HTML)
+        run: |
+          ct=$(curl -s -o /dev/null -m 20 -w "%{content_type}" \
+            "https://www.sitefile.app/api/trpc/project.list?batch=1&input=%7B%7D")
+          echo "trpc content-type: $ct"
+          case "$ct" in application/json*) ;; *) echo "expected JSON, got: $ct"; exit 1;; esac

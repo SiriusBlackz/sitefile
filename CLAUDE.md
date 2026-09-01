@@ -28,6 +28,8 @@ Sitefile is a **Contractor Progress Evidence Tracker** — a web app where const
 - Use Tailwind CSS for all styling — no CSS modules, no styled-components
 - Test that pages render before moving to the next task
 - Commit logical units of work — don't build everything in one pass
+- **Native-binary packages (sharp, puppeteer, anything shipping `.node`/`.so` files) must be loaded with a dynamic `await import()` inside the function that uses them — never a top-level import in any module reachable from a route.** A native load failure must break one feature, not the whole API. (2026-09-01: a top-level `import sharp` in the org router + sharp 0.35's untraced libvips took ALL of tRPC down on prod for 3 days behind green health checks.)
+- **After bumping any native dep, prove it in the deployed runtime before calling the task done** — local `tsc`/CI/build never load the Linux binaries. Check `/api/health` (its `sharp` canary exists for exactly this) on a preview deploy or prod, and curl a tRPC route asserting `content-type: application/json`.
 
 ---
 
