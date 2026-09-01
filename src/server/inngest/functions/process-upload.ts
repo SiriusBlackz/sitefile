@@ -38,7 +38,7 @@ export const processUpload = inngest.createFunction(
         }
 
         // Generate thumbnail with sharp
-        let sharp: (typeof import("sharp"))["default"];
+        let sharp: typeof import("sharp");
         try {
           sharp = (await import("sharp")).default;
         } catch {
