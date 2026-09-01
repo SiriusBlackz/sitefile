@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import sharp from "sharp";
 import { randomUUID } from "crypto";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
 import { organisations, users } from "@/server/db/schema";
@@ -14,6 +13,11 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 async function processLogo(imageBase64: string): Promise<Buffer> {
   const buf = Buffer.from(imageBase64, "base64");
+  // Native module — loaded lazily so a binary-load failure breaks logo
+  // upload only, never the whole tRPC router. A top-level import here took
+  // ALL of tRPC down for 3 days when sharp 0.35's libvips went missing on
+  // Vercel (2026-09-01 outage). Keep it dynamic.
+  const sharp = (await import("sharp")).default;
   try {
     // Normalise everything to a bounded PNG — strips EXIF, caps dimensions,
     // and guarantees the report renderer never meets a 20MB camera original.
