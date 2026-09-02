@@ -44,7 +44,11 @@ export async function POST(req: Request) {
   try {
     const { type, data } = event;
     const clerkId = data.id;
-    const email = data.email_addresses[0]?.email_address ?? `${clerkId}@sitefile.app`;
+    // Lowercased to match org.addColleague's seeded rows — a mixed-case
+    // sign-up must claim its pre-seeded seat, not provision a fresh org.
+    const email = (
+      data.email_addresses[0]?.email_address ?? `${clerkId}@sitefile.app`
+    ).toLowerCase();
     const name = [data.first_name, data.last_name].filter(Boolean).join(" ") || email;
 
     if (type === "user.created") {

@@ -35,17 +35,10 @@ export default function OnboardingPage() {
   });
 
   const createProject = trpc.project.create.useMutation({
-    onSuccess: (data) => {
-      if (data.checkoutUrl) {
-        toast.success("Redirecting to checkout...");
-        window.location.href = data.checkoutUrl;
-      } else {
-        setProjectId(data.project.id);
-        setStep(3);
-      }
-    },
     onError: (error) => toast.error(error.message),
   });
+
+  const addMember = trpc.project.memberAdd.useMutation();
 
   // Stamp completion first so the Stripe checkout redirect (which leaves
   // this page for good) can't strand the account in the wizard.
@@ -55,7 +48,31 @@ export default function OnboardingPage() {
     } catch {
       return; // toast already shown; stay on the step
     }
-    createProject.mutate(values);
+    let data;
+    try {
+      data = await createProject.mutateAsync(values);
+    } catch {
+      return; // toast already shown; stay on the step
+    }
+    // Put the wizard's colleagues on the project before any redirect —
+    // without a membership row they'd be locked out of every project.
+    const results = await Promise.allSettled(
+      addedColleagues.map((c) =>
+        addMember.mutateAsync({ projectId: data.project.id, userId: c.id })
+      )
+    );
+    if (results.some((r) => r.status === "rejected")) {
+      toast.error(
+        "Some team members couldn't be added to the project — add them again from project settings."
+      );
+    }
+    if (data.checkoutUrl) {
+      toast.success("Redirecting to checkout...");
+      window.location.href = data.checkoutUrl;
+    } else {
+      setProjectId(data.project.id);
+      setStep(3);
+    }
   }
 
   async function skipSetup() {

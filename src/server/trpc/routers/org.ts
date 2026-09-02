@@ -120,13 +120,22 @@ export const orgRouter = createTRPCRouter({
         where: eq(users.email, input.email),
       });
       if (existing) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message:
-            existing.orgId === ctx.orgId
-              ? "That email is already in your organisation."
-              : "That email already has a Sitefile account. Ask them to contact support to move organisations.",
-        });
+        if (existing.orgId !== ctx.orgId) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "That email already has a Sitefile account. Ask them to contact support to move organisations.",
+          });
+        }
+        // Idempotent for same-org emails: callers chain a project
+        // memberAdd off this result, and throwing here left re-added
+        // colleagues stranded in the org with no project membership.
+        return {
+          id: existing.id,
+          email: existing.email,
+          name: existing.name,
+          alreadyExisted: true,
+        };
       }
       const [user] = await ctx.db
         .insert(users)
@@ -139,6 +148,6 @@ export const orgRouter = createTRPCRouter({
           role: "member",
         })
         .returning();
-      return { id: user.id, email: user.email, name: user.name };
+      return { id: user.id, email: user.email, name: user.name, alreadyExisted: false };
     }),
 });

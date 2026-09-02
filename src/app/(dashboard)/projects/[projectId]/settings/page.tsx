@@ -423,13 +423,29 @@ export default function ProjectSettingsPage() {
             </p>
           )}
 
-          {availableUsers.length > 0 && (
-            <div className="flex items-center gap-2 pt-2 border-t">
-              <Select value={addUserId} onValueChange={(val) => setAddUserId(val ?? "")}>
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder="Select a team member..." />
+          <div className="space-y-1.5 pt-2 border-t">
+            <p className="text-xs text-muted-foreground">
+              Already in your organisation (from another project)? Pick them
+              here instead of re-typing their email.
+            </p>
+            <div className="flex items-center gap-2">
+              <Select
+                value={addUserId || null}
+                onValueChange={(val) => setAddUserId(val ?? "")}
+              >
+                <SelectTrigger
+                  className="flex-1"
+                  disabled={availableUsers.length === 0}
+                >
+                  <SelectValue
+                    placeholder={
+                      availableUsers.length === 0
+                        ? "Everyone in your organisation is already on this project"
+                        : "Select an existing colleague..."
+                    }
+                  />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent alignItemWithTrigger={false}>
                   {availableUsers.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name} ({u.email})
@@ -451,7 +467,7 @@ export default function ProjectSettingsPage() {
                 Add
               </Button>
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
 

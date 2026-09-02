@@ -56,6 +56,11 @@ export async function ensureUser(
   clerkId: string,
   clerkUser: { email: string; name: string; imageUrl?: string }
 ): Promise<DbUser> {
+  // Seeded colleague rows store lowercased emails (org.addColleague) —
+  // match and store the Clerk email in the same casing or a mixed-case
+  // sign-up silently provisions a duplicate user in a fresh org.
+  clerkUser = { ...clerkUser, email: clerkUser.email.toLowerCase() };
+
   // Look up existing user by Clerk ID
   const existing = await db.query.users.findFirst({
     where: eq(users.clerkId, clerkId),

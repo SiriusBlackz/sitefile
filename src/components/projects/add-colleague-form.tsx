@@ -15,16 +15,25 @@ import { toast } from "sonner";
 export function AddColleagueForm({
   onAdded,
 }: {
-  onAdded?: (user: { id: string; email: string; name: string }) => void;
+  onAdded?: (user: {
+    id: string;
+    email: string;
+    name: string;
+    alreadyExisted?: boolean;
+  }) => void;
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
 
   const addColleague = trpc.org.addColleague.useMutation({
     onSuccess: (user) => {
-      toast.success(`${user.email} added to your organisation`, {
-        description: `Tell them to sign up at www.sitefile.app/sign-up with that email — their account will land in your organisation.`,
-      });
+      if (user.alreadyExisted) {
+        toast.success(`${user.email} is already in your organisation`);
+      } else {
+        toast.success(`${user.email} added to your organisation`, {
+          description: `Tell them to sign up at www.sitefile.app/sign-up with that email — their account will land in your organisation.`,
+        });
+      }
       setEmail("");
       setName("");
       onAdded?.(user);
