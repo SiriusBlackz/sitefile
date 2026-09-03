@@ -26,6 +26,13 @@ import {
   EVIDENCE_TYPES,
   LINK_METHODS,
   PROJECT_MEMBER_ROLES,
+  DIARY_ENTRY_STATUSES,
+  DIARY_PROVENANCE,
+  DIARY_WORK_SOURCES,
+  DIARY_RESOURCE_KINDS,
+  HOLDUP_CAUSES,
+  HOLDUP_STATUSES,
+  DIARY_EVENT_KINDS,
 } from "./enums";
 
 function quotedList(values: readonly string[]): string {
@@ -121,6 +128,13 @@ export const projects = pgTable("projects", {
   // Tiered report sign-off config ({ steps: [{ userId, label }] }, 1-3
   // ordered steps). NULL = feature off: reports send as soon as generated.
   approvalChain: jsonb("approval_chain"),
+  // Site diary cadence: ISO weekday numbers (1=Mon..7=Sun) that count as
+  // working days — drives streaks, coverage % and missed-day nudges.
+  workingDays: jsonb("working_days").notNull().default([1, 2, 3, 4, 5]),
+  // IANA timezone for "is the site's day over" derivations and the
+  // auto-lock sweep. Diary entry dates themselves are always the
+  // phone's client-supplied local date.
+  timezone: text("timezone").notNull().default("Europe/London"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
@@ -567,6 +581,301 @@ export const auditLogRelations = relations(auditLog, ({ one }) => ({
   user: one(users, {
     fields: [auditLog.userId],
     references: [users.id],
+  }),
+}));
+
+// ─── Site Diary ──────────────────────────────────────────────────────────────
+// Foreman daily record ("The 90-Second Ritual"). One entry per person per
+// project per site-local day; evidential-lite: locks on submit (or the
+// auto-lock sweep), amendments are append-only events, dual entered/received
+// stamps keep offline submission honest.
+
+export const diaryEntries = pgTable(
+  "diary_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    // Site-local date, always client-supplied — never derived server-side.
+    entryDate: date("entry_date", { mode: "string" }).notNull(),
+    status: text("status").notNull().default("draft"),
+    // Dual stamps: what the phone claimed vs when the server received it.
+    enteredAt: timestamp("entered_at", { withTimezone: true, mode: "date" }),
+    receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" }),
+    lockedAt: timestamp("locked_at", { withTimezone: true, mode: "date" }),
+    // Permanent "entered next day" flag.
+    late: boolean("late").notNull().default(false),
+    // Block 4 scalars (people & safety).
+    visitorsCount: integer("visitors_count").notNull().default(0),
+    inspectionsCount: integer("inspections_count").notNull().default(0),
+    toolboxTalk: boolean("toolbox_talk").notNull().default(false),
+    toolboxTopic: text("toolbox_topic"),
+    incidentsCount: integer("incidents_count").notNull().default(0),
+    safetyNote: text("safety_note"),
+    workNote: text("work_note"),
+    // AUTO Open-Meteo snapshot frozen at submit.
+    weather: jsonb("weather"),
+    // Map of scalar field -> provenance stamp (auto/carried/edited/you).
+    provenance: jsonb("provenance").notNull().default({}),
+    // ◆ flag; the amendment history lives in diary_events.
+    amendedAt: timestamp("amended_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
+  },
+  (t) => [
+    unique("diary_entries_project_author_date_unique").on(
+      t.projectId,
+      t.authorId,
+      t.entryDate
+    ),
+    index("diary_entries_project_date_idx").on(t.projectId, t.entryDate),
+    index("diary_entries_author_idx").on(t.authorId),
+    check(
+      "diary_entries_status_check",
+      sql.raw(`${t.status.name} IN (${quotedList(DIARY_ENTRY_STATUSES)})`)
+    ),
+  ]
+).enableRLS();
+
+export const diaryWorkLines = pgTable(
+  "diary_work_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entryId: uuid("entry_id")
+      .notNull()
+      .references(() => diaryEntries.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    source: text("source").notNull(),
+    provenance: text("provenance").notNull(),
+    confirmed: boolean("confirmed").notNull().default(false),
+    // Evidence ids backing a pre-drafted line (photos stay in evidence).
+    evidenceIds: jsonb("evidence_ids"),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [
+    index("diary_work_lines_entry_idx").on(t.entryId),
+    check(
+      "diary_work_lines_source_check",
+      sql.raw(`${t.source.name} IN (${quotedList(DIARY_WORK_SOURCES)})`)
+    ),
+    check(
+      "diary_work_lines_provenance_check",
+      sql.raw(`${t.provenance.name} IN (${quotedList(DIARY_PROVENANCE)})`)
+    ),
+  ]
+).enableRLS();
+
+export const diaryResources = pgTable(
+  "diary_resources",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entryId: uuid("entry_id")
+      .notNull()
+      .references(() => diaryEntries.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    // v1 UI uses one row per kind (label ""); schema future-proofs named trades.
+    label: text("label").notNull().default(""),
+    qty: real("qty").notNull().default(0),
+    note: text("note"),
+    provenance: text("provenance").notNull(),
+  },
+  (t) => [
+    unique("diary_resources_entry_kind_label_unique").on(
+      t.entryId,
+      t.kind,
+      t.label
+    ),
+    check(
+      "diary_resources_kind_check",
+      sql.raw(`${t.kind.name} IN (${quotedList(DIARY_RESOURCE_KINDS)})`)
+    ),
+    check(
+      "diary_resources_provenance_check",
+      sql.raw(`${t.provenance.name} IN (${quotedList(DIARY_PROVENANCE)})`)
+    ),
+  ]
+).enableRLS();
+
+// Multi-day delay thread head — a one-day hold-up is a closed thread with
+// a single day row. The PM ledger is SUM(hours) over day rows by cause.
+export const diaryHoldups = pgTable(
+  "diary_holdups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    cause: text("cause").notNull(),
+    note: text("note"),
+    evidenceId: uuid("evidence_id").references(() => evidence.id, {
+      onDelete: "set null",
+    }),
+    status: text("status").notNull().default("open"),
+    startedOn: date("started_on", { mode: "string" }).notNull(),
+    closedOn: date("closed_on", { mode: "string" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+  },
+  (t) => [
+    index("diary_holdups_project_status_idx").on(t.projectId, t.status),
+    index("diary_holdups_project_started_idx").on(t.projectId, t.startedOn),
+    check(
+      "diary_holdups_cause_check",
+      sql.raw(`${t.cause.name} IN (${quotedList(HOLDUP_CAUSES)})`)
+    ),
+    check(
+      "diary_holdups_status_check",
+      sql.raw(`${t.status.name} IN (${quotedList(HOLDUP_STATUSES)})`)
+    ),
+  ]
+).enableRLS();
+
+export const diaryHoldupDays = pgTable(
+  "diary_holdup_days",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    holdupId: uuid("holdup_id")
+      .notNull()
+      .references(() => diaryHoldups.id, { onDelete: "cascade" }),
+    // Denormalised for ledger queries.
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // Attached at ritual confirm; null while logged mid-day.
+    entryId: uuid("entry_id").references(() => diaryEntries.id, {
+      onDelete: "set null",
+    }),
+    reportedBy: uuid("reported_by")
+      .notNull()
+      .references(() => users.id),
+    occurredOn: date("occurred_on", { mode: "string" }).notNull(),
+    hoursLost: real("hours_lost").notNull(),
+    note: text("note"),
+    // Moment-of-logging honesty: what the phone claimed vs server receipt.
+    loggedAt: timestamp("logged_at", { withTimezone: true, mode: "date" }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+    provenance: text("provenance").notNull().default("you"),
+  },
+  (t) => [
+    unique("diary_holdup_days_holdup_date_unique").on(t.holdupId, t.occurredOn),
+    index("diary_holdup_days_project_date_idx").on(t.projectId, t.occurredOn),
+    check(
+      "diary_holdup_days_provenance_check",
+      sql.raw(`${t.provenance.name} IN (${quotedList(DIARY_PROVENANCE)})`)
+    ),
+  ]
+).enableRLS();
+
+// Append-only lifecycle + amendment history; originals preserved here.
+export const diaryEvents = pgTable(
+  "diary_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entryId: uuid("entry_id").references(() => diaryEntries.id, {
+      onDelete: "cascade",
+    }),
+    holdupId: uuid("holdup_id").references(() => diaryHoldups.id, {
+      onDelete: "cascade",
+    }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // Null for system actions (auto_locked).
+    actorId: uuid("actor_id").references(() => users.id),
+    kind: text("kind").notNull(),
+    // Amendments carry {field, previous, next}.
+    payload: jsonb("payload").notNull().default({}),
+    clientAt: timestamp("client_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("diary_events_entry_idx").on(t.entryId),
+    index("diary_events_project_created_idx").on(t.projectId, t.createdAt),
+    check(
+      "diary_events_kind_check",
+      sql.raw(`${t.kind.name} IN (${quotedList(DIARY_EVENT_KINDS)})`)
+    ),
+  ]
+).enableRLS();
+
+export const diaryEntriesRelations = relations(diaryEntries, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [diaryEntries.projectId],
+    references: [projects.id],
+  }),
+  author: one(users, {
+    fields: [diaryEntries.authorId],
+    references: [users.id],
+  }),
+  workLines: many(diaryWorkLines),
+  resources: many(diaryResources),
+}));
+
+export const diaryWorkLinesRelations = relations(diaryWorkLines, ({ one }) => ({
+  entry: one(diaryEntries, {
+    fields: [diaryWorkLines.entryId],
+    references: [diaryEntries.id],
+  }),
+  task: one(tasks, {
+    fields: [diaryWorkLines.taskId],
+    references: [tasks.id],
+  }),
+}));
+
+export const diaryResourcesRelations = relations(diaryResources, ({ one }) => ({
+  entry: one(diaryEntries, {
+    fields: [diaryResources.entryId],
+    references: [diaryEntries.id],
+  }),
+}));
+
+export const diaryHoldupsRelations = relations(diaryHoldups, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [diaryHoldups.projectId],
+    references: [projects.id],
+  }),
+  author: one(users, {
+    fields: [diaryHoldups.authorId],
+    references: [users.id],
+  }),
+  task: one(tasks, {
+    fields: [diaryHoldups.taskId],
+    references: [tasks.id],
+  }),
+  days: many(diaryHoldupDays),
+}));
+
+export const diaryHoldupDaysRelations = relations(diaryHoldupDays, ({ one }) => ({
+  holdup: one(diaryHoldups, {
+    fields: [diaryHoldupDays.holdupId],
+    references: [diaryHoldups.id],
+  }),
+  entry: one(diaryEntries, {
+    fields: [diaryHoldupDays.entryId],
+    references: [diaryEntries.id],
+  }),
+}));
+
+export const diaryEventsRelations = relations(diaryEvents, ({ one }) => ({
+  entry: one(diaryEntries, {
+    fields: [diaryEvents.entryId],
+    references: [diaryEntries.id],
+  }),
+  holdup: one(diaryHoldups, {
+    fields: [diaryEvents.holdupId],
+    references: [diaryHoldups.id],
   }),
 }));
 

@@ -7,8 +7,10 @@ import { reportRouter } from "./report";
 import { auditRouter } from "./audit";
 import { dashboardRouter } from "./dashboard";
 import { orgRouter } from "./org";
+import { diaryRouter } from "./diary";
 
 export const appRouter = createTRPCRouter({
+  diary: diaryRouter,
   project: projectRouter,
   task: taskRouter,
   evidence: evidenceRouter,

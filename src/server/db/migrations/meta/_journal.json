@@ -127,6 +127,13 @@
       "when": 1788460896954,
       "tag": "0017_first_report_number",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788477894745,
+      "tag": "0018_site_diary",
+      "breakpoints": true
     }
   ]
 }

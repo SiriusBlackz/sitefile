@@ -193,6 +193,25 @@ export const projectRouter = createTRPCRouter({
           reportingFrequency: z.string().optional(),
           nextReportDue: z.string().optional(),
           firstReportNumber: z.number().int().min(1).max(9999).optional(),
+          workingDays: z
+            .array(z.number().int().min(1).max(7))
+            .min(1)
+            .max(7)
+            .optional(),
+          timezone: z
+            .string()
+            .refine(
+              (tz) => {
+                try {
+                  new Intl.DateTimeFormat("en-GB", { timeZone: tz });
+                  return true;
+                } catch {
+                  return false;
+                }
+              },
+              { message: "Unknown timezone" }
+            )
+            .optional(),
           status: z.enum(PROJECT_STATUSES).optional(),
         })
         .refine(

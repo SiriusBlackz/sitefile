@@ -42,6 +42,48 @@ export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
 export const LINK_METHODS = ["manual", "ai_suggested", "auto"] as const;
 export type LinkMethod = (typeof LINK_METHODS)[number];
 
+// --- Site Diary (foreman daily record) ---
+
+export const DIARY_ENTRY_STATUSES = ["draft", "locked", "not_filled"] as const;
+export type DiaryEntryStatus = (typeof DIARY_ENTRY_STATUSES)[number];
+
+/** Where a datum came from — the evidential provenance stamp. */
+export const DIARY_PROVENANCE = ["auto", "carried", "edited", "you"] as const;
+export type DiaryProvenance = (typeof DIARY_PROVENANCE)[number];
+
+export const DIARY_WORK_SOURCES = ["photo_link", "manual", "carried"] as const;
+export type DiaryWorkSource = (typeof DIARY_WORK_SOURCES)[number];
+
+export const DIARY_RESOURCE_KINDS = ["labour", "plant", "materials"] as const;
+export type DiaryResourceKind = (typeof DIARY_RESOURCE_KINDS)[number];
+
+export const HOLDUP_CAUSES = [
+  "weather",
+  "awaiting_information",
+  "no_access",
+  "labour_shortage",
+  "materials_delay",
+  "plant_breakdown",
+  "design_change",
+  "rework",
+  "other",
+] as const;
+export type HoldupCause = (typeof HOLDUP_CAUSES)[number];
+
+export const HOLDUP_STATUSES = ["open", "closed"] as const;
+export type HoldupStatus = (typeof HOLDUP_STATUSES)[number];
+
+export const DIARY_EVENT_KINDS = [
+  "created",
+  "submitted",
+  "auto_locked",
+  "amended",
+  "holdup_logged",
+  "holdup_updated",
+  "holdup_closed",
+] as const;
+export type DiaryEventKind = (typeof DIARY_EVENT_KINDS)[number];
+
 export const PROJECT_MEMBER_ROLES = [
   "admin",
   "member",

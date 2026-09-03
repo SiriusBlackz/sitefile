@@ -39,7 +39,9 @@ export type AuditEntityType =
   | "report"
   | "gps_zone"
   | "subscription"
-  | "project_member";
+  | "project_member"
+  | "diary_entry"
+  | "diary_holdup";
 
 export interface AuditEntry {
   projectId: string;

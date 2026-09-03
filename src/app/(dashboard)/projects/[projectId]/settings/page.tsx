@@ -36,6 +36,7 @@ import { labelFor } from "@/lib/format";
 import { MEMBER_ROLE_LABELS } from "@/lib/member-roles";
 import { PROJECT_MEMBER_ROLES } from "@/server/db/enums";
 import { ApprovalChainCard } from "@/components/projects/approval-chain-card";
+import { WorkingDaysCard } from "@/components/projects/working-days-card";
 
 function ClientLogoCard({
   projectId,
@@ -512,6 +513,12 @@ export default function ProjectSettingsPage() {
       <ApprovalChainCard
         projectId={params.projectId}
         approvalChain={project.approvalChain}
+      />
+
+      <WorkingDaysCard
+        projectId={params.projectId}
+        workingDays={project.workingDays}
+        timezone={project.timezone}
       />
 
       <Card>
