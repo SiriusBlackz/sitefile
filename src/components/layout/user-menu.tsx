@@ -63,6 +63,9 @@ function ClerkUserMenu() {
   if (!isLoaded || !isSignedIn) return null;
   return (
     <UserButton
+      // Keep the "API keys" tab out of the popup profile too (mirrors
+      // the /account UserProfile).
+      userProfileProps={{ apiKeysProps: { hide: true } }}
       appearance={{
         elements: { avatarBox: "h-8 w-8" },
       }}

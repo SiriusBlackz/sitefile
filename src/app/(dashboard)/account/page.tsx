@@ -123,6 +123,10 @@ function ClerkAccountPanel() {
   return (
     <div className="flex justify-center">
       <UserProfile
+        // Contractors must never see a "generate API key" surface — the
+        // instance-level feature stays on for Clerk's own needs, the tab
+        // is suppressed here.
+        apiKeysProps={{ hide: true }}
         appearance={{
           elements: {
             rootBox: "w-full",
