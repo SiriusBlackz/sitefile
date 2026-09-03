@@ -34,6 +34,8 @@ export interface SummaryStats {
   sinceLastReport?: SinceLastReport | null;
   /** Period weather at the site location, when derivable. */
   weather?: PeriodWeather | null;
+  /** Cumulative weather since project start, when the start predates the period. */
+  weatherToDate?: (PeriodWeather & { since: string }) | null;
   /** PM-entered H&S figures, when provided. */
   healthSafety?: HealthSafetyStats | null;
   /** Current programme completion vs the accepted baseline, when one exists. */
@@ -111,7 +113,11 @@ export function paginateSummary(
   blocks.push({ item: { type: "table" }, height: TASK_TABLE_H });
   blocks.push({ item: { type: "evidence" }, height: EVIDENCE_H });
   if (stats.weather) {
-    blocks.push({ item: { type: "weather" }, height: WEATHER_H });
+    blocks.push({
+      item: { type: "weather" },
+      // The project-to-date line adds one row when present.
+      height: stats.weatherToDate ? WEATHER_H + 18 : WEATHER_H,
+    });
   }
   if (stats.healthSafety) {
     blocks.push({ item: { type: "hs" }, height: HS_H });
@@ -225,7 +231,11 @@ function renderItem(item: SummaryItem, key: number, stats: SummaryStats) {
       return <TaskTable key={key} stats={stats} />;
     case "weather":
       return stats.weather ? (
-        <WeatherBlock key={key} weather={stats.weather} />
+        <WeatherBlock
+          key={key}
+          weather={stats.weather}
+          toDate={stats.weatherToDate ?? null}
+        />
       ) : null;
     case "hs":
       return stats.healthSafety ? (
@@ -426,7 +436,13 @@ function DeltaStrip({ delta }: { delta: SinceLastReport }) {
   );
 }
 
-function WeatherBlock({ weather }: { weather: PeriodWeather }) {
+function WeatherBlock({
+  weather,
+  toDate,
+}: {
+  weather: PeriodWeather;
+  toDate: (PeriodWeather & { since: string }) | null;
+}) {
   return (
     <div style={{ marginBottom: 20 }}>
       <h3>Weather — Reporting Period</h3>
@@ -448,6 +464,20 @@ function WeatherBlock({ weather }: { weather: PeriodWeather }) {
           </>
         )}
         .
+        {toDate && (
+          <>
+            {" "}
+            Project to date (since{" "}
+            {new Date(toDate.since).toLocaleDateString("en-GB", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+            ): <strong>{toDate.totalPrecipMm}mm</strong> total precipitation
+            across {toDate.wetDays} wet day{toDate.wetDays === 1 ? "" : "s"} in{" "}
+            {toDate.daysCovered} recorded days.
+          </>
+        )}
       </div>
       <div style={{ fontSize: 8.5, color: "#94a3b8", marginTop: 4 }}>
         Source: Open-Meteo historical weather for the site location

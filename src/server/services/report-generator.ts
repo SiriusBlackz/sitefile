@@ -785,6 +785,23 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
         input.periodStart,
         input.periodEnd
       );
+      // Cumulative "project to date" line — only meaningful once the
+      // project started before this reporting period.
+      if (
+        summaryStats.weather &&
+        project.startDate &&
+        project.startDate < input.periodStart
+      ) {
+        const toDate = await fetchPeriodWeather(
+          coords.latitude,
+          coords.longitude,
+          project.startDate,
+          input.periodEnd
+        );
+        summaryStats.weatherToDate = toDate
+          ? { ...toDate, since: project.startDate }
+          : null;
+      }
     }
   }
 
