@@ -324,10 +324,10 @@ export default function ProjectSettingsPage() {
             <span className="font-medium text-foreground">
               Getting site staff in:
             </span>{" "}
-            add their work email below, then tell them to sign up at
-            www.sitefile.app/sign-up with it — their account lands in your
-            organisation and this project, and they can capture photos
-            straight to it.
+            add their work email below — they get an invitation email, and
+            their account lands in your organisation and this project. No
+            email arrived? They can just sign up at www.sitefile.app/sign-up
+            with the same address; re-adding them here resends the invite.
           </p>
           <AddColleagueForm
             onAdded={(user) => {

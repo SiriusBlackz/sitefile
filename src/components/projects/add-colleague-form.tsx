@@ -20,6 +20,7 @@ export function AddColleagueForm({
     email: string;
     name: string;
     alreadyExisted?: boolean;
+    inviteEmail?: string;
   }) => void;
 }) {
   const [email, setEmail] = useState("");
@@ -27,11 +28,23 @@ export function AddColleagueForm({
 
   const addColleague = trpc.org.addColleague.useMutation({
     onSuccess: (user) => {
-      if (user.alreadyExisted) {
-        toast.success(`${user.email} is already in your organisation`);
+      const base = user.alreadyExisted
+        ? `${user.email} is already in your organisation`
+        : `${user.email} added to your organisation`;
+      if (user.inviteEmail === "sent") {
+        toast.success(base, {
+          description:
+            "Invitation email sent — the link signs them up with this address. Worth a check of their junk folder the first time.",
+        });
+      } else if (user.inviteEmail === "already_invited") {
+        toast.success(base, {
+          description:
+            "An invite email is already out to them — or they can just sign up at www.sitefile.app/sign-up with this address.",
+        });
       } else {
-        toast.success(`${user.email} added to your organisation`, {
-          description: `Tell them to sign up at www.sitefile.app/sign-up with that email — their account will land in your organisation.`,
+        toast.success(base, {
+          description:
+            "Tell them to sign up at www.sitefile.app/sign-up with this email — their account will land in your organisation.",
         });
       }
       setEmail("");

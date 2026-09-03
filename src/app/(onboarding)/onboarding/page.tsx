@@ -177,10 +177,10 @@ export default function OnboardingPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Add the people who&apos;ll capture photos on site. No email is
-              sent — tell them to sign up at www.sitefile.app/sign-up with
-              the address you enter here and their account lands in your
-              organisation.
+              Add the people who&apos;ll capture photos on site. Each gets
+              an invitation email; if it doesn&apos;t arrive they can simply
+              sign up at www.sitefile.app/sign-up with the same address and
+              their account lands in your organisation.
             </p>
             <AddColleagueForm
               onAdded={(user) =>

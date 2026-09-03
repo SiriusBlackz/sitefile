@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
 import { organisations, users } from "@/server/db/schema";
 import { getPublicUrl, uploadToStorage } from "@/server/services/storage";
+import { sendColleagueInvitation } from "@/server/services/clerk-invitations";
 
 /** Logos arrive as base64 (small files, avoids R2 CORS entirely). */
 const MAX_LOGO_BASE64 = 2_800_000; // ~2MB binary
@@ -102,11 +103,13 @@ export const orgRouter = createTRPCRouter({
   }),
 
   /**
-   * Pre-seed a colleague into this organisation by email. No invite email
-   * is sent — the admin tells them to sign up at /sign-up with this
-   * address, and the email-first lookup in ensureUser / the Clerk webhook
-   * claims this row (fills in the real clerkId) instead of provisioning a
-   * fresh empty org. Post-pilot this is replaced by Clerk Invitations.
+   * Pre-seed a colleague into this organisation by email AND email them a
+   * Clerk invitation. The pre-seed is the source of truth: the email-first
+   * lookup in ensureUser / the Clerk webhook claims this row (fills in the
+   * real clerkId) whether they arrive via the invite link or sign up
+   * directly with the same address — so a failed/undelivered email only
+   * loses convenience, never access. Re-adding an unclaimed colleague
+   * re-attempts the invite (acts as "resend").
    */
   addColleague: adminProcedure
     .input(
@@ -116,6 +119,8 @@ export const orgRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Demo sessions never send real email.
+      const isDemoSession = ctx.clerkId?.startsWith("demo_") ?? false;
       const existing = await ctx.db.query.users.findFirst({
         where: eq(users.email, input.email),
       });
@@ -130,11 +135,17 @@ export const orgRouter = createTRPCRouter({
         // Idempotent for same-org emails: callers chain a project
         // memberAdd off this result, and throwing here left re-added
         // colleagues stranded in the org with no project membership.
+        const unclaimed = existing.clerkId.startsWith("invited:");
+        const inviteEmail =
+          unclaimed && !isDemoSession
+            ? await sendColleagueInvitation(existing.email)
+            : "skipped";
         return {
           id: existing.id,
           email: existing.email,
           name: existing.name,
           alreadyExisted: true,
+          inviteEmail,
         };
       }
       const [user] = await ctx.db
@@ -148,6 +159,15 @@ export const orgRouter = createTRPCRouter({
           role: "member",
         })
         .returning();
-      return { id: user.id, email: user.email, name: user.name, alreadyExisted: false };
+      const inviteEmail = isDemoSession
+        ? "skipped"
+        : await sendColleagueInvitation(user.email);
+      return {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        alreadyExisted: false,
+        inviteEmail,
+      };
     }),
 });
