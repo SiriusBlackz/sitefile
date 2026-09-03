@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "first_report_number" integer NOT NULL DEFAULT 1;

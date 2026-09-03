@@ -29,6 +29,14 @@ const projectFormSchema = z.object({
   endDate: z.string().optional(),
   reportingFrequency: z.string().optional(),
   nextReportDue: z.string().optional(),
+  // Number conversion happens in register()'s setValueAs so callers can
+  // pass this straight to tRPC.
+  firstReportNumber: z
+    .number()
+    .int("Whole number only")
+    .min(1, "Must be 1 or higher")
+    .max(9999, "Too high")
+    .optional(),
 }).refine(
   (data) => !data.startDate || !data.endDate || data.endDate >= data.startDate,
   { message: "End date must be after start date", path: ["endDate"] }
@@ -66,6 +74,7 @@ export function ProjectForm({
       endDate: "",
       reportingFrequency: "monthly",
       nextReportDue: "",
+      firstReportNumber: 1,
       ...defaultValues,
     },
   });
@@ -176,7 +185,31 @@ export function ProjectForm({
             </div>
           </div>
 
-
+          <div className="space-y-2">
+            <Label htmlFor="firstReportNumber">First report number</Label>
+            <Input
+              id="firstReportNumber"
+              type="number"
+              min={1}
+              max={9999}
+              className="w-28"
+              {...register("firstReportNumber", {
+                setValueAs: (v) =>
+                  v === "" || v == null ? undefined : Number(v),
+              })}
+            />
+            <p className="text-xs text-muted-foreground">
+              Already sent reports for this contract before Sitefile? Start
+              numbering where they left off (e.g. 5). Applies to the first
+              report you generate here — after that, numbering continues
+              automatically.
+            </p>
+            {errors.firstReportNumber && (
+              <p className="text-sm text-destructive">
+                {errors.firstReportNumber.message}
+              </p>
+            )}
+          </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">

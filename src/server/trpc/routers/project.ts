@@ -117,6 +117,7 @@ export const projectRouter = createTRPCRouter({
           endDate: z.string().optional(),
           reportingFrequency: z.string().optional(),
           nextReportDue: z.string().optional(),
+          firstReportNumber: z.number().int().min(1).max(9999).optional(),
         })
         .refine(
           (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,
@@ -143,6 +144,7 @@ export const projectRouter = createTRPCRouter({
           endDate: input.endDate || null,
           reportingFrequency: input.reportingFrequency || null,
           nextReportDue: input.nextReportDue || null,
+          firstReportNumber: input.firstReportNumber ?? 1,
         })
         .returning();
 
@@ -190,6 +192,7 @@ export const projectRouter = createTRPCRouter({
           endDate: z.string().optional(),
           reportingFrequency: z.string().optional(),
           nextReportDue: z.string().optional(),
+          firstReportNumber: z.number().int().min(1).max(9999).optional(),
           status: z.enum(PROJECT_STATUSES).optional(),
         })
         .refine(

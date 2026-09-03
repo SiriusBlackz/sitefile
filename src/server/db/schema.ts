@@ -105,6 +105,10 @@ export const projects = pgTable("projects", {
   // When the next report is owed to the client — drives the countdown
   // chip and the gap list; advanced by one frequency step on generation.
   nextReportDue: date("next_report_due", { mode: "string" }),
+  // Where report numbering begins: contractors joining mid-contract may
+  // already have sent reports №1..N outside Sitefile. Only consulted
+  // while the project has no reports; after that MAX+1 rules.
+  firstReportNumber: integer("first_report_number").notNull().default(1),
   // Programme-as-living-document ritual: stamped by programme import and
   // by the per-period "no change this period" confirmation.
   programmeConfirmedAt: timestamp("programme_confirmed_at", {

@@ -300,6 +300,7 @@ export default function ProjectSettingsPage() {
           endDate: project.endDate ?? "",
           reportingFrequency: project.reportingFrequency ?? "monthly",
           nextReportDue: project.nextReportDue ?? "",
+          firstReportNumber: project.firstReportNumber ?? 1,
         }}
         onSubmit={handleSubmit}
         isSubmitting={updateProject.isPending}

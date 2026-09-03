@@ -159,7 +159,7 @@ export const reportRouter = createTRPCRouter({
       // later config edits never retro-change a live report's sign-off.
       const projectRow = await ctx.db.query.projects.findFirst({
         where: eq(projects.id, input.projectId),
-        columns: { approvalChain: true },
+        columns: { approvalChain: true, firstReportNumber: true },
       });
       const chain = parseApprovalChain(projectRow?.approvalChain);
       let approvalState: ApprovalState | null = null;
@@ -234,7 +234,11 @@ export const reportRouter = createTRPCRouter({
           orderBy: [desc(reports.reportNumber)],
           limit: 1,
         });
-        const reportNumber = (existing[0]?.reportNumber ?? 0) + 1;
+        // First-ever report starts at the project's configured number —
+        // contractors joining mid-contract may already be at №5 on paper.
+        const reportNumber = existing[0]
+          ? existing[0].reportNumber + 1
+          : (projectRow?.firstReportNumber ?? 1);
 
         try {
           [report] = await ctx.db
