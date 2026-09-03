@@ -14,6 +14,7 @@ import {
   type GapSnapshot,
 } from "@/lib/readiness";
 import { ResumeCaptureBanner } from "@/components/capture/resume-capture-banner";
+import { DiaryCard } from "@/components/diary/diary-card";
 import { PWAInstallBanner } from "@/components/layout/pwa-install-banner";
 import {
   AlertTriangle,
@@ -224,6 +225,9 @@ export function PhoneProjectHome({
               : "GPS on"}
         </span>
       </button>
+
+      {/* Daily diary habit — sits right under Capture. */}
+      <DiaryCard projectId={projectId} />
 
       {/* Gap list — the home's only content section. */}
       <div className="space-y-2">
