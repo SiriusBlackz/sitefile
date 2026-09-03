@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, lt, desc, isNull, sql } from "drizzle-orm";
+import { eq, and, lt, desc, isNull, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
 import {
@@ -8,7 +8,18 @@ import {
   reportShares,
   reportDrafts,
   projects,
+  projectMembers,
+  users,
 } from "@/server/db/schema";
+import {
+  parseApprovalChain,
+  parseApprovalState,
+  currentApprovalStep,
+  isApprovalComplete,
+  type ApprovalState,
+} from "@/lib/report-approval";
+import { MEMBER_ROLE_LABELS } from "@/lib/member-roles";
+import type { ProjectMemberRole } from "@/server/db/enums";
 import { randomBytes } from "crypto";
 import { inngest } from "@/server/inngest/client";
 import { assertProjectAccess } from "../helpers";
@@ -53,13 +64,19 @@ export const reportRouter = createTRPCRouter({
           periodEnd: true,
           status: true,
           passwordHash: true,
+          approvalState: true,
           createdAt: true,
         },
       });
-      return rows.map(({ passwordHash, ...row }) => ({
-        ...row,
-        hasPassword: passwordHash != null,
-      }));
+      return rows.map(({ passwordHash, approvalState, ...row }) => {
+        const state = parseApprovalState(approvalState);
+        return {
+          ...row,
+          hasPassword: passwordHash != null,
+          awaitingApproval: state ? !isApprovalComplete(state) : false,
+          nextApprover: state ? (currentApprovalStep(state)?.name ?? null) : null,
+        };
+      });
     }),
 
   get: protectedProcedure
@@ -78,17 +95,23 @@ export const reportRouter = createTRPCRouter({
           status: true,
           passwordHash: true,
           reportData: true,
+          approvalState: true,
           createdAt: true,
         },
       });
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
       await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
-      const { passwordHash, reportData, ...row } = report;
+      const { passwordHash, reportData, approvalState, ...row } = report;
       // Only the document fingerprint escapes reportData — the blob can
       // carry legacy inline PDF bytes.
       const pdfSha256 =
         (reportData as { pdfSha256?: string } | null)?.pdfSha256 ?? null;
-      return { ...row, hasPassword: passwordHash != null, pdfSha256 };
+      return {
+        ...row,
+        hasPassword: passwordHash != null,
+        pdfSha256,
+        approvalState: parseApprovalState(approvalState),
+      };
     }),
 
   generate: protectedProcedure
@@ -131,6 +154,46 @@ export const reportRouter = createTRPCRouter({
       await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId, {
         requireActive: true,
       });
+
+      // Snapshot the project's approval chain (if any) onto this report so
+      // later config edits never retro-change a live report's sign-off.
+      const projectRow = await ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.projectId),
+        columns: { approvalChain: true },
+      });
+      const chain = parseApprovalChain(projectRow?.approvalChain);
+      let approvalState: ApprovalState | null = null;
+      if (chain) {
+        const ids = chain.steps.map((s) => s.userId);
+        const [stepUsers, stepMembers] = await Promise.all([
+          ctx.db.query.users.findMany({
+            where: inArray(users.id, ids),
+            columns: { id: true, name: true },
+          }),
+          ctx.db.query.projectMembers.findMany({
+            where: and(
+              eq(projectMembers.projectId, input.projectId),
+              inArray(projectMembers.userId, ids)
+            ),
+            columns: { userId: true, role: true },
+          }),
+        ]);
+        const nameById = new Map(stepUsers.map((u) => [u.id, u.name]));
+        const roleById = new Map(stepMembers.map((m) => [m.userId, m.role]));
+        approvalState = {
+          steps: chain.steps.map((s) => ({
+            userId: s.userId,
+            label: s.label,
+            name: nameById.get(s.userId) ?? "Unknown user",
+            roleLabel:
+              MEMBER_ROLE_LABELS[roleById.get(s.userId) as ProjectMemberRole] ??
+              null,
+            approvedAt: null,
+            approvedName: null,
+          })),
+          completedAt: null,
+        };
+      }
 
       const passwordHash = input.password
         ? await bcrypt.hash(input.password, 10)
@@ -184,6 +247,7 @@ export const reportRouter = createTRPCRouter({
               periodEnd: input.periodEnd,
               passwordHash,
               passwordCiphertext,
+              approvalState,
               status: "generating",
             })
             .returning();
@@ -532,6 +596,77 @@ export const reportRouter = createTRPCRouter({
   // client's opens/downloads become a delivery receipt. Passwords stay
   // out-of-band — the PDF itself is encrypted when one was set.
 
+  // Tiered sign-off: the current step's named approver (or an org admin
+  // as escape hatch) approves in order; the report becomes sendable only
+  // when every step is approved.
+  approve: protectedProcedure
+    .input(
+      z.object({
+        reportId: z.string().uuid(),
+        approvedName: z.string().trim().min(1).max(120),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const report = await ctx.db.query.reports.findFirst({
+        where: eq(reports.id, input.reportId),
+        columns: { id: true, projectId: true, status: true, reportNumber: true, approvalState: true },
+      });
+      if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
+      await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
+      if (report.status !== "completed") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "The report is still generating — approve it once it's ready.",
+        });
+      }
+      const state = parseApprovalState(report.approvalState);
+      if (!state) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This report has no approval chain." });
+      }
+      const step = currentApprovalStep(state);
+      if (!step) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This report is already fully approved." });
+      }
+      const isOrgAdmin = ctx.dbUser?.role === "admin";
+      if (step.userId !== ctx.userId && !isOrgAdmin) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `This step is assigned to ${step.name}.`,
+        });
+      }
+      const now = new Date().toISOString();
+      const nextSteps = state.steps.map((s) =>
+        s === step
+          ? { ...s, approvedAt: now, approvedName: input.approvedName }
+          : s
+      );
+      const completed = nextSteps.every((s) => s.approvedAt);
+      const nextState = {
+        steps: nextSteps,
+        completedAt: completed ? now : null,
+      };
+      await ctx.db
+        .update(reports)
+        .set({ approvalState: nextState })
+        .where(eq(reports.id, report.id));
+      writeAuditLogAsync(ctx.db, {
+        projectId: report.projectId,
+        userId: ctx.userId,
+        action: "approve",
+        entityType: "report",
+        entityId: report.id,
+        metadata: {
+          reportNumber: report.reportNumber,
+          step: step.label,
+          stepUserId: step.userId,
+          approvedName: input.approvedName,
+          onBehalf: step.userId !== ctx.userId ? "org_admin" : undefined,
+          chainComplete: completed,
+        },
+      });
+      return { approvalState: nextState };
+    }),
+
   createShare: protectedProcedure
     .input(
       z.object({
@@ -542,12 +677,20 @@ export const reportRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const report = await ctx.db.query.reports.findFirst({
         where: eq(reports.id, input.reportId),
-        columns: { id: true, projectId: true, status: true, reportNumber: true },
+        columns: { id: true, projectId: true, status: true, reportNumber: true, approvalState: true },
       });
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
       await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
       if (report.status !== "completed") {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Report is not ready to share" });
+      }
+      const shareChainState = parseApprovalState(report.approvalState);
+      if (!isApprovalComplete(shareChainState)) {
+        const next = shareChainState ? currentApprovalStep(shareChainState) : null;
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `This report is awaiting sign-off${next ? ` from ${next.name}` : ""} before it can be sent.`,
+        });
       }
       const token = randomBytes(24).toString("base64url");
       const [share] = await ctx.db
@@ -613,7 +756,7 @@ export const reportRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const report = await ctx.db.query.reports.findFirst({
         where: eq(reports.id, input.reportId),
-        columns: { id: true, projectId: true, status: true, passwordCiphertext: true, reportNumber: true },
+        columns: { id: true, projectId: true, status: true, passwordCiphertext: true, reportNumber: true, approvalState: true },
       });
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
       await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
@@ -621,6 +764,12 @@ export const reportRouter = createTRPCRouter({
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "No stored password for this report.",
+        });
+      }
+      if (!isApprovalComplete(parseApprovalState(report.approvalState))) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This report is awaiting sign-off — the password unlocks once approvals are complete.",
         });
       }
       const password = decryptReportPassword(report.passwordCiphertext);

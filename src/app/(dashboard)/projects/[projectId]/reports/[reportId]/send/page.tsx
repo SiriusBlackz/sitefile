@@ -20,7 +20,6 @@ import {
   Lock,
   Mail,
   MessageCircle,
-  Send,
 } from "lucide-react";
 
 /**
@@ -39,6 +38,7 @@ export default function SendPage() {
 
   const { data: report } = trpc.report.get.useQuery({ id: reportId });
   const { data: project } = trpc.project.get.useQuery({ id: projectId });
+  const { data: currentUser } = trpc.project.currentUser.useQuery();
   const { data: shares = [] } = trpc.report.shareStatus.useQuery(
     { reportId },
     { refetchInterval: 8000 }
@@ -48,6 +48,21 @@ export default function SendPage() {
   const [recipient, setRecipient] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [password, setPassword] = useState<string | null>(null);
+  const [approveName, setApproveName] = useState("");
+
+  const approve = trpc.report.approve.useMutation({
+    onSuccess: (d) => {
+      utils.report.get.invalidate({ id: reportId });
+      utils.report.list.invalidate({ projectId });
+      setApproveName("");
+      toast.success(
+        d.approvalState.completedAt
+          ? "Fully approved — the report can now be sent"
+          : "Approved — passed to the next step"
+      );
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const createShare = trpc.report.createShare.useMutation({
     onSuccess: () => utils.report.shareStatus.invalidate({ reportId }),
@@ -82,6 +97,14 @@ export default function SendPage() {
   const share = active[0] ?? null;
   const sealed = report.status === "completed";
   const opened = share?.openedAt != null;
+  const approval = report.approvalState;
+  const chainComplete = !approval || Boolean(approval.completedAt);
+  const currentStep = approval?.steps.find((s) => !s.approvedAt) ?? null;
+  const canApprove =
+    sealed &&
+    currentStep != null &&
+    (currentStep.userId === currentUser?.id || currentUser?.role === "admin");
+  const sendable = sealed && chainComplete;
 
   async function copy(text: string, label: string) {
     try {
@@ -166,6 +189,91 @@ export default function SendPage() {
               )}
             </div>
 
+            {approval && (
+              <div
+                className={cn(
+                  "rounded-lg border p-3",
+                  !chainComplete && "border-amber-300 bg-amber-50/60 dark:bg-amber-950/20"
+                )}
+              >
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Sign-off {chainComplete ? "· complete" : "· in progress"}
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {approval.steps.map((s, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm">
+                      {s.approvedAt ? (
+                        <Check className="h-4 w-4 shrink-0 text-green-600" />
+                      ) : (
+                        <Circle
+                          className={cn(
+                            "h-4 w-4 shrink-0",
+                            s === currentStep
+                              ? "text-amber-500"
+                              : "text-muted-foreground/40"
+                          )}
+                        />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="font-medium">{s.name}</span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {s.roleLabel ?? s.label}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {s.approvedAt
+                          ? formatDateTime(s.approvedAt)
+                          : s === currentStep
+                            ? "Your move"
+                            : "Waiting"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {canApprove && currentStep && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                    <Input
+                      value={approveName}
+                      onChange={(e) => setApproveName(e.target.value)}
+                      placeholder="Type your full name to approve"
+                      className="min-w-48 flex-1"
+                      aria-label="Approver name"
+                    />
+                    <Button
+                      size="sm"
+                      disabled={!approveName.trim() || approve.isPending}
+                      onClick={() =>
+                        approve.mutate({
+                          reportId,
+                          approvedName: approveName.trim(),
+                        })
+                      }
+                    >
+                      <Check className="mr-1 h-3.5 w-3.5" />
+                      {approve.isPending
+                        ? "Approving..."
+                        : `Approve — ${currentStep.label}`}
+                    </Button>
+                  </div>
+                )}
+                {!chainComplete && !canApprove && currentStep && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Waiting on {currentStep.name} ({currentStep.label}) — the
+                    report can&apos;t be sent until sign-off completes. The
+                    chain is set in{" "}
+                    <Link
+                      href={`/projects/${projectId}/settings`}
+                      className="underline underline-offset-2"
+                    >
+                      project settings
+                    </Link>
+                    .
+                  </p>
+                )}
+              </div>
+            )}
+
             {report.hasPassword && (
               <div className="rounded-lg border p-3">
                 <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -188,7 +296,12 @@ export default function SendPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={reveal.isPending}
+                      disabled={reveal.isPending || !chainComplete}
+                      title={
+                        !chainComplete
+                          ? "Unlocks once sign-off is complete"
+                          : undefined
+                      }
                       onClick={() => reveal.mutate({ reportId })}
                     >
                       <Eye className="mr-1 h-3.5 w-3.5" />
@@ -244,7 +357,7 @@ export default function SendPage() {
             <div className="flex flex-wrap gap-2">
               <Button
                 size="lg"
-                disabled={!sealed || createShare.isPending}
+                disabled={!sendable || createShare.isPending}
                 onClick={emailToClient}
                 className={cn(confirming && "bg-foreground text-background hover:bg-foreground")}
               >
@@ -254,13 +367,18 @@ export default function SendPage() {
               <Button
                 variant="outline"
                 size="lg"
-                disabled={!sealed || createShare.isPending}
+                disabled={!sendable || createShare.isPending}
                 onClick={whatsapp}
               >
                 <MessageCircle className="mr-1.5 h-4 w-4" />
                 WhatsApp
               </Button>
             </div>
+            {sealed && !chainComplete && currentStep && (
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                Held for sign-off — awaiting {currentStep.name}.
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               Both open in your own account, pre-written with the tracked
               link — so it genuinely comes from you. The password never goes

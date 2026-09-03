@@ -46,6 +46,10 @@ export function ReportBuilderPanel({
   const utils = trpc.useUtils();
   const { data: gaps } = trpc.project.gapList.useQuery({ id: projectId });
   const { data: draft } = trpc.report.getDraft.useQuery({ projectId });
+  const { data: project } = trpc.project.get.useQuery({ id: projectId });
+  const hasApprovalChain = Boolean(
+    (project?.approvalChain as { steps?: unknown[] } | null)?.steps?.length
+  );
   const [openRow, setOpenRow] = useState<string | null>(null);
 
   // Local editors (seeded from the server draft when opened).
@@ -185,7 +189,11 @@ export function ReportBuilderPanel({
             </div>
             <Button onClick={onReviewAndSend} size="lg">
               <FileText className="mr-1.5 h-4 w-4" />
-              {openCount === 0 ? "Review & send →" : `Resolve ${openCount} → Review & send`}
+              {openCount === 0
+                ? hasApprovalChain
+                  ? "Review & submit for sign-off →"
+                  : "Review & send →"
+                : `Resolve ${openCount} → ${hasApprovalChain ? "submit for sign-off" : "Review & send"}`}
             </Button>
           </div>
 

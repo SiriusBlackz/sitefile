@@ -7,6 +7,10 @@ import { PROJECT_MEMBER_ROLES, PROJECT_STATUSES } from "@/server/db/enums";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 import { isPlaceholderOrgName } from "@/lib/org-name";
+import {
+  parseApprovalState,
+  isApprovalComplete,
+} from "@/lib/report-approval";
 import { getPublicUrl, uploadToStorage } from "@/server/services/storage";
 import {
   getOrCreateCustomer,
@@ -475,6 +479,21 @@ export const projectRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       await assertProjectAccess(ctx.db, input.id, ctx.orgId, ctx.userId);
+      // Don't wipe the period while a report is mid-approval — the chain
+      // would be orphaned with its report still unsendable.
+      const latest = await ctx.db.query.reports.findFirst({
+        where: and(eq(reports.projectId, input.id), eq(reports.status, "completed")),
+        orderBy: [desc(reports.createdAt)],
+        columns: { approvalState: true },
+      });
+      const chainState = latest ? parseApprovalState(latest.approvalState) : null;
+      if (chainState && !isApprovalComplete(chainState)) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "The latest report is still awaiting sign-off — complete or resolve its approvals before closing the period.",
+        });
+      }
       await ctx.db
         .delete(reportDrafts)
         .where(eq(reportDrafts.projectId, input.id));
@@ -726,6 +745,99 @@ export const projectRouter = createTRPCRouter({
       });
 
       return { success: true };
+    }),
+
+  memberSetRole: adminProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        userId: z.string().uuid(),
+        role: z.enum(PROJECT_MEMBER_ROLES),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const [member] = await ctx.db
+        .update(projectMembers)
+        .set({ role: input.role })
+        .where(
+          and(
+            eq(projectMembers.projectId, input.projectId),
+            eq(projectMembers.userId, input.userId)
+          )
+        )
+        .returning();
+      if (!member) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Member not found" });
+      }
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.projectId,
+        userId: ctx.userId,
+        action: "update",
+        entityType: "project_member",
+        entityId: member.id,
+        metadata: { userId: input.userId, role: input.role },
+      });
+      return member;
+    }),
+
+  setApprovalChain: adminProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        // null clears the chain (reports send as soon as generated).
+        chain: z
+          .object({
+            steps: z
+              .array(
+                z.object({
+                  userId: z.string().uuid(),
+                  label: z.string().trim().min(1).max(60),
+                })
+              )
+              .min(1)
+              .max(3),
+          })
+          .nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      if (input.chain) {
+        const ids = input.chain.steps.map((s) => s.userId);
+        if (new Set(ids).size !== ids.length) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Each approval step needs a different person.",
+          });
+        }
+        const found = await ctx.db.query.users.findMany({
+          where: and(inArray(users.id, ids), eq(users.orgId, ctx.orgId)),
+          columns: { id: true },
+        });
+        if (found.length !== ids.length) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Approvers must be people in your organisation.",
+          });
+        }
+      }
+      await ctx.db
+        .update(projects)
+        .set({ approvalChain: input.chain, updatedAt: new Date() })
+        .where(eq(projects.id, input.projectId));
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.projectId,
+        userId: ctx.userId,
+        action: "update",
+        entityType: "project",
+        entityId: input.projectId,
+        metadata: {
+          event: "approval_chain",
+          steps: input.chain?.steps.length ?? 0,
+        },
+      });
+      return { ok: true };
     }),
 
   uploadClientLogo: adminProcedure

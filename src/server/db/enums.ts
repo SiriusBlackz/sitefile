@@ -42,5 +42,13 @@ export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
 export const LINK_METHODS = ["manual", "ai_suggested", "auto"] as const;
 export type LinkMethod = (typeof LINK_METHODS)[number];
 
-export const PROJECT_MEMBER_ROLES = ["admin", "member"] as const;
+export const PROJECT_MEMBER_ROLES = [
+  "admin",
+  "member",
+  "site_manager",
+  "project_manager",
+  "construction_manager",
+  "quantity_surveyor",
+  "supervisor",
+] as const;
 export type ProjectMemberRole = (typeof PROJECT_MEMBER_ROLES)[number];

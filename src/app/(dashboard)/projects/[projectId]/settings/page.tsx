@@ -33,11 +33,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { UserPlus, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import { labelFor } from "@/lib/format";
-
-const MEMBER_ROLE_LABELS: Record<string, string> = {
-  admin: "Admin",
-  member: "Member",
-};
+import { MEMBER_ROLE_LABELS } from "@/lib/member-roles";
+import { PROJECT_MEMBER_ROLES } from "@/server/db/enums";
+import { ApprovalChainCard } from "@/components/projects/approval-chain-card";
 
 function ClientLogoCard({
   projectId,
@@ -231,6 +229,17 @@ export default function ProjectSettingsPage() {
     },
   });
 
+  const setMemberRole = trpc.project.memberSetRole.useMutation({
+    onSuccess: () => {
+      toast.success("Role updated");
+      utils.project.memberList.invalidate({ projectId: params.projectId });
+    },
+    onError: (error) => {
+      toast.error(error.message);
+      utils.project.memberList.invalidate({ projectId: params.projectId });
+    },
+  });
+
   const removeMember = trpc.project.memberRemove.useMutation({
     onSuccess: () => {
       toast.success("Member removed");
@@ -394,9 +403,37 @@ export default function ProjectSettingsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="text-xs">
-                      {labelFor(MEMBER_ROLE_LABELS, member.role)}
-                    </Badge>
+                    <Select
+                      value={member.role}
+                      onValueChange={(val) => {
+                        if (val && val !== member.role)
+                          setMemberRole.mutate({
+                            projectId: params.projectId,
+                            userId: member.userId,
+                            role: val as (typeof PROJECT_MEMBER_ROLES)[number],
+                          });
+                      }}
+                    >
+                      <SelectTrigger
+                        className="h-7 w-40 text-xs"
+                        aria-label={`Role for ${member.user.name}`}
+                      >
+                        <SelectValue>
+                          {(val: string | null) =>
+                            val ? labelFor(MEMBER_ROLE_LABELS, val) : "Role"
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false}>
+                        {PROJECT_MEMBER_ROLES.filter((r) => r !== "admin").map(
+                          (r) => (
+                            <SelectItem key={r} value={r}>
+                              {labelFor(MEMBER_ROLE_LABELS, r)}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -470,6 +507,11 @@ export default function ProjectSettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ApprovalChainCard
+        projectId={params.projectId}
+        approvalChain={project.approvalChain}
+      />
 
       <Card>
         <CardHeader>

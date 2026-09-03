@@ -35,6 +35,8 @@ interface Report {
   periodEnd: string;
   status: string | null;
   hasPassword: boolean;
+  awaitingApproval?: boolean;
+  nextApprover?: string | null;
   createdAt: Date | null;
 }
 
@@ -131,7 +133,20 @@ export function ReportList({ reports }: ReportListProps) {
                 </TableCell>
                 <TableCell>
                   <span role="status" aria-live="polite">
-                    <StatusBadge status={report.status ?? "generating"} />
+                    {report.status === "completed" && report.awaitingApproval ? (
+                      <span
+                        className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-400"
+                        title={
+                          report.nextApprover
+                            ? `Awaiting sign-off from ${report.nextApprover}`
+                            : "Awaiting sign-off"
+                        }
+                      >
+                        Awaiting sign-off
+                      </span>
+                    ) : (
+                      <StatusBadge status={report.status ?? "generating"} />
+                    )}
                   </span>
                 </TableCell>
                 <TableCell>

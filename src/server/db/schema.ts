@@ -114,6 +114,9 @@ export const projects = pgTable("projects", {
   startDate: date("start_date", { mode: "string" }),
   endDate: date("end_date", { mode: "string" }),
   status: text("status").default("active"),
+  // Tiered report sign-off config ({ steps: [{ userId, label }] }, 1-3
+  // ordered steps). NULL = feature off: reports send as soon as generated.
+  approvalChain: jsonb("approval_chain"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
@@ -356,6 +359,10 @@ export const reports = pgTable("reports", {
   // Set at generate time, cleared on completion/failure.
   passwordCiphertext: text("password_ciphertext"),
   reportData: jsonb("report_data"),
+  // Snapshot of the project's approval chain taken at generate time, plus
+  // per-step approvals. NULL = no chain on this report (sendable once
+  // completed). Status stays generating/completed/failed regardless.
+  approvalState: jsonb("approval_state"),
   status: text("status").default("generating"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
 }, (t) => [
