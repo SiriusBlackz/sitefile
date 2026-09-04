@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { ProvenanceChip } from "@/components/diary/provenance-chip";
 import { HOLDUP_CAUSE_LABELS } from "@/components/diary/holdup-sheet";
+import { diaryFieldLabel } from "@/lib/holdup-causes";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DiaryProvenance, HoldupCause } from "@/server/db/enums";
@@ -67,13 +68,16 @@ export default function DiaryDeskPage() {
   const [detailEntryId, setDetailEntryId] = useState<string | null>(null);
 
   const from = useMemo(() => shiftDays(today, -20), [today]);
-  const matrix = trpc.diary.matrix.useQuery({ projectId, from, to: today });
-  const week = trpc.diary.weekSummary.useQuery({
-    projectId,
-    from: weekOf,
-    to: shiftDays(weekOf, 6),
-  });
-  const ledger = trpc.diary.ledger.useQuery({ projectId });
+  const noRetryForbidden = {
+    retry: (count: number, err: { data?: { code?: string } | null }) =>
+      err?.data?.code !== "FORBIDDEN" && count < 2,
+  };
+  const matrix = trpc.diary.matrix.useQuery({ projectId, from, to: today }, noRetryForbidden);
+  const week = trpc.diary.weekSummary.useQuery(
+    { projectId, from: weekOf, to: shiftDays(weekOf, 6) },
+    noRetryForbidden
+  );
+  const ledger = trpc.diary.ledger.useQuery({ projectId }, noRetryForbidden);
 
   if (matrix.error?.data?.code === "FORBIDDEN") {
     return (
@@ -414,7 +418,7 @@ function EntryDetailSheet({
                 <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Amendments ◆</p>
                 {d.amendments.map((a) => (
                   <div key={a.id} className="rounded-lg border border-dashed p-2 text-xs">
-                    <p className="font-semibold">◆ {a.field} · {formatDateTime(a.at)}</p>
+                    <p className="font-semibold">◆ {diaryFieldLabel(a.field)} · {formatDateTime(a.at)}</p>
                     {a.previous && <p className="text-muted-foreground line-through">{a.previous}</p>}
                     {a.next && <p>{a.next}</p>}
                     {a.note && <p className="italic text-muted-foreground">“{a.note}”</p>}

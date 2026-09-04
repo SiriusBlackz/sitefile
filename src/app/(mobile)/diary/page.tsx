@@ -19,6 +19,7 @@ import {
   HoldupSheet,
   HOLDUP_CAUSE_LABELS,
 } from "@/components/diary/holdup-sheet";
+import { diaryFieldLabel } from "@/lib/holdup-causes";
 import {
   ArrowLeft,
   Check,
@@ -91,6 +92,9 @@ function DiaryRitual() {
   const [step, setStep] = useState(0);
   const [holdupOpen, setHoldupOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  // Offline lock shows an in-page confirmation — navigating away offline
+  // lands on an unloadable page and loses the "it's saved" moment.
+  const [offlineLocked, setOfflineLocked] = useState(false);
 
   // Form state
   const [workLines, setWorkLines] = useState<WorkLine[]>([]);
@@ -271,10 +275,7 @@ function DiaryRitual() {
         enteredAt: enteredAtRef.current.toISOString(),
         pendingSubmit: true,
       });
-      toast.success("No signal — locked on your phone, syncs when you're back in coverage", {
-        description: "Your entered time is kept; the record shows both stamps.",
-      });
-      router.push(`/projects/${projectId}`);
+      setOfflineLocked(true);
       return;
     }
     submitMutation.mutate(
@@ -298,6 +299,30 @@ function DiaryRitual() {
     return (
       <div className="flex flex-1 items-center justify-center bg-background text-foreground">
         <p className="text-sm text-muted-foreground">No project selected.</p>
+      </div>
+    );
+  }
+
+  if (offlineLocked) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-background p-6 text-foreground">
+        <div className="mx-auto max-w-sm space-y-4 text-center">
+          <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-green-500/15">
+            <Lock className="h-8 w-8 text-green-700 dark:text-green-400" />
+          </span>
+          <h1 className="text-xl font-extrabold">Locked on your phone</h1>
+          <p className="text-sm text-muted-foreground">
+            No signal right now — today&apos;s diary is saved and will sync
+            itself the moment you&apos;re back in coverage. Your entered time
+            is kept; the record shows both stamps.
+          </p>
+          <button
+            onClick={() => router.push(`/projects/${projectId}`)}
+            className="mx-auto flex min-h-12 items-center justify-center rounded-xl border px-6 text-sm font-semibold active:bg-muted"
+          >
+            Done
+          </button>
+        </div>
       </div>
     );
   }
@@ -351,7 +376,7 @@ function DiaryRitual() {
               {day.amendments.map((a) => (
                 <div key={a.id} className="rounded-xl border border-dashed p-3 text-xs">
                   <p className="font-semibold">
-                    ◆ {a.field}
+                    ◆ {diaryFieldLabel(a.field)}
                     <span className="font-normal text-muted-foreground">
                       {" "}
                       — {a.by},{" "}

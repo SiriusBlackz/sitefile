@@ -56,6 +56,22 @@ const resourceSchema = z.object({
   provenance: provenanceEnum,
 });
 
+/**
+ * Amendment apply schema — deliberately default-FREE. zod 4's .partial()
+ * re-materialises .default() values, which made every work-note amendment
+ * silently zero the locked day's safety counts (caught by the final-gate
+ * guard). Absent here must MEAN absent.
+ */
+const amendApplySchema = z.object({
+  workNote: z.string().trim().max(4000).nullish(),
+  visitorsCount: z.number().int().min(0).max(999).optional(),
+  inspectionsCount: z.number().int().min(0).max(999).optional(),
+  toolboxTalk: z.boolean().optional(),
+  toolboxTopic: z.string().trim().max(200).nullish(),
+  incidentsCount: z.number().int().min(0).max(999).optional(),
+  safetyNote: z.string().trim().max(2000).nullish(),
+});
+
 const entryPayloadSchema = z.object({
   workNote: z.string().trim().max(4000).optional(),
   visitorsCount: z.number().int().min(0).max(999).default(0),
@@ -752,7 +768,7 @@ export const diaryRouter = createTRPCRouter({
           .max(20),
         note: z.string().trim().max(1000).optional(),
         // Scalar updates applied to the row (current state); history in events.
-        apply: entryPayloadSchema.partial().optional(),
+        apply: amendApplySchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
