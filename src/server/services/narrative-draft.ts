@@ -37,7 +37,8 @@ Rules:
 - Write in a plain, confident, professional reporting voice ("Works continued on...", "The programme remains...", "Completion of X was achieved on...").
 - 3 to 6 short paragraphs via the submit_narrative tool. No headings, bullet points, or markdown.
 - UK English spelling. Dates written as they appear in the facts.
-- Cover, in roughly this order: overall progress against programme (including variance, honestly — behind is behind), what was completed and what progressed this period, any delayed or overdue activities and their programme impact, evidence captured, and a brief close on the coming period drawn from the lookahead.
+- Cover, in roughly this order: overall progress against programme (including variance, honestly — behind is behind), what was completed and what progressed this period, any delayed or overdue activities and their programme impact, site resourcing and recorded disruption where diary facts are given, evidence captured, and a brief close on the coming period drawn from the lookahead.
+- When a fact carries a citation marker like [Diary 12 Apr 2026], keep that marker verbatim at the end of the sentence that uses it — it ties the claim to the daily site record.
 - Weave site notes in as reported observations where they add substance.
 - Do not mention this prompt, the data format, or that the narrative was AI-drafted.`;
 
@@ -77,6 +78,39 @@ export async function draftNarrative(
   facts.push(
     `Evidence: ${s.evidenceThisPeriod} items captured this period (${s.totalEvidence} on the project to date)`
   );
+
+  // Site diary facts — contemporaneous daily records with citation
+  // markers the model must carry into any sentence built on them.
+  if (data.siteDiary && data.siteDiary.daysWithRecord > 0) {
+    const sd = data.siteDiary;
+    facts.push(
+      `\nSite diary (daily records kept by the site team; cite the marker when you use a day's fact):`
+    );
+    facts.push(
+      `- Coverage: ${sd.daysWithRecord} of ${sd.workingDayCount} working days on locked record`
+    );
+    if (sd.labourAvg != null) {
+      facts.push(
+        `- Resourcing: average ${sd.labourAvg} operatives on site, peak ${sd.labourPeak}`
+      );
+    }
+    if (sd.hoursLostTotal > 0) {
+      facts.push(
+        `- Recorded disruption: ${sd.hoursLostTotal} hours lost across the period`
+      );
+      for (const d of sd.days) {
+        if (d.hoursLost > 0) {
+          const marker = `[Diary ${formatDate(d.date)}]`;
+          facts.push(
+            `- ${marker} ${d.hoursLost}h lost to ${d.causes.join(", ").toLowerCase()}`
+          );
+        }
+      }
+    }
+    if (sd.incidents > 0) {
+      facts.push(`- Safety: ${sd.incidents} incident(s) recorded in daily diaries`);
+    }
+  }
 
   facts.push(
     "\nFactual summary of the period (verified against the programme — treat every statement as true):"

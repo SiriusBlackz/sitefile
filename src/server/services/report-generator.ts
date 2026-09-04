@@ -8,7 +8,16 @@ import {
   auditLog,
   reports,
   programmeBaselines,
+  diaryEntries,
+  diaryHoldupDays,
 } from "@/server/db/schema";
+import { localDateString, workingDatesBetween } from "@/lib/dates";
+import { HOLDUP_CAUSE_LABELS } from "@/lib/holdup-causes";
+import {
+  SiteDiaryPages,
+  siteDiaryPageCount,
+  type SiteDiaryData,
+} from "@/components/reports/templates/site-diary";
 import { getReadUrl } from "./storage";
 import { generateBeforeAfterPairs } from "./before-after";
 import { fetchPeriodWeather, deriveSiteCoords } from "./weather";
@@ -836,6 +845,149 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     summaryStats.healthSafety = input.healthSafety;
   }
 
+  // 10b-2. Site Diary — per-working-day aggregate rows for the Site Diary
+  // Summary page + labour strip. PRIVACY RULE enforced here at the data
+  // layer: rows are aggregated across authors; no author name ever enters
+  // the returned report data (or the persisted stats blob).
+  let siteDiary: SiteDiaryData | null = null;
+  let diaryDaysLocked = 0;
+  let diaryWorkingDayCount = 0;
+  if (sections.siteDiary) {
+    const diaryTz = project.timezone || "Europe/London";
+    const diaryWorkingDays =
+      Array.isArray(project.workingDays) &&
+      (project.workingDays as unknown[]).every((n) => typeof n === "number")
+        ? (project.workingDays as number[])
+        : [1, 2, 3, 4, 5];
+    const todayLocal = localDateString(new Date(), diaryTz);
+    const rangeEnd = input.periodEnd < todayLocal ? input.periodEnd : todayLocal;
+    const dayList = workingDatesBetween(
+      input.periodStart,
+      rangeEnd,
+      diaryWorkingDays
+    );
+    if (dayList.length > 0) {
+      const dEntries = await db.query.diaryEntries.findMany({
+        where: and(
+          eq(diaryEntries.projectId, input.projectId),
+          gte(diaryEntries.entryDate, input.periodStart),
+          lte(diaryEntries.entryDate, rangeEnd)
+        ),
+        with: { resources: true },
+      });
+      const dHoldupDays = await db.query.diaryHoldupDays.findMany({
+        where: and(
+          eq(diaryHoldupDays.projectId, input.projectId),
+          gte(diaryHoldupDays.occurredOn, input.periodStart),
+          lte(diaryHoldupDays.occurredOn, rangeEnd)
+        ),
+        with: { holdup: { columns: { cause: true } } },
+      });
+      const anyDiaryUse = dEntries.length > 0 || dHoldupDays.length > 0;
+      if (anyDiaryUse) {
+        const days = dayList.map((date) => {
+          const dayEntries = dEntries.filter(
+            (e) => e.entryDate === date && e.status === "locked"
+          );
+          const labour = dayEntries.length
+            ? dayEntries.reduce(
+                (s, e) =>
+                  s +
+                  e.resources
+                    .filter((r) => r.kind === "labour")
+                    .reduce((s2, r) => s2 + r.qty, 0),
+                0
+              )
+            : null;
+          const plant = dayEntries.length
+            ? dayEntries.reduce(
+                (s, e) =>
+                  s +
+                  e.resources
+                    .filter((r) => r.kind === "plant")
+                    .reduce((s2, r) => s2 + r.qty, 0),
+                0
+              )
+            : null;
+          const weatherSnap = dayEntries
+            .map(
+              (e) =>
+                e.weather as {
+                  totalPrecipMm?: number;
+                  minTempC?: number;
+                  maxTempC?: number;
+                } | null
+            )
+            .find((w) => w && typeof w.totalPrecipMm === "number");
+          const dayHoldups = dHoldupDays.filter((h) => h.occurredOn === date);
+          const causes = [
+            ...new Set(
+              dayHoldups.map(
+                (h) =>
+                  HOLDUP_CAUSE_LABELS[
+                    h.holdup.cause as keyof typeof HOLDUP_CAUSE_LABELS
+                  ] ?? h.holdup.cause
+              )
+            ),
+          ];
+          return {
+            date,
+            labour,
+            plant,
+            weather: weatherSnap
+              ? {
+                  precipMm: weatherSnap.totalPrecipMm ?? 0,
+                  minC: weatherSnap.minTempC ?? 0,
+                  maxC: weatherSnap.maxTempC ?? 0,
+                }
+              : null,
+            hoursLost: dayHoldups.reduce((s, h) => s + h.hoursLost, 0),
+            causes,
+            status:
+              dayEntries.length === 0
+                ? ("none" as const)
+                : dayEntries.every((e) => e.late)
+                  ? ("late" as const)
+                  : ("record" as const),
+            amended: dayEntries.some((e) => e.amendedAt != null),
+          };
+        });
+        const labourVals = days
+          .map((d) => d.labour)
+          .filter((v): v is number => v != null && v > 0);
+        diaryDaysLocked = days.filter((d) => d.status !== "none").length;
+        diaryWorkingDayCount = days.length;
+        siteDiary = {
+          days,
+          workingDayCount: days.length,
+          daysWithRecord: diaryDaysLocked,
+          hoursLostTotal:
+            Math.round(days.reduce((s, d) => s + d.hoursLost, 0) * 10) / 10,
+          labourAvg: labourVals.length
+            ? Math.round(
+                (labourVals.reduce((s, v) => s + v, 0) / labourVals.length) * 10
+              ) / 10
+            : null,
+          labourPeak: labourVals.length ? Math.max(...labourVals) : null,
+          incidents: dEntries.reduce((s, e) => s + e.incidentsCount, 0),
+          toolboxTalks: dEntries.filter((e) => e.toolboxTalk).length,
+          inspections: dEntries.reduce((s, e) => s + e.inspectionsCount, 0),
+          amendedCount: dEntries.filter((e) => e.amendedAt != null).length,
+          lateCount: dEntries.filter((e) => e.late && e.status === "locked")
+            .length,
+        };
+        // Scalar aggregates only into the persisted stats blob.
+        if (siteDiary.labourAvg != null) {
+          summaryStats.labour = {
+            avg: siteDiary.labourAvg,
+            peak: siteDiary.labourPeak ?? siteDiary.labourAvg,
+            daysCounted: labourVals.length,
+          };
+        }
+      }
+    }
+  }
+
   // 10c. Photo Location Map — satellite static map with zones + numbered
   // pins, built only when the section is on and GPS photos exist.
   let photoMap: PhotoMapData | null = null;
@@ -1002,6 +1154,8 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     })),
     auditActionCounts: auditCounts,
     auditTotal,
+    diaryDaysLocked,
+    diaryWorkingDays: diaryWorkingDayCount,
   };
 
   // 12. Narrative — deterministic prose from the period's facts, so the
@@ -1168,6 +1322,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     beforeAfterPairs,
     verificationStats,
     photoMap,
+    siteDiary,
     omittedSections,
     signatures: safeSignatures,
   };
@@ -1189,7 +1344,7 @@ function joinList(items: string[], max = 5): string {
 export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherReportData>>): Promise<string> {
   // Dynamic import to avoid Turbopack's react-dom/server static analysis block
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, programmeElapsed, programmeLastDate, narrative, keyIssues, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, photoMap, omittedSections, signatures } =
+  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, programmeElapsed, programmeLastDate, narrative, keyIssues, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, photoMap, siteDiary, omittedSections, signatures } =
     data;
 
   // Page numbers are computed in ONE pass using the same pagination
@@ -1204,6 +1359,10 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const hasKeyDates = sections.keyDates && keyDates.length > 0;
   const hasLookahead = sections.lookahead && lookahead.length > 0;
   const hasPhotoMap = sections.photoMap && photoMap != null;
+  // Site Diary always renders when the recipe includes it — an empty
+  // period shows an in-page explanation (the weekly recipe has no TOC,
+  // so the omitted-sections box couldn't declare it there).
+  const hasSiteDiary = sections.siteDiary;
   const hasVerification = sections.verification;
   const hasSignOff = sections.signOff;
 
@@ -1215,7 +1374,9 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const timelinePages = hasTimeline ? timelinePageCount(timelineTasks.length) : 0;
   const lookaheadPage = timelineStart + timelinePages;
   const photoMapPage = lookaheadPage + (hasLookahead ? 1 : 0);
-  const galleryStartPage = photoMapPage + (hasPhotoMap ? 1 : 0);
+  const siteDiaryPage = photoMapPage + (hasPhotoMap ? 1 : 0);
+  const siteDiaryPages = hasSiteDiary ? siteDiaryPageCount(siteDiary) : 0;
+  const galleryStartPage = siteDiaryPage + siteDiaryPages;
   const galleryPageCount = hasGallery ? paginateGallery(galleryTasks).length : 0;
   const beforeAfterStart = galleryStartPage + galleryPageCount;
   const beforeAfterPageCount = hasBeforeAfter ? Math.ceil(beforeAfterPairs.length / 2) : 0;
@@ -1241,6 +1402,9 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   }
   if (hasPhotoMap) {
     tocEntries.push({ title: "Photo Location Map", page: photoMapPage });
+  }
+  if (hasSiteDiary) {
+    tocEntries.push({ title: "Site Diary Summary", page: siteDiaryPage });
   }
   if (hasGallery) {
     tocEntries.push({ title: "Progress Records", page: galleryStartPage });
@@ -1332,6 +1496,16 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
             meta,
             data: photoMap!,
             startPage: photoMapPage,
+          }),
+        ]
+      : []),
+    ...(hasSiteDiary
+      ? [
+          createElement(SiteDiaryPages, {
+            key: "sitediary",
+            meta,
+            data: siteDiary,
+            startPage: siteDiaryPage,
           }),
         ]
       : []),

@@ -22,18 +22,9 @@ import {
 } from "@/components/ui/select";
 import { Camera, Check, CloudOff, Loader2 } from "lucide-react";
 import { HOLDUP_CAUSES, type HoldupCause } from "@/server/db/enums";
+import { HOLDUP_CAUSE_LABELS } from "@/lib/holdup-causes";
 
-export const HOLDUP_CAUSE_LABELS: Record<HoldupCause, string> = {
-  weather: "Weather",
-  awaiting_information: "Awaiting info",
-  no_access: "No access",
-  labour_shortage: "Labour short",
-  materials_delay: "Materials late",
-  plant_breakdown: "Plant down",
-  design_change: "Design change",
-  rework: "Rework",
-  other: "Other",
-};
+export { HOLDUP_CAUSE_LABELS };
 
 /**
  * The all-day 10-second hold-up log: cause, hours, task, optional note +

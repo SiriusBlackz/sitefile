@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, lt, desc, isNull, sql, inArray } from "drizzle-orm";
+import { eq, and, lt, desc, isNull, sql, inArray, gte, lte } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
 import {
@@ -10,6 +10,7 @@ import {
   projects,
   projectMembers,
   users,
+  diaryEntries,
 } from "@/server/db/schema";
 import {
   parseApprovalChain,
@@ -431,6 +432,40 @@ export const reportRouter = createTRPCRouter({
   // using the same rule as the generator (capture date, falling back to
   // upload date when EXIF gave none) — so the dialog can warn BEFORE a
   // contractor generates a report with an empty gallery.
+  /** Diary-derived figures the generate dialog can offer as H&S prefill.
+   * Fetched live, never persisted — the diary is the source of truth. */
+  diaryAggregates: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        periodStart: z.string().min(1),
+        periodEnd: z.string().min(1),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const entries = await ctx.db.query.diaryEntries.findMany({
+        where: and(
+          eq(diaryEntries.projectId, input.projectId),
+          eq(diaryEntries.status, "locked"),
+          gte(diaryEntries.entryDate, input.periodStart),
+          lte(diaryEntries.entryDate, input.periodEnd)
+        ),
+        columns: {
+          entryDate: true,
+          toolboxTalk: true,
+          incidentsCount: true,
+          inspectionsCount: true,
+        },
+      });
+      return {
+        daysWithRecord: new Set(entries.map((e) => e.entryDate)).size,
+        toolboxTalks: entries.filter((e) => e.toolboxTalk).length,
+        incidents: entries.reduce((s, e) => s + e.incidentsCount, 0),
+        inspections: entries.reduce((s, e) => s + e.inspectionsCount, 0),
+      };
+    }),
+
   evidencePreview: protectedProcedure
     .input(
       z

@@ -17,6 +17,10 @@ export interface VerificationStats {
   /** Aggregated action counts for the whole period (entries list is capped). */
   auditActionCounts: { action: string; count: number }[];
   auditTotal: number;
+  /** Site-diary coverage: working days with a locked daily record. 0/0
+   * means the diary wasn't in use this period — the tile is hidden. */
+  diaryDaysLocked: number;
+  diaryWorkingDays: number;
 }
 
 export interface AuditEntry {
@@ -105,6 +109,16 @@ export function VerificationPage({
             no metadata to verify. Photos taken through Sitefile carry GPS
             position and capture time automatically and will appear here in
             future reports.
+            {stats.diaryWorkingDays > 0 && (
+              <>
+                {" "}
+                Daily site records were kept independently of photos:{" "}
+                <strong>
+                  {stats.diaryDaysLocked} of {stats.diaryWorkingDays}
+                </strong>{" "}
+                working days hold a locked site diary.
+              </>
+            )}
           </div>
         ) : (
           <>
@@ -132,6 +146,18 @@ export function VerificationPage({
                   : "No GPS-tagged items"
               }
               color={stats.withGpsCoords > 0 ? rateColor(zoneRate) : "#64748b"}
+            />
+          )}
+          {stats.diaryWorkingDays > 0 && (
+            <IntegrityCard
+              label="Daily Site Record"
+              value={`${stats.diaryDaysLocked} of ${stats.diaryWorkingDays}`}
+              detail="working days with a locked site diary"
+              color={rateColor(
+                Math.round(
+                  (stats.diaryDaysLocked / stats.diaryWorkingDays) * 100
+                )
+              )}
             />
           )}
         </div>

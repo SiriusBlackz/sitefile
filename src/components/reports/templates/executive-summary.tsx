@@ -38,6 +38,8 @@ export interface SummaryStats {
   weatherToDate?: (PeriodWeather & { since: string }) | null;
   /** PM-entered H&S figures, when provided. */
   healthSafety?: HealthSafetyStats | null;
+  /** Site-diary labour aggregate (avg/peak operatives), when kept. */
+  labour?: { avg: number; peak: number; daysCounted: number } | null;
   /** Current programme completion vs the accepted baseline, when one exists. */
   baseline?: BaselineComparison | null;
 }
@@ -77,11 +79,13 @@ const riskHeight = (text: string) => Math.ceil(text.length / 105) * 20 + 6;
 const DELTA_STRIP_H = 46;
 const WEATHER_H = 100; // heading + two lines + source note
 const HS_H = 130; // heading + stat row + optional note
+const LABOUR_H = 46; // one-line strip, same shape as delta
 
 type SummaryItem =
   | { type: "para"; text: string; withHeading: boolean }
   | { type: "stats" }
   | { type: "delta" }
+  | { type: "labour" }
   | { type: "table" }
   | { type: "evidence" }
   | { type: "weather" }
@@ -109,6 +113,9 @@ export function paginateSummary(
   });
   if (stats.sinceLastReport) {
     blocks.push({ item: { type: "delta" }, height: DELTA_STRIP_H });
+  }
+  if (stats.labour) {
+    blocks.push({ item: { type: "labour" }, height: LABOUR_H });
   }
   blocks.push({ item: { type: "table" }, height: TASK_TABLE_H });
   blocks.push({ item: { type: "evidence" }, height: EVIDENCE_H });
@@ -226,6 +233,10 @@ function renderItem(item: SummaryItem, key: number, stats: SummaryStats) {
     case "delta":
       return stats.sinceLastReport ? (
         <DeltaStrip key={key} delta={stats.sinceLastReport} />
+      ) : null;
+    case "labour":
+      return stats.labour ? (
+        <LabourStrip key={key} labour={stats.labour} />
       ) : null;
     case "table":
       return <TaskTable key={key} stats={stats} />;
@@ -407,6 +418,32 @@ function TaskTable({ stats }: { stats: SummaryStats }) {
           </tr>
         </tfoot>
       </table>
+    </div>
+  );
+}
+
+function LabourStrip({
+  labour,
+}: {
+  labour: { avg: number; peak: number; daysCounted: number };
+}) {
+  return (
+    <div
+      style={{
+        margin: "0 0 20px",
+        padding: "9px 14px",
+        borderRadius: 8,
+        border: "1px solid #e2e8f0",
+        borderLeft: "3px solid var(--brand)",
+        background: "#f8fafc",
+        fontSize: 10.5,
+        color: "#334155",
+      }}
+    >
+      <strong>Resourcing</strong> (from daily site diaries): average{" "}
+      <strong>{labour.avg}</strong> operatives on site, peak{" "}
+      <strong>{labour.peak}</strong>, across {labour.daysCounted} recorded
+      working day{labour.daysCounted === 1 ? "" : "s"}
     </div>
   );
 }

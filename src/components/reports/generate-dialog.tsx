@@ -338,6 +338,10 @@ export function GenerateDialog({
     { projectId, periodStart, periodEnd },
     { enabled: open && periodValid, placeholderData: (prev) => prev }
   );
+  const { data: diaryAgg } = trpc.report.diaryAggregates.useQuery(
+    { projectId, periodStart, periodEnd },
+    { enabled: open && periodValid, placeholderData: (prev) => prev }
+  );
 
   function coverAllEvidence() {
     if (!evidencePreview?.earliest || !evidencePreview.latest) return;
@@ -820,6 +824,31 @@ export function GenerateDialog({
               Appears as a Health &amp; Safety block on the Executive Summary.
               Leave everything empty to omit it.
             </p>
+            {diaryAgg && diaryAgg.daysWithRecord > 0 && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-accent/50 p-2.5 text-xs">
+                <span className="min-w-0 flex-1">
+                  Site diaries this period: <strong>{diaryAgg.toolboxTalks}</strong>{" "}
+                  toolbox talks, <strong>{diaryAgg.incidents}</strong> incidents
+                  recorded, <strong>{diaryAgg.inspections}</strong> inspections
+                  ({diaryAgg.daysWithRecord} days on record). Classify
+                  incidents yourself — the diary doesn&apos;t split
+                  accident / near-miss / RIDDOR.
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setHs((prev) => ({
+                      ...prev,
+                      toolboxTalks: String(diaryAgg.toolboxTalks),
+                    }))
+                  }
+                >
+                  Use toolbox count
+                </Button>
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-2 md:grid-cols-5">
               {(
                 [
