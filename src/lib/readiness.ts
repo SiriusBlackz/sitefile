@@ -35,6 +35,10 @@ export interface GapSnapshot {
   /** Tasks past their planned end but not completed/delayed. */
   pastPlannedEnd: number;
   photosByDay: { date: string; count: number }[];
+  /** Site diary (current user, last 7 days) — 0/false until the user has
+   * adopted the diary on this project, so it never nags pre-adoption. */
+  diaryMissedDays: number;
+  diaryTodayDone: boolean;
   lastReport: {
     id: string;
     number: number;
@@ -59,9 +63,13 @@ export interface ReadinessRow {
 }
 
 /** Resolves a row's href — project-relative by default, app-absolute
- * when prefixed with "@" (org-level fixes like the Account page). */
+ * when prefixed with "@" (org-level fixes like the Account page). A
+ * literal "{projectId}" inside an app-absolute href is substituted —
+ * for app-level screens that take the project as a query param. */
 export function rowHref(projectId: string, href: string): string {
-  return href.startsWith("@") ? href.slice(1) : `/projects/${projectId}${href}`;
+  return href.startsWith("@")
+    ? href.slice(1).replace("{projectId}", projectId)
+    : `/projects/${projectId}${href}`;
 }
 
 /** True when every programmed date sits before the current period —
@@ -293,6 +301,17 @@ export function buildGapRows(gaps: GapSnapshot): ReadinessRow[] {
       detail: `${t.progressPct}% complete on paper — the report will say so unless evidence arrives`,
       state: "danger",
       href: "/evidence",
+    });
+  }
+  // Site diary — only fires once adopted (server sends 0/false before).
+  if (gaps.diaryMissedDays > 0) {
+    rows.push({
+      key: "diary-missed",
+      label: `${gaps.diaryMissedDays} site diary day${gaps.diaryMissedDays === 1 ? "" : "s"} missed this week`,
+      detail:
+        'Each locks as "no record made" — a gap in the evidence trail. Today\'s takes 90 seconds.',
+      state: "danger",
+      href: "@/diary?projectId={projectId}",
     });
   }
   if (gaps.unlinked > 0) {

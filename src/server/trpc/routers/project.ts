@@ -2,7 +2,8 @@ import { z } from "zod";
 import { eq, and, desc, ne, or, isNull, inArray, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
-import { projects, organisations, projectMembers, users, reports, evidence, tasks, gpsZones, reportDrafts, reportShares } from "@/server/db/schema";
+import { projects, organisations, projectMembers, users, reports, evidence, tasks, gpsZones, reportDrafts, reportShares, diaryEntries } from "@/server/db/schema";
+import { localDateString, effectiveDiaryStatus } from "@/lib/dates";
 import { PROJECT_MEMBER_ROLES, PROJECT_STATUSES } from "@/server/db/enums";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
@@ -268,6 +269,9 @@ export const projectRouter = createTRPCRouter({
         columns: {
           nextReportDue: true,
           programmeConfirmedAt: true,
+          timezone: true,
+          workingDays: true,
+          createdAt: true,
           reportingFrequency: true,
           startDate: true,
         },
@@ -321,6 +325,52 @@ export const projectRouter = createTRPCRouter({
         columns: { name: true },
       });
       const brandingSet = !isPlaceholderOrgName(orgRow?.name);
+
+      // ── Site diary status for the CURRENT USER (phone gap rows) ──
+      // Only nags once the user has adopted the diary on this project.
+      const tz = project.timezone || "Europe/London";
+      const diaryWorkingDays: number[] =
+        Array.isArray(project.workingDays) &&
+        (project.workingDays as unknown[]).every((n) => typeof n === "number")
+          ? (project.workingDays as number[])
+          : [1, 2, 3, 4, 5];
+      const diaryToday = localDateString(new Date(), tz);
+      const myRecentEntries = await ctx.db.query.diaryEntries.findMany({
+        where: and(
+          eq(diaryEntries.projectId, input.id),
+          eq(diaryEntries.authorId, ctx.userId)
+        ),
+        columns: { entryDate: true, status: true, late: true },
+        orderBy: [desc(diaryEntries.entryDate)],
+        limit: 20,
+      });
+      const diaryAdopted = myRecentEntries.length > 0;
+      // No diary owed before the project existed.
+      const projectCreatedLocal = project.createdAt
+        ? localDateString(project.createdAt, tz)
+        : diaryToday;
+      const diaryFloor =
+        project.startDate && project.startDate < projectCreatedLocal
+          ? project.startDate
+          : projectCreatedLocal;
+      let diaryMissedDays = 0;
+      let diaryTodayDone = false;
+      if (diaryAdopted) {
+        const cursor = new Date(`${diaryToday}T12:00:00Z`);
+        for (let i = 0; i < 7; i++) {
+          const dStr = cursor.toISOString().slice(0, 10);
+          if (dStr < diaryFloor) break;
+          const entryRow =
+            myRecentEntries.find((e) => e.entryDate === dStr) ?? null;
+          const st = effectiveDiaryStatus(entryRow, dStr, tz, diaryWorkingDays);
+          if (dStr === diaryToday) {
+            diaryTodayDone = st === "locked" || st === "locked_late";
+          } else if (st === "not_filled") {
+            diaryMissedDays++;
+          }
+          cursor.setUTCDate(cursor.getUTCDate() - 1);
+        }
+      }
 
       const programmeConfirmedThisPeriod =
         project.programmeConfirmedAt != null &&
@@ -483,6 +533,8 @@ export const projectRouter = createTRPCRouter({
         misStatusTasks,
         shouldHaveStarted: dateStatusRow?.shouldHaveStarted ?? 0,
         pastPlannedEnd: dateStatusRow?.pastPlannedEnd ?? 0,
+        diaryMissedDays,
+        diaryTodayDone,
         lastReport: lastReportOut,
         draft: payload
           ? {

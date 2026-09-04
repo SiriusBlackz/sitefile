@@ -74,7 +74,19 @@ type ProjectRow = {
   timezone: string;
   workingDays: unknown;
   startDate: string | null;
+  createdAt: Date | null;
 };
+
+/** No diary is owed before the project existed. */
+function projectFloorDate(project: ProjectRow): string {
+  const createdLocal = project.createdAt
+    ? localDateString(project.createdAt, project.timezone || "Europe/London")
+    : null;
+  if (project.startDate && createdLocal) {
+    return project.startDate < createdLocal ? project.startDate : createdLocal;
+  }
+  return project.startDate ?? createdLocal ?? "1970-01-01";
+}
 
 function projectWorkingDays(project: { workingDays: unknown }): WorkingDays {
   const wd = project.workingDays;
@@ -90,7 +102,13 @@ async function loadProject(
 ): Promise<ProjectRow> {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
-    columns: { id: true, timezone: true, workingDays: true, startDate: true },
+    columns: {
+      id: true,
+      timezone: true,
+      workingDays: true,
+      startDate: true,
+      createdAt: true,
+    },
   });
   if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
   return project;
@@ -642,6 +660,16 @@ export const diaryRouter = createTRPCRouter({
           .returning();
         holdupId = thread.id;
       }
+      // A hold-up logged after the day's diary already exists (even locked)
+      // still belongs to that day's record.
+      const dayEntry = await ctx.db.query.diaryEntries.findFirst({
+        where: and(
+          eq(diaryEntries.projectId, input.projectId),
+          eq(diaryEntries.authorId, ctx.userId),
+          eq(diaryEntries.entryDate, input.localDate)
+        ),
+        columns: { id: true },
+      });
       const [day] = await ctx.db
         .insert(diaryHoldupDays)
         .values({
@@ -652,6 +680,7 @@ export const diaryRouter = createTRPCRouter({
           hoursLost: input.hoursLost,
           note: input.note ?? null,
           loggedAt: input.loggedAt,
+          entryId: dayEntry?.id ?? null,
         })
         .onConflictDoUpdate({
           target: [diaryHoldupDays.holdupId, diaryHoldupDays.occurredOn],
@@ -798,7 +827,10 @@ export const diaryRouter = createTRPCRouter({
       await assertPmView(ctx.db, input.projectId, ctx.userId, ctx.dbUser?.role ?? "member");
       const project = await loadProject(ctx.db, input.projectId);
       const workingDays = projectWorkingDays(project);
-      const days = workingDatesBetween(input.from, input.to, workingDays);
+      const floor = projectFloorDate(project);
+      const days = workingDatesBetween(input.from, input.to, workingDays).filter(
+        (d) => d >= floor
+      );
 
       const entries = await ctx.db.query.diaryEntries.findMany({
         where: and(
@@ -895,6 +927,117 @@ export const diaryRouter = createTRPCRouter({
       };
     }),
 
+  /** Full entry detail for the PM matrix drawer (PM roles or the author). */
+  entryDetail: protectedProcedure
+    .input(z.object({ entryId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const entry = await ctx.db.query.diaryEntries.findFirst({
+        where: eq(diaryEntries.id, input.entryId),
+        with: {
+          workLines: { orderBy: (t, { asc }) => [asc(t.sortOrder)] },
+          resources: true,
+          author: { columns: { id: true, name: true } },
+        },
+      });
+      if (!entry) throw new TRPCError({ code: "NOT_FOUND", message: "Entry not found" });
+      await assertProjectAccess(ctx.db, entry.projectId, ctx.orgId, ctx.userId);
+      if (entry.authorId !== ctx.userId) {
+        await assertPmView(ctx.db, entry.projectId, ctx.userId, ctx.dbUser?.role ?? "member");
+      }
+      const [amendments, holdupDays] = await Promise.all([
+        ctx.db.query.diaryEvents.findMany({
+          where: and(eq(diaryEvents.entryId, entry.id), eq(diaryEvents.kind, "amended")),
+          orderBy: [desc(diaryEvents.createdAt)],
+        }),
+        ctx.db.query.diaryHoldupDays.findMany({
+          where: eq(diaryHoldupDays.entryId, entry.id),
+          with: { holdup: { columns: { cause: true, note: true, status: true } } },
+        }),
+      ]);
+      return {
+        entry,
+        holdupDays: holdupDays.map((d) => ({
+          id: d.id,
+          cause: d.holdup.cause,
+          note: d.note ?? d.holdup.note,
+          hoursLost: d.hoursLost,
+          loggedAt: d.loggedAt,
+          receivedAt: d.receivedAt,
+        })),
+        amendments: amendments.map((a) => ({
+          id: a.id,
+          field: (a.payload as { field?: string }).field ?? "note",
+          previous: (a.payload as { previous?: string | null }).previous ?? null,
+          next: (a.payload as { next?: string | null }).next ?? null,
+          note: (a.payload as { note?: string }).note ?? null,
+          at: a.createdAt,
+        })),
+      };
+    }),
+
+  /** Aggregates for one date range — powers the weekly roll-up strip. */
+  weekSummary: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid(), from: dateStr, to: dateStr }))
+    .query(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      await assertPmView(ctx.db, input.projectId, ctx.userId, ctx.dbUser?.role ?? "member");
+      const project = await loadProject(ctx.db, input.projectId);
+      const workingDays = projectWorkingDays(project);
+      const days = workingDatesBetween(input.from, input.to, workingDays);
+
+      const entries = await ctx.db.query.diaryEntries.findMany({
+        where: and(
+          eq(diaryEntries.projectId, input.projectId),
+          gte(diaryEntries.entryDate, input.from),
+          lte(diaryEntries.entryDate, input.to)
+        ),
+        with: { resources: true, workLines: { columns: { taskId: true } } },
+      });
+      const holdupDays = await ctx.db.query.diaryHoldupDays.findMany({
+        where: and(
+          eq(diaryHoldupDays.projectId, input.projectId),
+          gte(diaryHoldupDays.occurredOn, input.from),
+          lte(diaryHoldupDays.occurredOn, input.to)
+        ),
+        with: { holdup: { columns: { cause: true } } },
+      });
+
+      const locked = entries.filter((e) => e.status === "locked");
+      const labourByDay = new Map<string, number>();
+      for (const e of locked) {
+        const labour = e.resources
+          .filter((r) => r.kind === "labour")
+          .reduce((s, r) => s + r.qty, 0);
+        labourByDay.set(e.entryDate, (labourByDay.get(e.entryDate) ?? 0) + labour);
+      }
+      const labourVals = [...labourByDay.values()];
+      const hoursByCause: Record<string, number> = {};
+      for (const d of holdupDays) {
+        hoursByCause[d.holdup.cause] = (hoursByCause[d.holdup.cause] ?? 0) + d.hoursLost;
+      }
+      const tasksTouched = new Set(
+        locked.flatMap((e) => e.workLines.map((w) => w.taskId).filter(Boolean))
+      ).size;
+      const daysWithRecord = new Set(locked.map((e) => e.entryDate)).size;
+
+      return {
+        workingDayCount: days.length,
+        daysWithRecord,
+        labourAvg: labourVals.length
+          ? Math.round((labourVals.reduce((s, v) => s + v, 0) / labourVals.length) * 10) / 10
+          : 0,
+        labourPeak: labourVals.length ? Math.max(...labourVals) : 0,
+        hoursLostTotal: Object.values(hoursByCause).reduce((s, v) => s + v, 0),
+        hoursByCause,
+        incidents: locked.reduce((s, e) => s + e.incidentsCount, 0),
+        toolboxTalks: locked.filter((e) => e.toolboxTalk).length,
+        inspections: locked.reduce((s, e) => s + e.inspectionsCount, 0),
+        tasksTouched,
+        lateEntries: locked.filter((e) => e.late).length,
+        amendedEntries: entries.filter((e) => e.amendedAt).length,
+      };
+    }),
+
   /** My streak + recent days, for the phone DiaryCard. */
   myWeek: protectedProcedure
     .input(z.object({ projectId: z.string().uuid(), localDate: dateStr }))
@@ -916,6 +1059,7 @@ export const diaryRouter = createTRPCRouter({
       const locked = new Set(
         entries.filter((e) => e.status === "locked").map((e) => e.entryDate)
       );
+      const floor = projectFloorDate(project);
       const last7: { date: string; status: string }[] = [];
       const cur = new Date(`${input.localDate}T12:00:00Z`);
       for (let i = 0; i < 7; i++) {
@@ -923,7 +1067,10 @@ export const diaryRouter = createTRPCRouter({
         const e = entries.find((x) => x.entryDate === d) ?? null;
         last7.unshift({
           date: d,
-          status: effectiveDiaryStatus(e, d, project.timezone, workingDays),
+          status:
+            d < floor
+              ? "none"
+              : effectiveDiaryStatus(e, d, project.timezone, workingDays),
         });
         cur.setUTCDate(cur.getUTCDate() - 1);
       }

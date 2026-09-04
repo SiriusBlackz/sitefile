@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   ListTodo,
   Map,
+  NotebookPen,
   Send,
   Settings,
 } from "lucide-react";
@@ -66,6 +67,13 @@ function DesknavInner({ projectId }: { projectId: string }) {
           icon: ImageIcon,
           attention: (gaps?.unlinked ?? 0) > 0,
           isActive: (p) => p === `${base}/evidence`,
+        },
+        {
+          href: `${base}/diary`,
+          label: "Site Diary",
+          icon: NotebookPen,
+          attention: (gaps?.diaryMissedDays ?? 0) > 0,
+          isActive: (p) => p.startsWith(`${base}/diary`),
         },
         {
           href: `${base}/reports`,
