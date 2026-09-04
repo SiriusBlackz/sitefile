@@ -218,6 +218,27 @@ export const diaryRouter = createTRPCRouter({
         },
       });
 
+      // Amendment history for a locked entry (append-only ◆ trail).
+      const amendments = entry
+        ? await ctx.db.query.diaryEvents.findMany({
+            where: and(
+              eq(diaryEvents.entryId, entry.id),
+              eq(diaryEvents.kind, "amended")
+            ),
+            orderBy: [desc(diaryEvents.createdAt)],
+          })
+        : [];
+      const amendmentActorIds = [
+        ...new Set(amendments.map((a) => a.actorId).filter(Boolean) as string[]),
+      ];
+      const amendmentActors = amendmentActorIds.length
+        ? await ctx.db.query.users.findMany({
+            where: inArray(users.id, amendmentActorIds),
+            columns: { id: true, name: true },
+          })
+        : [];
+      const actorName = new Map(amendmentActors.map((u) => [u.id, u.name]));
+
       // Prefill: yesterday's resources (CARRIED) from my most recent prior entry.
       const prevEntry = await ctx.db.query.diaryEntries.findFirst({
         where: and(
@@ -312,6 +333,15 @@ export const diaryRouter = createTRPCRouter({
 
       return {
         entry: entry ?? null,
+        amendments: amendments.map((a) => ({
+          id: a.id,
+          field: (a.payload as { field?: string }).field ?? "note",
+          previous: (a.payload as { previous?: string | null }).previous ?? null,
+          next: (a.payload as { next?: string | null }).next ?? null,
+          note: (a.payload as { note?: string }).note ?? null,
+          by: a.actorId ? (actorName.get(a.actorId) ?? "Unknown") : "System",
+          at: a.createdAt,
+        })),
         effectiveStatus: effectiveDiaryStatus(
           entry ?? null,
           input.localDate,

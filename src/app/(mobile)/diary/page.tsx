@@ -343,10 +343,40 @@ function DiaryRitual() {
               {e.resources.map((r) => `${r.kind}: ${r.kind === "materials" ? (r.note ?? "—") : r.qty}`).join(" · ")}
             </p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Need to correct something? Amendments are added from the day view —
-            the original stays on the record, flagged ◆.
-          </p>
+          {day.amendments.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Amendments ◆
+              </p>
+              {day.amendments.map((a) => (
+                <div key={a.id} className="rounded-xl border border-dashed p-3 text-xs">
+                  <p className="font-semibold">
+                    ◆ {a.field}
+                    <span className="font-normal text-muted-foreground">
+                      {" "}
+                      — {a.by},{" "}
+                      {new Date(a.at).toLocaleString("en-GB", {
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </p>
+                  {a.previous != null && (
+                    <p className="mt-1 text-muted-foreground line-through">{a.previous}</p>
+                  )}
+                  {a.next != null && <p className="mt-0.5">{a.next}</p>}
+                  {a.note && <p className="mt-0.5 italic text-muted-foreground">“{a.note}”</p>}
+                </div>
+              ))}
+            </div>
+          )}
+          <AmendForm
+            entryId={e.id}
+            currentWorkNote={e.workNote ?? ""}
+            onAmended={() => utils.diary.getDay.invalidate({ projectId, localDate })}
+          />
         </div>
       </div>
     );
@@ -591,16 +621,16 @@ function DiaryRitual() {
                 {day.openThreads
                   .filter((t) => !t.loggedToday)
                   .map((t) => (
-                    <div key={t.id} className="rounded-xl border border-dashed p-3 text-sm">
-                      <span className="font-semibold">
-                        {HOLDUP_CAUSE_LABELS[t.cause as keyof typeof HOLDUP_CAUSE_LABELS] ?? t.cause}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {" "}
-                        · day {t.dayCount + 1} · {t.totalHours}h so far — log today&apos;s hours from
-                        &quot;Log a hold-up&quot; if it&apos;s still biting
-                      </span>
-                    </div>
+                    <ThreadPrompt
+                      key={t.id}
+                      thread={t}
+                      projectId={projectId}
+                      localDate={localDate}
+                      onActioned={() => {
+                        setNoneToday(false);
+                        utils.diary.getDay.invalidate({ projectId, localDate });
+                      }}
+                    />
                   ))}
               </div>
             )}
@@ -730,6 +760,173 @@ function DiaryRitual() {
           onOpenChange={setHoldupOpen}
           onLogged={() => setNoneToday(false)}
         />
+      </div>
+    </div>
+  );
+}
+
+/** Append-only amendment on a locked day — original preserved, flagged ◆. */
+function AmendForm({
+  entryId,
+  currentWorkNote,
+  onAmended,
+}: {
+  entryId: string;
+  currentWorkNote: string;
+  onAmended: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [workNote, setWorkNote] = useState(currentWorkNote);
+  const [reason, setReason] = useState("");
+  const amend = trpc.diary.amend.useMutation({
+    onSuccess: () => {
+      toast.success("Amendment added — original preserved, flagged ◆");
+      setOpen(false);
+      setReason("");
+      onAmended();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full rounded-xl border px-3 py-2.5 text-sm font-semibold active:bg-muted"
+      >
+        Amend today&apos;s entry ◆
+      </button>
+    );
+  }
+  const noteChanged = workNote.trim() !== currentWorkNote.trim();
+  const canSubmit = reason.trim().length > 0 && !amend.isPending;
+  return (
+    <div className="space-y-2 rounded-xl border p-3">
+      <p className="text-xs text-muted-foreground">
+        The original stays on the record; this is added alongside it with
+        your name and time.
+      </p>
+      <textarea
+        value={workNote}
+        onChange={(e2) => setWorkNote(e2.target.value)}
+        rows={2}
+        placeholder="Corrected work note (optional)"
+        className="w-full rounded-xl border bg-background p-3 text-base"
+      />
+      <textarea
+        value={reason}
+        onChange={(e2) => setReason(e2.target.value)}
+        rows={2}
+        placeholder="What are you correcting, and why?"
+        className="w-full rounded-xl border bg-background p-3 text-base"
+      />
+      <div className="flex gap-2">
+        <button
+          onClick={() => setOpen(false)}
+          className="min-h-11 rounded-xl border px-3 text-sm active:bg-muted"
+        >
+          Cancel
+        </button>
+        <button
+          disabled={!canSubmit}
+          onClick={() =>
+            amend.mutate({
+              entryId,
+              changes: noteChanged
+                ? [
+                    {
+                      field: "workNote",
+                      previous: currentWorkNote || null,
+                      next: workNote.trim() || null,
+                    },
+                  ]
+                : [{ field: "correction", previous: null, next: reason.trim() }],
+              note: reason.trim(),
+              apply: noteChanged ? { workNote: workNote.trim() } : undefined,
+            })
+          }
+          className="min-h-11 flex-1 rounded-xl bg-primary text-sm font-bold text-primary-foreground active:brightness-95 disabled:opacity-50"
+        >
+          {amend.isPending ? "Adding..." : "Add amendment ◆"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** One-tap continuation of a multi-day hold-up thread inside the ritual. */
+function ThreadPrompt({
+  thread,
+  projectId,
+  localDate,
+  onActioned,
+}: {
+  thread: {
+    id: string;
+    cause: string;
+    note: string | null;
+    taskId: string | null;
+    dayCount: number;
+    totalHours: number;
+  };
+  projectId: string;
+  localDate: string;
+  onActioned: () => void;
+}) {
+  const [hours, setHours] = useState(1);
+  const logHoldup = trpc.diary.logHoldup.useMutation({
+    onSuccess: () => {
+      toast.success("Added to the thread — still open");
+      onActioned();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const closeHoldup = trpc.diary.closeHoldup.useMutation({
+    onSuccess: () => {
+      toast.success("Thread resolved");
+      onActioned();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const busy = logHoldup.isPending || closeHoldup.isPending;
+  return (
+    <div className="space-y-2 rounded-xl border border-amber-400/50 bg-accent/60 p-3">
+      <p className="text-sm">
+        <span className="font-semibold">
+          {HOLDUP_CAUSE_LABELS[thread.cause as keyof typeof HOLDUP_CAUSE_LABELS] ?? thread.cause}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {" "}
+          — still ongoing? Day {thread.dayCount + 1} · {thread.totalHours}h so far
+        </span>
+      </p>
+      <div className="flex items-center gap-2">
+        <Stepper value={hours} onChange={setHours} min={0.5} max={24} step={0.5} />
+        <button
+          disabled={busy}
+          onClick={() =>
+            logHoldup.mutate({
+              projectId,
+              localDate,
+              cause: thread.cause as Parameters<typeof logHoldup.mutate>[0]["cause"],
+              hoursLost: hours,
+              taskId: thread.taskId ?? undefined,
+              ongoing: true,
+              loggedAt: new Date(),
+              holdupId: thread.id,
+            })
+          }
+          className="min-h-11 flex-1 rounded-xl bg-primary px-2 text-xs font-bold text-primary-foreground active:brightness-95 disabled:opacity-50"
+        >
+          Still going · log {hours}h
+        </button>
+        <button
+          disabled={busy}
+          onClick={() => closeHoldup.mutate({ holdupId: thread.id, closedOn: localDate })}
+          className="min-h-11 rounded-xl border px-3 text-xs font-semibold active:bg-muted disabled:opacity-50"
+        >
+          Resolved
+        </button>
       </div>
     </div>
   );
