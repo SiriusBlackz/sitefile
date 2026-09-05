@@ -57,6 +57,22 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
     a: "Your reports are yours as PDFs at any time, and you can request a full export of your project data — see the privacy policy for your data rights.",
   },
   {
+    q: "Do we have to run the daily site diary to get the reports?",
+    a: "No. Photos plus your programme produce the complete report on their own. The diary is optional — when you run it, the report gains a Site Diary Summary page and a delay ledger of logged hold-ups, drawn from the days your team locked.",
+  },
+  {
+    q: "My foremen won't type — will the diary actually get kept?",
+    a: "The diary is designed for ticks, not typing: work done is pre-drafted from the day's photos, crew and plant counts carry over from yesterday, and a hold-up is a cause button and an hours count. If a day still slips, a PM can complete it from the desk — and the record shows who entered what, and when.",
+  },
+  {
+    q: "Can a locked diary day be changed afterwards?",
+    a: "Not silently. Corrections after lock are added as flagged amendments carrying a name and a time, and the original entry always remains visible underneath. Offline entries also keep both timestamps — entered on site and received by the server.",
+  },
+  {
+    q: "Is the photo metadata independently verified?",
+    a: "No, and we won't claim it is. Camera metadata and GPS are recorded as supplied by the device and preserved unchanged, and the report's Verification & Metadata page discloses exactly that. What Sitefile adds is the discipline around it: locked days, flagged amendments, capture-to-upload timing analysis, and a full audit trail.",
+  },
+  {
     q: "Something's broken or confusing — what do I do?",
     a: (
       <>

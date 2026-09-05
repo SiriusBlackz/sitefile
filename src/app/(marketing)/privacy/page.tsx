@@ -51,6 +51,14 @@ export default function PrivacyPage() {
           service: it is what makes your evidence verifiable.
         </p>
         <p>
+          <strong>Daily site diary records:</strong>{" "}
+          where your team keeps the
+          site diary, we store the entries it contains — crew and plant counts,
+          hold-up notes, safety figures and free-text notes — together with who
+          entered them and when, because the diary&apos;s value depends on that
+          record being kept intact.
+        </p>
+        <p>
           <strong>Activity records:</strong> an audit trail of actions taken in
           your projects (who did what, when), which appears in your reports and
           protects the integrity of your evidence.
