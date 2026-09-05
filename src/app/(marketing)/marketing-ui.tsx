@@ -1,97 +1,158 @@
 import Link from "next/link";
 import { SitefileMark } from "@/components/layout/sitefile-mark";
+import { MobileMenu } from "./mobile-menu";
 
-const btn =
-  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-export const btnPrimary = `${btn} bg-primary text-primary-foreground shadow hover:bg-primary/90`;
-export const btnOutline = `${btn} border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground`;
-export const btnGhost = `${btn} hover:bg-accent hover:text-accent-foreground`;
+/* ---------- shared button styles (The Graft) ---------- */
+
+const mkBtnBase =
+  "mk-disp inline-block rounded-[2px] border border-transparent px-[26px] py-[13px] text-[0.95rem] leading-tight font-bold no-underline transition duration-150";
+
+export const mkBtnAmber = `${mkBtnBase} bg-[var(--mk-amber)] text-[var(--mk-ink)] shadow-[0_1px_0_var(--mk-amber-deep)] hover:-translate-y-px hover:bg-[#F09E14] hover:shadow-[0_3px_10px_rgba(200,127,6,0.35)]`;
+
+export const mkBtnInk = `${mkBtnBase} bg-[var(--mk-ink)] text-[var(--mk-dust)] hover:-translate-y-px hover:shadow-[0_3px_10px_rgba(25,28,32,0.3)]`;
+
+/* ---------- record stamp ---------- */
+
+export function Stamp({
+  refText,
+  label,
+  dark = false,
+}: {
+  refText: string;
+  label: string;
+  dark?: boolean;
+}) {
+  return (
+    <div className="mk-rv mb-[26px] flex items-center gap-3.5">
+      <span
+        className={`mk-mono whitespace-nowrap px-[9px] py-1 text-xs font-semibold tracking-[0.12em] ${
+          dark
+            ? "bg-[var(--mk-amber)] text-[var(--mk-ink)]"
+            : "bg-[var(--mk-ink)] text-[var(--mk-dust)]"
+        }`}
+      >
+        {refText}
+      </span>
+      <span
+        className={`h-px min-w-6 flex-1 ${
+          dark ? "bg-[var(--mk-d-rule)]" : "bg-[var(--mk-rule-strong)]"
+        }`}
+      />
+      <span
+        className={`mk-mono text-right text-xs font-semibold uppercase tracking-[0.14em] min-[500px]:whitespace-nowrap ${
+          dark ? "text-[var(--mk-d-muted)]" : "text-[var(--mk-muted)]"
+        }`}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/* ---------- framed screenshot plate ---------- */
+
+export function Plate({
+  cap,
+  capDim,
+  className = "",
+  children,
+}: {
+  cap: string;
+  capDim?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`border border-[var(--mk-rule-strong)] bg-[var(--mk-paper)] shadow-[0_14px_34px_-18px_rgba(25,28,32,0.35)] ${className}`}
+    >
+      {children}
+      <div className="mk-mono flex justify-between gap-3 bg-[var(--mk-ink)] px-3 py-2 text-xs font-medium tracking-[0.1em] text-[var(--mk-dust)]">
+        <span>{cap}</span>
+        {capDim ? <span className="text-[var(--mk-d-muted)]">{capDim}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- nav ---------- */
+
+const NAV_LINKS = [
+  { href: "/welcome#diary", label: "The Diary" },
+  { href: "/welcome#report", label: "The Report" },
+  { href: "/welcome#evidence", label: "Evidence" },
+  { href: "/welcome#pricing", label: "Pricing" },
+  { href: "/welcome#faq", label: "FAQ" },
+];
 
 export function MarketingNav() {
   return (
-    <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-        <Link href="/welcome" className="flex items-center gap-2">
-          <SitefileMark size={28} />
-          <span className="text-lg font-semibold">Sitefile</span>
+    <header className="sticky top-0 z-50 border-b border-[var(--mk-rule)] bg-[rgba(242,241,237,0.92)] backdrop-blur-[8px]">
+      <div className="mx-auto flex h-16 max-w-[1120px] items-center gap-7 px-6">
+        <Link
+          href="/welcome"
+          className="mk-disp flex items-center gap-2.5 text-xl font-extrabold tracking-[-0.02em] no-underline"
+        >
+          <SitefileMark size={26} />
+          Sitefile
         </Link>
-        <nav className="flex items-center gap-1 sm:gap-2">
-          {/* Wrapper (not per-link `hidden`) because btnGhost's base
-              inline-flex is emitted after .hidden in the compiled CSS and
-              wins the display cascade — per-link hiding never applied. */}
-          <div className="hidden items-center gap-1 sm:flex sm:gap-2">
-            <Link href="/welcome#how" className={`${btnGhost} h-9 px-3`}>
-              How it works
+        <nav
+          aria-label="Sections"
+          className="hidden gap-[22px] min-[761px]:flex"
+        >
+          {NAV_LINKS.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              className="mk-disp text-[0.88rem] font-semibold text-[var(--mk-ink-soft)] no-underline hover:text-[var(--mk-amber-ink)]"
+            >
+              {l.label}
             </Link>
-            <Link href="/welcome#pricing" className={`${btnGhost} h-9 px-3`}>
-              Pricing
-            </Link>
-            <Link href="/support" className={`${btnGhost} h-9 px-3`}>
-              Support
-            </Link>
-          </div>
-          <Link href="/sign-in" className={`${btnGhost} h-9 px-3`}>
+          ))}
+        </nav>
+        <div className="ml-auto flex items-center gap-[18px]">
+          <Link
+            href="/sign-in"
+            className="mk-disp hidden text-[0.88rem] font-semibold text-[var(--mk-ink-soft)] no-underline hover:text-[var(--mk-amber-ink)] min-[420px]:block"
+          >
             Sign in
           </Link>
-          <Link href="/sign-up" className={`${btnPrimary} h-9 px-4`}>
-            Get started
+          <Link
+            href="/sign-up"
+            className={`${mkBtnAmber} whitespace-nowrap px-3 py-[9px] text-[0.88rem] min-[420px]:px-[18px]`}
+          >
+            Start free pilot
           </Link>
-        </nav>
+          <MobileMenu links={NAV_LINKS} />
+        </div>
       </div>
     </header>
   );
 }
 
+/* ---------- footer ---------- */
+
 export function MarketingFooter() {
   return (
-    <footer className="border-t bg-muted/30">
-      <div className="mx-auto grid max-w-6xl gap-10 px-6 py-14 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <SitefileMark size={24} />
-            <span className="font-semibold">Sitefile</span>
-          </div>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Site photos in. Client-ready progress reports out.
-          </p>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Project data hosted in the EU. Built for UK contractors.
-          </p>
-        </div>
-        <div>
-          <div className="text-sm font-semibold">Product</div>
-          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-            <li><Link href="/welcome#how" className="hover:text-foreground">How it works</Link></li>
-            <li><Link href="/welcome#tour" className="hover:text-foreground">Product tour</Link></li>
-            <li><Link href="/welcome#pricing" className="hover:text-foreground">Pricing</Link></li>
-            <li><Link href="/sign-up" className="hover:text-foreground">Get started</Link></li>
-          </ul>
-        </div>
-        <div>
-          <div className="text-sm font-semibold">Support</div>
-          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-            <li><Link href="/support" className="hover:text-foreground">Help &amp; FAQs</Link></li>
-            <li>
-              <a href="mailto:support@sitefile.app" className="hover:text-foreground">
-                support@sitefile.app
-              </a>
-            </li>
-            <li><Link href="/sign-in" className="hover:text-foreground">Sign in</Link></li>
-          </ul>
-        </div>
-        <div>
-          <div className="text-sm font-semibold">Legal</div>
-          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-            <li><Link href="/privacy" className="hover:text-foreground">Privacy policy</Link></li>
-            <li><Link href="/terms" className="hover:text-foreground">Terms of service</Link></li>
-          </ul>
-        </div>
-      </div>
-      <div className="border-t">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5 text-xs text-muted-foreground">
-          <span>© {new Date().getFullYear()} Sitefile — Contractor Progress Evidence Tracker</span>
-          <span>www.sitefile.app</span>
-        </div>
+    <footer className="bg-[var(--mk-ink)] py-[34px] text-[var(--mk-d-muted)]">
+      <div className="mk-mono mx-auto flex max-w-[1120px] flex-wrap items-center gap-[26px] px-6 text-xs">
+        <SitefileMark size={20} variant="bare" className="text-[var(--mk-d-muted)]" />
+        <Link href="/privacy" className="no-underline hover:text-[var(--mk-dust)]">
+          Privacy
+        </Link>
+        <Link href="/terms" className="no-underline hover:text-[var(--mk-dust)]">
+          Terms
+        </Link>
+        <Link href="/support" className="no-underline hover:text-[var(--mk-dust)]">
+          Support
+        </Link>
+        <a
+          href="mailto:support@sitefile.app"
+          className="no-underline hover:text-[var(--mk-dust)]"
+        >
+          support@sitefile.app
+        </a>
+        <span className="ml-auto">© {new Date().getFullYear()} Sitefile</span>
       </div>
     </footer>
   );

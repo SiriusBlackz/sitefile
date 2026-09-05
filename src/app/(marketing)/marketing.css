@@ -1,0 +1,136 @@
+/* The Graft — marketing surface tokens & the handful of effects that are
+   cleaner as CSS than as utility soup. Everything else is Tailwind in JSX. */
+
+.marketing-root {
+  --mk-dust: #f2f1ed;
+  --mk-paper: #fcfbf8;
+  --mk-ink: #191c20;
+  --mk-ink-soft: #3a3e44;
+  --mk-muted: #63676d;
+  --mk-rule: #dcd9d0;
+  --mk-rule-strong: #c7c3b8;
+  --mk-amber: #e8940a;
+  --mk-amber-deep: #c97f06;
+  --mk-amber-ink: #8f5f00;
+  --mk-amber-tint: #f9eed8;
+  --mk-ok: #1d7a4c;
+  --mk-d-muted: #a6aab0;
+  --mk-d-rule: rgba(242, 241, 237, 0.14);
+
+  background: var(--mk-dust);
+  color: var(--mk-ink);
+  font-family: var(--font-public-sans), -apple-system, "Segoe UI", Arial,
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Display type: Archivo for headings, nav, buttons. Body stays Public Sans. */
+.mk-disp,
+.marketing-root h1,
+.marketing-root h2,
+.marketing-root h3 {
+  font-family: var(--font-archivo), -apple-system, "Helvetica Neue", Arial,
+    sans-serif;
+}
+.marketing-root h1,
+.marketing-root h2,
+.marketing-root h3 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+.marketing-root h1 {
+  font-weight: 900;
+  line-height: 1.04;
+}
+
+.mk-mono {
+  font-family: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, Consolas,
+    monospace;
+}
+
+.marketing-root a:focus-visible,
+.marketing-root button:focus-visible {
+  outline: 2px solid var(--mk-amber-ink);
+  outline-offset: 2px;
+}
+
+/* Hero: faded setting-out grid, masked to the right-hand side. */
+.mk-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--mk-rule) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mk-rule) 1px, transparent 1px);
+  background-size: 56px 56px;
+  opacity: 0.38;
+  -webkit-mask-image: linear-gradient(105deg, transparent 46%, #000 70%);
+  mask-image: linear-gradient(105deg, transparent 46%, #000 70%);
+}
+
+/* Dark evidence section: single hazard-stripe top edge. */
+.mk-hazard-top::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--mk-amber) 0 14px,
+    var(--mk-ink) 14px 28px
+  );
+}
+
+/* Scroll reveal — CSS-only (scroll-driven animations), so the page stays a
+   server component. Browsers without support simply render everything. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .mk-rv {
+      animation: mk-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 36%;
+    }
+  }
+}
+@keyframes mk-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* FAQ accordion: animated open/close without measuring heights. */
+.mk-acc-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s ease;
+}
+.mk-acc-panel[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.mk-acc-panel > div {
+  overflow: hidden;
+}
+.mk-acc-icon {
+  transition: transform 0.25s ease;
+}
+.mk-acc-icon[data-open="true"] {
+  transform: rotate(45deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk-acc-panel,
+  .mk-acc-icon {
+    transition: none;
+  }
+}
