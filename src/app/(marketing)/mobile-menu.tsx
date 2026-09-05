@@ -32,7 +32,7 @@ export function MobileMenu({
         aria-controls="mk-mobile-menu"
         aria-label={open ? "Close menu" : "Open menu"}
         onClick={() => setOpen((v) => !v)}
-        className="mk-mono flex h-9 items-center border border-[var(--mk-rule-strong)] bg-transparent px-3 text-xs font-semibold tracking-[0.12em] text-[var(--mk-ink)]"
+        className="mk-mono flex h-9 w-14 items-center justify-center border border-[var(--mk-rule-strong)] bg-transparent px-0 text-xs font-semibold tracking-[0.12em] text-[var(--mk-ink)]"
       >
         {open ? "CLOSE" : "MENU"}
       </button>

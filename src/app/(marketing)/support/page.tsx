@@ -70,7 +70,7 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "Is the photo metadata independently verified?",
-    a: "No, and we won't claim it is. Camera metadata and GPS are recorded as supplied by the device and preserved unchanged, and the report's Verification & Metadata page discloses exactly that. What Sitefile adds is the discipline around it: locked days, flagged amendments, capture-to-upload timing analysis, and a full audit trail.",
+    a: "No, and we won't claim it is. Camera metadata and GPS are recorded as supplied by the device and preserved unchanged, and the report's Verification & Metadata page discloses exactly that. What Sitefile adds is the discipline around it: locked days, flagged amendments, capture-to-upload timing analysis, and a traceable activity history of key report and evidence actions.",
   },
   {
     q: "Something's broken or confusing — what do I do?",

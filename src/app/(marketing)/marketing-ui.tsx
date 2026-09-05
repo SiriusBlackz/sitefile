@@ -88,13 +88,13 @@ const NAV_LINKS = [
 export function MarketingNav() {
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--mk-rule)] bg-[rgba(242,241,237,0.92)] backdrop-blur-[8px]">
-      <div className="mx-auto flex h-16 max-w-[1120px] items-center gap-7 px-6">
+      <div className="mx-auto flex h-16 max-w-[1120px] items-center gap-4 px-4 min-[420px]:gap-7 min-[420px]:px-6">
         <Link
           href="/welcome"
           className="mk-disp flex items-center gap-2.5 text-xl font-extrabold tracking-[-0.02em] no-underline"
         >
           <SitefileMark size={26} variant="bare" className="text-[var(--mk-ink)]" />
-          Sitefile
+          <span className="hidden min-[356px]:inline">Sitefile</span>
         </Link>
         <nav
           aria-label="Sections"
@@ -110,7 +110,7 @@ export function MarketingNav() {
             </Link>
           ))}
         </nav>
-        <div className="ml-auto flex items-center gap-[18px]">
+        <div className="ml-auto flex items-center gap-2.5 min-[420px]:gap-[18px]">
           <Link
             href="/sign-in"
             className="mk-disp hidden text-[0.88rem] font-semibold text-[var(--mk-ink-soft)] no-underline hover:text-[var(--mk-amber-ink)] min-[420px]:block"

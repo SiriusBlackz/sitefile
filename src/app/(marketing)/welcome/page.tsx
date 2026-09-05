@@ -7,7 +7,7 @@ import { FaqAccordion, type FaqItem } from "./faq-accordion";
 export const metadata: Metadata = {
   title: "Sitefile — Site diary & client progress reports for contractors",
   description:
-    "A daily site diary your foreman locks in about ninety seconds, and a client report engine that turns site photos and your programme into a branded, evidence-backed PDF. £99 per project per month, unlimited users.",
+    "A daily site diary your foreman locks in about ninety seconds on a routine day, and a client report engine that turns site photos and your programme into a branded, evidence-backed PDF. £99 per project per month, unlimited users.",
 };
 
 /* ---------- content ---------- */
@@ -71,10 +71,9 @@ const MECHS = [
     k: "DELIVERY RECEIPTS",
     body: (
       <>
-        Reports go from your own email with a live receipt —{" "}
-        <b>opened, downloaded</b>{" "}
-        — so &ldquo;we never got it&rdquo; is off the
-        table.
+        Reports go from your own email with a live receipt of{" "}
+        <b>link access and PDF-download activity</b>{" "}
+        — you see when the report was opened and when the PDF came down.
       </>
     ),
   },
@@ -91,7 +90,7 @@ const MECHS = [
 
 const REPLACES = [
   {
-    t: "The Friday-night assembly job",
+    t: "The night-before assembly job",
     body: "Hunting photos across WhatsApp and camera rolls, pasting them into a document, writing the month from memory.",
   },
   {
@@ -119,7 +118,7 @@ const FAQS: FaqItem[] = [
   },
   {
     q: "Is the photo metadata independently verified?",
-    a: "No, and we won’t claim it is. Camera metadata and GPS are recorded as supplied by the device and preserved unchanged, and the report discloses exactly that. What Sitefile adds is the discipline around it: locked days, flagged amendments, capture-to-upload timing, and a full audit trail.",
+    a: "No, and we won’t claim it is. Camera metadata and GPS are recorded as supplied by the device and preserved unchanged, and the report discloses exactly that. What Sitefile adds is the discipline around it: locked days, flagged amendments, capture-to-upload timing, and a traceable activity history of key report and evidence actions.",
   },
   {
     q: "Can a locked day be changed afterwards?",
@@ -225,16 +224,23 @@ export default function WelcomePage() {
             </h1>
             <p className="max-w-[34rem] text-lg leading-[1.65] text-[var(--mk-ink-soft)] [&_b]:text-[var(--mk-ink)]">
               Sitefile is two tools on one spine: a <b>daily site diary</b> your
-              foreman locks in about ninety seconds, and a{" "}
+              foreman locks in about ninety seconds on a routine day, and a{" "}
               <b>client report engine</b>{" "}
               that turns site photos and your
               programme into a branded, evidence&#8209;backed PDF. Use either on
               its own. Run both, and the report draws straight from the record.
             </p>
-            <div className="mb-[26px] mt-[30px] flex flex-wrap items-center gap-[22px]">
+            <div className="mb-[26px] mt-[30px] flex flex-wrap items-center gap-[18px]">
               <Link href="/sign-up" className={mkBtnAmber}>
                 Start free pilot
               </Link>
+              <a
+                href="/marketing/sitefile-sample-report.pdf"
+                target="_blank"
+                className={mkBtnInk}
+              >
+                View a sample report
+              </a>
               <span className="mk-mono text-xs text-[var(--mk-muted)]">
                 or email{" "}
                 <a
@@ -320,7 +326,7 @@ export default function WelcomePage() {
               Run both and the day&rsquo;s record flows into the report on its
               own: a Site Diary Summary page, hold&#8209;ups feeding a delay
               ledger by cause, the day&rsquo;s work lines pre&#8209;drafting the
-              narrative. The Friday report stops being an act of memory.
+              narrative. The monthly report stops being an act of memory.
             </p>
           </div>
         </div>
@@ -336,7 +342,8 @@ export default function WelcomePage() {
               <Lead>
                 Diaries fail because they ask a foreman to write an essay at
                 17:00. Sitefile asks for ticks. Most of the page is already
-                filled in.
+                filled in — designed to take around ninety seconds on a
+                routine day.
               </Lead>
               <Feat k="THE 90-SECOND LOCK" first>
                 <b>Work done</b>{" "}
@@ -416,7 +423,7 @@ export default function WelcomePage() {
                     alt="Sitefile progress report cover page with contractor branding, client logo, project reference and reporting period"
                   />
                 </Plate>
-                <Plate cap="PHOTO LOCATION MAP" capDim="GPS ON EVERY PHOTO">
+                <Plate cap="PHOTO LOCATION MAP" capDim="GPS WHERE AVAILABLE">
                   <Image
                     src="/marketing/report-photo-map.png"
                     width={637}
@@ -427,7 +434,7 @@ export default function WelcomePage() {
               </div>
             </div>
             <div className="order-1 min-[961px]:order-2">
-              <H2>The Friday report, without the Friday night.</H2>
+              <H2>Report day, without the late night.</H2>
               <Lead>
                 Import the programme — MS Project, P6, Excel, even a PDF.
                 Capture GPS&#8209;tagged photos on phones, offline&#8209;capable,
@@ -469,6 +476,15 @@ export default function WelcomePage() {
                 </span>
               ))}
             </div>
+            <p className="mk-mono mt-4 text-xs">
+              <a
+                href="/marketing/sitefile-sample-report.pdf"
+                target="_blank"
+                className="text-[var(--mk-amber-ink)] underline underline-offset-[3px]"
+              >
+                View a full sample report (PDF, demonstration project)
+              </a>
+            </p>
           </div>
         </div>
       </section>
@@ -552,8 +568,9 @@ export default function WelcomePage() {
                 <b>recorded as supplied and preserved unchanged</b>{" "}
                 — we
                 don&rsquo;t call it &ldquo;verified&rdquo;. There&rsquo;s{" "}
-                <b>GPS on every photo</b>, plotted against your site zones — we
-                don&rsquo;t claim more than the phone knows. The report&rsquo;s
+                <b>GPS captured where available</b>, plotted against your site
+                zones — and where a photo has no location, the report says so
+                plainly. The report&rsquo;s
                 own verification page uses the same careful wording, so the
                 record stays credible when it matters.
               </p>
@@ -592,8 +609,8 @@ export default function WelcomePage() {
               {
                 n: "02 · DAILY",
                 title: "Capture and lock",
-                body: "Photos from phones with GPS on every photo. Hold-ups in ten seconds as they bite. The diary locked in about ninety, at the gate.",
-                t: "~ 2 MINUTES A DAY",
+                body: "Photos from phones, GPS captured where available. Hold-ups in ten seconds as they bite. The diary locked in about ninety, at the gate.",
+                t: "~ 2 MINUTES A DAY, ALL IN",
               },
               {
                 n: "03 · REPORT DAY",
@@ -690,20 +707,48 @@ export default function WelcomePage() {
                   </li>
                 ))}
               </ul>
-              <div className="mt-[30px] flex flex-wrap items-center gap-5">
+              <div className="mt-6 border border-dashed border-[var(--mk-rule-strong)] bg-[var(--mk-dust)] px-5 py-4">
+                <span className="mk-mono block text-xs font-semibold tracking-[0.14em] text-[var(--mk-ink)]">
+                  PILOT TERMS, PLAINLY
+                </span>
+                <ul className="mt-2.5 grid list-none gap-1.5 p-0 text-[0.9rem] text-[var(--mk-ink-soft)]">
+                  <li>
+                    The pilot runs your first full reporting cycle on one live
+                    project — typically a month.
+                  </li>
+                  <li>No card to start. Nothing is charged during the pilot.</li>
+                  <li>
+                    Billing begins only if you choose to carry on — agreed with
+                    you first, never automatic.
+                  </li>
+                  <li>
+                    After that it&rsquo;s £99 per project / month, cancel
+                    monthly, and your data exports any time.
+                  </li>
+                </ul>
+              </div>
+              <div className="mt-[26px] flex flex-wrap items-center gap-5">
                 <Link href="/sign-up" className={mkBtnInk}>
                   Start free pilot
                 </Link>
-                <span className="mk-mono text-xs text-[var(--mk-muted)]">
-                  or email{" "}
-                  <a
-                    href="mailto:support@sitefile.app"
-                    className="text-[var(--mk-amber-ink)] underline underline-offset-[3px]"
-                  >
-                    support@sitefile.app
-                  </a>
-                </span>
+                <a
+                  href="/marketing/sitefile-sample-report.pdf"
+                  target="_blank"
+                  className="mk-mono text-xs text-[var(--mk-amber-ink)] underline underline-offset-[3px]"
+                >
+                  View a sample report
+                </a>
               </div>
+              <p className="mk-mono mt-4 text-xs text-[var(--mk-muted)]">
+                Running several projects? Email{" "}
+                <a
+                  href="mailto:support@sitefile.app"
+                  className="text-[var(--mk-amber-ink)] underline underline-offset-[3px]"
+                >
+                  support@sitefile.app
+                </a>{" "}
+                for a portfolio arrangement.
+              </p>
             </div>
           </div>
         </div>
@@ -713,22 +758,24 @@ export default function WelcomePage() {
       <section className="border-y border-[var(--mk-rule)] bg-[var(--mk-paper)] py-16 min-[761px]:py-[84px]">
         <div className={`${wrap} max-w-[810px]`}>
           <Stamp refText="REC 07" label="A straight word" />
-          <H2>Built solo, by someone who&rsquo;s stood where you stand.</H2>
+          <H2>Founder-led, by someone who&rsquo;s stood where you stand.</H2>
           <p className="mk-rv mt-[18px] text-[1.05rem] leading-[1.75] text-[var(--mk-ink-soft)]">
-            Sitefile is built by one person — a construction professional, not a
-            software company&rsquo;s idea of one. It exists because chasing
-            photos off five phones the night before a client report is a
-            miserable way to spend a Thursday, and because the diary that would
-            have settled the argument is always the one nobody kept.
+            Sitefile is built and run by its founder — a construction
+            professional, not a software company&rsquo;s idea of one. It exists
+            because chasing photos off five phones the night before a client
+            report is a miserable way to spend a Thursday, and because the
+            diary that would have settled the argument is always the one nobody
+            kept.
           </p>
           <p className="mk-rv mt-[18px] text-[1.05rem] leading-[1.75] text-[var(--mk-ink-soft)] [&_b]:text-[var(--mk-ink)]">
             What that means for you:{" "}
             <b>
-              no sales team, no procurement dance, and answers from the person
-              who wrote the code
+              demos, setup and support come directly from the person who wrote
+              the code
             </b>{" "}
-            — usually the same day. What it doesn&rsquo;t mean: shortcuts on the
-            record. Everything on this page is in the product today.
+            — usually the same day. What it doesn&rsquo;t mean: shortcuts on
+            the record. Everything on this page is in the product today, your
+            data exports whenever you ask, and backups run daily.
           </p>
           {/* TODO: founder name pending decision */}
           <p className="mk-rv mk-mono mt-6 text-xs text-[var(--mk-muted)]">
@@ -767,7 +814,7 @@ export default function WelcomePage() {
           <h2 className="mk-rv max-w-[20ch] text-[clamp(2.1rem,4.4vw,3.3rem)]">
             Put the next report on the record.
           </h2>
-          <p className="mk-rv mk-mono mt-3.5 text-xs text-[var(--mk-amber-ink)]">
+          <p className="mk-rv mk-mono mt-3.5 text-xs text-[var(--mk-ink)]">
             FREE PILOT ON A REAL PROJECT · £99 PER PROJECT / MONTH AFTER ·
             CANCEL MONTHLY
           </p>
@@ -775,7 +822,7 @@ export default function WelcomePage() {
             <Link href="/sign-up" className={mkBtnInk}>
               Start free pilot
             </Link>
-            <span className="mk-mono text-xs text-[#6B4A00]">
+            <span className="mk-mono text-xs text-[var(--mk-ink)]">
               or email{" "}
               <a
                 href="mailto:support@sitefile.app"
