@@ -93,7 +93,7 @@ export function MarketingNav() {
           href="/welcome"
           className="mk-disp flex items-center gap-2.5 text-xl font-extrabold tracking-[-0.02em] no-underline"
         >
-          <SitefileMark size={26} />
+          <SitefileMark size={26} variant="bare" className="text-[var(--mk-ink)]" />
           Sitefile
         </Link>
         <nav
