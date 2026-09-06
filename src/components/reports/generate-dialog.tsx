@@ -863,7 +863,7 @@ export function GenerateDialog({
                   Pre-filled from site diaries: <strong>{diaryAgg.toolboxTalks}</strong>{" "}
                   toolbox talks, <strong>{diaryAgg.incidents}</strong> incidents
                   recorded, <strong>{diaryAgg.inspections}</strong> inspections
-                  ({diaryAgg.daysWithRecord} days on record). Check the
+                  ({diaryAgg.daysWithRecord} day{diaryAgg.daysWithRecord === 1 ? "" : "s"} on record). Check the
                   accident, near-miss and RIDDOR figures yourself — the diary
                   doesn&apos;t classify incidents. Clear every field to omit
                   the block.

@@ -127,7 +127,7 @@ export function VerificationPage({
           <IntegrityCard
             label="Camera Metadata Present"
             value={`${exifRate}%`}
-            detail={`${stats.withExifData} of ${stats.totalEvidence} items`}
+            detail={`${stats.withExifData} of ${stats.totalEvidence} items carry a capture time or camera model`}
             color={rateColor(exifRate)}
           />
           <IntegrityCard

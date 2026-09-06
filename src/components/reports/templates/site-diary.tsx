@@ -19,12 +19,17 @@ export interface SiteDiaryDay {
    * "none" = no record made (declared, never hidden). */
   status: "record" | "late" | "none";
   amended: boolean;
+  /** Outside the project's configured working days — authorised
+   * exceptional (weekend) working, reported in full and labelled. */
+  exceptional: boolean;
 }
 
 export interface SiteDiaryData {
   days: SiteDiaryDay[];
   workingDayCount: number;
   daysWithRecord: number;
+  /** Non-working days that nonetheless hold a record or hold-up. */
+  exceptionalDays: number;
   hoursLostTotal: number;
   labourAvg: number | null;
   labourPeak: number | null;
@@ -149,6 +154,9 @@ export function SiteDiaryPages({
                   {data.daysWithRecord < data.workingDayCount
                     ? " — remaining days declared as no record made"
                     : ""}
+                  {data.exceptionalDays > 0
+                    ? ` · ${data.exceptionalDays} non-working day${data.exceptionalDays === 1 ? "" : "s"} worked ‡`
+                    : ""}
                 </span>
                 {data.labourAvg != null && (
                   <span>
@@ -180,7 +188,10 @@ export function SiteDiaryPages({
             <tbody>
               {rows.map((d) => (
                 <tr key={d.date}>
-                  <td style={td}>{fmtDay(d.date)}</td>
+                  <td style={td}>
+                    {fmtDay(d.date)}
+                    {d.exceptional ? " ‡" : ""}
+                  </td>
                   <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                     {d.labour ?? "—"}
                   </td>
@@ -216,7 +227,11 @@ export function SiteDiaryPages({
             <p style={{ fontSize: 8.5, color: "#94a3b8", marginTop: 10 }}>
               Weather figures are recorded automatically from Open-Meteo for
               the site location at the time each diary locks. † entered
-              after the day · ◆ amended after locking (original preserved).
+              after the day · ◆ amended after locking (original preserved)
+              {data.exceptionalDays > 0
+                ? " · ‡ non-working day on the project calendar, worked and recorded"
+                : ""}
+              .
               {data.lateCount > 0
                 ? ` ${data.lateCount} record${data.lateCount === 1 ? "" : "s"} entered late.`
                 : ""}

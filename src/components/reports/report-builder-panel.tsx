@@ -205,7 +205,7 @@ export function ReportBuilderPanel({
             <div className="mt-4 rounded-lg border border-dashed border-primary/50 bg-accent/50 p-3">
               <p className="font-mono text-[10px] uppercase tracking-widest text-(--accent-ink)">
                 Honesty check
-                {days !== null && days > 0 ? `, ${days} days before send` : ""}
+                {days !== null && days > 0 ? `, ${days} day${days === 1 ? "" : "s"} before send` : ""}
               </p>
               <div className="mt-1 space-y-1.5 text-sm">
                 {gaps.zeroPhotoTasks.length > 0 && (

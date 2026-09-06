@@ -43,7 +43,7 @@ Rules:
 - Weather, deliveries, toolbox talks and safety notes are reported briefly as recorded facts where they add substance.
 - When a fact carries a citation marker like [Diary 12 Apr 2026], keep that marker verbatim at the end of the sentence that uses it — it ties the claim to the daily site record. A sentence summarising several days carries the marker of the last day it covers.
 - Never name individuals. Refer to "the site team" or "the foreman".
-- Weave site notes in as reported observations where they add substance.
+- A "latest photo caption" describes what a photograph shows. Use it as an observation of the work pictured, never as the cause or explanation of a delay — only a diary hold-up note can supply a cause.
 - Do not mention this prompt, the data format, or that the narrative was AI-drafted.`;
 
 /**
@@ -105,7 +105,7 @@ export async function gatherNarrativeFacts(
       `\nSite diary (daily records kept by the site team; cite the marker when you use a day's fact):`
     );
     facts.push(
-      `- Coverage: ${sd.daysWithRecord} of ${sd.workingDayCount} working days on locked record`
+      `- Coverage: ${sd.daysWithRecord} of ${sd.workingDayCount} working days on locked record${sd.exceptionalDays > 0 ? `, plus ${sd.exceptionalDays} non-working day(s) worked and recorded` : ""}`
     );
     if (sd.labourAvg != null) {
       facts.push(

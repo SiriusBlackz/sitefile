@@ -360,7 +360,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       risk += ` (planned ${formatDateRange(t.plannedStart, t.plannedEnd)})`;
     }
     const note = latestNoteByTask.get(t.id);
-    if (note) risk += ` — site note: “${note}”`;
+    if (note) risk += ` — latest photo caption: “${note}”`;
     keyRisks.push(risk);
   }
   // Overdue detection: activities past their planned finish and not done.
@@ -792,7 +792,10 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     : [];
 
   // 10. Verification stats (scoped to reporting period)
-  const withExif = periodEvidence.filter((e) => e.exifData != null).length;
+  // "Camera metadata present" means the file actually carried a capture
+  // time or a camera identity — not merely that an EXIF blob (possibly
+  // empty) was stored. Matches what the Progress Records captions show.
+  const withExif = periodEvidence.filter((e) => hasCameraMetadata(e.exifData)).length;
   const withGps = periodEvidence.filter(
     (e) => e.latitude != null && e.longitude != null
   ).length;
@@ -899,12 +902,12 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
         : [1, 2, 3, 4, 5];
     const todayLocal = localDateString(new Date(), diaryTz);
     const rangeEnd = input.periodEnd < todayLocal ? input.periodEnd : todayLocal;
-    const dayList = workingDatesBetween(
+    const scheduledDays = workingDatesBetween(
       input.periodStart,
       rangeEnd,
       diaryWorkingDays
     );
-    if (dayList.length > 0) {
+    if (rangeEnd >= input.periodStart) {
       const dEntries = await db.query.diaryEntries.findMany({
         where: and(
           eq(diaryEntries.projectId, input.projectId),
@@ -931,8 +934,21 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
           },
         },
       });
+      // ONE policy for non-working-day records: a locked diary or a logged
+      // hold-up on a Saturday/Sunday is authorised exceptional working and
+      // is reported in full (row, hours, counts, narrative) — flagged as a
+      // non-working day, never silently dropped and never half-counted.
+      const lockedInRange = dEntries.filter((e) => e.status === "locked");
+      const scheduledSet = new Set(scheduledDays);
+      const dayList = [
+        ...new Set([
+          ...scheduledDays,
+          ...lockedInRange.map((e) => e.entryDate),
+          ...dHoldupDays.map((h) => h.occurredOn),
+        ]),
+      ].sort();
       const anyDiaryUse = dEntries.length > 0 || dHoldupDays.length > 0;
-      if (anyDiaryUse) {
+      if (anyDiaryUse && dayList.length > 0) {
         const days = dayList.map((date) => {
           const dayEntries = dEntries.filter(
             (e) => e.entryDate === date && e.status === "locked"
@@ -998,17 +1014,22 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
                   ? ("late" as const)
                   : ("record" as const),
             amended: dayEntries.some((e) => e.amendedAt != null),
+            exceptional: !scheduledSet.has(date),
           };
         });
         const labourVals = days
           .map((d) => d.labour)
           .filter((v): v is number => v != null && v > 0);
-        diaryDaysLocked = days.filter((d) => d.status !== "none").length;
-        diaryWorkingDayCount = days.length;
+        // Coverage is measured against the SCHEDULED working days only;
+        // exceptional days are reported on top, never counted as gaps.
+        diaryDaysLocked = days.filter((d) => !d.exceptional && d.status !== "none").length;
+        diaryWorkingDayCount = days.filter((d) => !d.exceptional).length;
+        const exceptionalDays = days.filter((d) => d.exceptional).length;
         siteDiary = {
           days,
-          workingDayCount: days.length,
+          workingDayCount: diaryWorkingDayCount,
           daysWithRecord: diaryDaysLocked,
+          exceptionalDays,
           hoursLostTotal:
             Math.round(days.reduce((s, d) => s + d.hoursLost, 0) * 10) / 10,
           labourAvg: labourVals.length
@@ -1017,12 +1038,13 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
               ) / 10
             : null,
           labourPeak: labourVals.length ? Math.max(...labourVals) : null,
-          incidents: dEntries.reduce((s, e) => s + e.incidentsCount, 0),
-          toolboxTalks: dEntries.filter((e) => e.toolboxTalk).length,
-          inspections: dEntries.reduce((s, e) => s + e.inspectionsCount, 0),
-          amendedCount: dEntries.filter((e) => e.amendedAt != null).length,
-          lateCount: dEntries.filter((e) => e.late && e.status === "locked")
-            .length,
+          // Locked records only — a draft is not a record. Same basis as
+          // the generate dialog's diary aggregates and the H&S pre-fill.
+          incidents: lockedInRange.reduce((s, e) => s + e.incidentsCount, 0),
+          toolboxTalks: lockedInRange.filter((e) => e.toolboxTalk).length,
+          inspections: lockedInRange.reduce((s, e) => s + e.inspectionsCount, 0),
+          amendedCount: lockedInRange.filter((e) => e.amendedAt != null).length,
+          lateCount: lockedInRange.filter((e) => e.late).length,
         };
         // Scalar aggregates only into the persisted stats blob.
         if (siteDiary.labourAvg != null) {
@@ -1034,13 +1056,13 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
         }
 
         // ── Detail for the narrative (not persisted, not printed raw) ──
-        // Same day set as the Site Diary Summary table, so the narrative
-        // never cites a day the client can't see in the record.
-        const workingSet = new Set(dayList);
-        const lockedEntries = dEntries
-          .filter((e) => e.status === "locked" && workingSet.has(e.entryDate))
-          .sort((a, b) => a.entryDate.localeCompare(b.entryDate));
-        const workingHoldupDays = dHoldupDays.filter((h) => workingSet.has(h.occurredOn));
+        // Same day set as the Site Diary Summary table (scheduled +
+        // exceptional), so the narrative never cites a day the client
+        // can't see in the record.
+        const lockedEntries = [...lockedInRange].sort((a, b) =>
+          a.entryDate.localeCompare(b.entryDate)
+        );
+        const workingHoldupDays = dHoldupDays;
         const taskOrderForDiary = new Map<string, number>();
         flatWithDepth.forEach((t, i) => taskOrderForDiary.set(t.id, i));
         const taskByIdDiary = new Map(allTasks.map((t) => [t.id, t]));
@@ -1424,7 +1446,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       s += ` against a planned completion of ${formatDate(t.plannedEnd)}`;
     }
     const note = latestNoteByTask.get(t.id);
-    if (note) s += ` — site note: “${note}”`;
+    if (note) s += ` — latest photo caption: “${note}”`;
     paragraphs.push(s + ".");
   }
 
@@ -1434,7 +1456,11 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   if (siteDiary && siteDiary.daysWithRecord > 0) {
     const bits: string[] = [];
     bits.push(
-      `The site diary holds a locked record for ${siteDiary.daysWithRecord} of ${siteDiary.workingDayCount} working day${siteDiary.workingDayCount === 1 ? "" : "s"} in the period.`
+      `The site diary holds a locked record for ${siteDiary.daysWithRecord} of ${siteDiary.workingDayCount} working day${siteDiary.workingDayCount === 1 ? "" : "s"} in the period${
+        siteDiary.exceptionalDays > 0
+          ? `, plus ${siteDiary.exceptionalDays} non-working day${siteDiary.exceptionalDays === 1 ? "" : "s"} on which work was recorded`
+          : ""
+      }.`
     );
     if (siteDiary.labourAvg != null) {
       let r = `Site resourcing averaged ${siteDiary.labourAvg} operatives (peak ${siteDiary.labourPeak})`;
@@ -1554,6 +1580,25 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     omittedSections,
     signatures: safeSignatures,
   };
+}
+
+const CAMERA_METADATA_KEYS = [
+  "DateTimeOriginal",
+  "CreateDate",
+  "DateTimeDigitized",
+  "Make",
+  "Model",
+  "LensModel",
+] as const;
+
+/** True when the EXIF blob carries a capture time or a camera identity. */
+export function hasCameraMetadata(exif: unknown): boolean {
+  if (!exif || typeof exif !== "object") return false;
+  const rec = exif as Record<string, unknown>;
+  return CAMERA_METADATA_KEYS.some((k) => {
+    const v = rec[k];
+    return v != null && v !== "" && v !== 0;
+  });
 }
 
 /** "A", "A and B", "A, B and C" — caps at 5 items then "and N more". */
