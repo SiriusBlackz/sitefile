@@ -454,13 +454,26 @@ export const reportRouter = createTRPCRouter({
         columns: {
           entryDate: true,
           toolboxTalk: true,
+          toolboxTopic: true,
           incidentsCount: true,
           inspectionsCount: true,
         },
       });
+      // Topics deduped case-insensitively, first spelling wins, date order.
+      const topicSeen = new Set<string>();
+      const toolboxTopics: string[] = [];
+      for (const e of [...entries].sort((a, b) => a.entryDate.localeCompare(b.entryDate))) {
+        const t = e.toolboxTalk ? e.toolboxTopic?.trim() : "";
+        if (!t) continue;
+        const k = t.toLowerCase();
+        if (topicSeen.has(k)) continue;
+        topicSeen.add(k);
+        toolboxTopics.push(t);
+      }
       return {
         daysWithRecord: new Set(entries.map((e) => e.entryDate)).size,
         toolboxTalks: entries.filter((e) => e.toolboxTalk).length,
+        toolboxTopics,
         incidents: entries.reduce((s, e) => s + e.incidentsCount, 0),
         inspections: entries.reduce((s, e) => s + e.inspectionsCount, 0),
       };
@@ -540,7 +553,15 @@ export const reportRouter = createTRPCRouter({
         includeWeather: false,
         sections: { gallery: false, beforeAfter: false, photoMap: false },
       });
-      return { suggestions: data.summaryStats.keyRisks };
+      // Programme risks first, then the site diary's hold-up threads —
+      // the foreman's recorded reasons are the early warnings a client
+      // report should carry, and the PM edits the list before issue.
+      const seen = new Set<string>();
+      const suggestions = [
+        ...data.summaryStats.keyRisks,
+        ...(data.siteDiaryDetail?.issueSuggestions ?? []),
+      ].filter((s) => (seen.has(s) ? false : (seen.add(s), true)));
+      return { suggestions };
     }),
 
   draftNarrative: protectedProcedure

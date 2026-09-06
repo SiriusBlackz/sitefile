@@ -19,6 +19,43 @@ import {
   type SiteDiaryData,
 } from "@/components/reports/templates/site-diary";
 import { getReadUrl } from "./storage";
+
+/**
+ * Site-diary DETAIL for narrative drafting and key-issue suggestions —
+ * the written substance of the daily record (work lines, hold-up
+ * reasons, deliveries, toolbox topics, safety notes). Never persisted
+ * into report_data and never printed verbatim: it feeds the AI narrative
+ * (which cites each fact with a [Diary d Mon yyyy] marker) and the
+ * generate dialog. Aggregated across authors — no names.
+ */
+export interface SiteDiaryDetail {
+  /** Confirmed work lines grouped by programme activity, programme order. */
+  workByTask: {
+    taskName: string;
+    lines: { date: string; body: string; photoCount: number }[];
+  }[];
+  /** One row per hold-up THREAD (multi-day delays collapse to one). */
+  holdups: {
+    cause: string;
+    taskName: string | null;
+    note: string | null;
+    hours: number;
+    days: number;
+    firstDay: string;
+    lastDay: string;
+    open: boolean;
+  }[];
+  materials: { date: string; label: string; qty: number; note: string | null }[];
+  plantAvg: number | null;
+  plantPeak: number | null;
+  /** Working days whose diary weather snapshot recorded >=1mm rain. */
+  wetDays: string[];
+  toolboxTopics: { date: string; topic: string }[];
+  safetyNotes: { date: string; note: string }[];
+  workNotes: { date: string; note: string }[];
+  /** Hold-up threads phrased as Key Issues candidates for the dialog. */
+  issueSuggestions: string[];
+}
 import { generateBeforeAfterPairs } from "./before-after";
 import { fetchPeriodWeather, deriveSiteCoords } from "./weather";
 import { formatDate, formatDateRange } from "@/lib/format";
@@ -850,6 +887,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   // layer: rows are aggregated across authors; no author name ever enters
   // the returned report data (or the persisted stats blob).
   let siteDiary: SiteDiaryData | null = null;
+  let siteDiaryDetail: SiteDiaryDetail | null = null;
   let diaryDaysLocked = 0;
   let diaryWorkingDayCount = 0;
   if (sections.siteDiary) {
@@ -873,7 +911,12 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
           gte(diaryEntries.entryDate, input.periodStart),
           lte(diaryEntries.entryDate, rangeEnd)
         ),
-        with: { resources: true },
+        with: {
+          resources: true,
+          workLines: {
+            with: { task: { columns: { id: true, name: true, parentTaskId: true } } },
+          },
+        },
       });
       const dHoldupDays = await db.query.diaryHoldupDays.findMany({
         where: and(
@@ -881,7 +924,12 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
           gte(diaryHoldupDays.occurredOn, input.periodStart),
           lte(diaryHoldupDays.occurredOn, rangeEnd)
         ),
-        with: { holdup: { columns: { cause: true } } },
+        with: {
+          holdup: {
+            columns: { id: true, cause: true, note: true, status: true },
+            with: { task: { columns: { name: true } } },
+          },
+        },
       });
       const anyDiaryUse = dEntries.length > 0 || dHoldupDays.length > 0;
       if (anyDiaryUse) {
@@ -984,6 +1032,141 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
             daysCounted: labourVals.length,
           };
         }
+
+        // ── Detail for the narrative (not persisted, not printed raw) ──
+        // Same day set as the Site Diary Summary table, so the narrative
+        // never cites a day the client can't see in the record.
+        const workingSet = new Set(dayList);
+        const lockedEntries = dEntries
+          .filter((e) => e.status === "locked" && workingSet.has(e.entryDate))
+          .sort((a, b) => a.entryDate.localeCompare(b.entryDate));
+        const workingHoldupDays = dHoldupDays.filter((h) => workingSet.has(h.occurredOn));
+        const taskOrderForDiary = new Map<string, number>();
+        flatWithDepth.forEach((t, i) => taskOrderForDiary.set(t.id, i));
+        const taskByIdDiary = new Map(allTasks.map((t) => [t.id, t]));
+        const diaryTaskName = (t: { id: string; name: string; parentTaskId: string | null } | null) => {
+          if (!t) return "General site works";
+          const parent = t.parentTaskId ? taskByIdDiary.get(t.parentTaskId) : null;
+          return parent ? `${parent.name} — ${t.name}` : t.name;
+        };
+        const workGroups = new Map<
+          string,
+          { taskName: string; order: number; lines: { date: string; body: string; photoCount: number }[]; seen: Set<string> }
+        >();
+        for (const e of lockedEntries) {
+          const lines = [...e.workLines].sort((a, b) => a.sortOrder - b.sortOrder);
+          for (const l of lines) {
+            // Pre-drafted (photo_link) lines only count once the foreman
+            // ticked them; typed lines are confirmed by being typed.
+            if (!(l.confirmed || l.source === "manual")) continue;
+            const body = l.body.trim();
+            if (!body) continue;
+            const key = l.task?.id ?? "__general__";
+            let g = workGroups.get(key);
+            if (!g) {
+              g = {
+                taskName: diaryTaskName(l.task ?? null),
+                order: l.task ? (taskOrderForDiary.get(l.task.id) ?? 1e9) : 1e9 + 1,
+                lines: [],
+                seen: new Set(),
+              };
+              workGroups.set(key, g);
+            }
+            // Two foremen confirming the same pre-drafted line on the same
+            // day is one fact, not two.
+            const dedupe = `${e.entryDate}|${body.toLowerCase()}`;
+            if (g.seen.has(dedupe)) continue;
+            g.seen.add(dedupe);
+            g.lines.push({
+              date: e.entryDate,
+              body,
+              photoCount: Array.isArray(l.evidenceIds) ? l.evidenceIds.length : 0,
+            });
+          }
+        }
+        const workByTask = [...workGroups.values()]
+          .sort((a, b) => a.order - b.order)
+          .map(({ taskName, lines }) => ({ taskName, lines }));
+
+        // Hold-up threads: collapse day rows to one row per thread.
+        const threads = new Map<string, SiteDiaryDetail["holdups"][number]>();
+        for (const h of [...workingHoldupDays].sort((a, b) => a.occurredOn.localeCompare(b.occurredOn))) {
+          const causeLabel =
+            HOLDUP_CAUSE_LABELS[h.holdup.cause as keyof typeof HOLDUP_CAUSE_LABELS] ?? h.holdup.cause;
+          let t = threads.get(h.holdup.id);
+          if (!t) {
+            t = {
+              cause: causeLabel,
+              taskName: h.holdup.task?.name ?? null,
+              note: h.holdup.note?.trim() || h.note?.trim() || null,
+              hours: 0,
+              days: 0,
+              firstDay: h.occurredOn,
+              lastDay: h.occurredOn,
+              open: h.holdup.status === "open",
+            };
+            threads.set(h.holdup.id, t);
+          }
+          t.hours = Math.round((t.hours + h.hoursLost) * 10) / 10;
+          t.days += 1;
+          t.lastDay = h.occurredOn;
+          if (!t.note && h.note?.trim()) t.note = h.note.trim();
+        }
+        const holdups = [...threads.values()].sort((a, b) => b.hours - a.hours);
+        const issueSuggestions = holdups.map((t) => {
+          const when =
+            t.days > 1
+              ? `${t.days} days, ${formatDateRange(t.firstDay, t.lastDay)}`
+              : formatDate(t.firstDay);
+          let s = `${t.cause}: ${t.hours}h lost (${when})`;
+          if (t.taskName) s += ` on ${t.taskName}`;
+          if (t.note) s += ` — ${t.note}`;
+          if (t.open) s += " (ongoing at period end)";
+          return s;
+        });
+
+        const materials: SiteDiaryDetail["materials"] = [];
+        for (const e of lockedEntries) {
+          for (const r of e.resources) {
+            if (r.kind !== "materials" || r.qty <= 0) continue;
+            materials.push({
+              date: e.entryDate,
+              label: r.label || "materials",
+              qty: r.qty,
+              note: r.note?.trim() || null,
+            });
+          }
+        }
+        const plantVals = days
+          .map((d) => d.plant)
+          .filter((v): v is number => v != null && v > 0);
+        const wetDays = days
+          .filter((d) => d.weather && d.weather.precipMm >= 1)
+          .map((d) => d.date);
+        const toolboxTopics = lockedEntries
+          .filter((e) => e.toolboxTalk && e.toolboxTopic?.trim())
+          .map((e) => ({ date: e.entryDate, topic: e.toolboxTopic!.trim() }));
+        const safetyNotes = lockedEntries
+          .filter((e) => e.safetyNote?.trim())
+          .map((e) => ({ date: e.entryDate, note: e.safetyNote!.trim() }));
+        const workNotes = lockedEntries
+          .filter((e) => e.workNote?.trim())
+          .map((e) => ({ date: e.entryDate, note: e.workNote!.trim() }));
+
+        siteDiaryDetail = {
+          workByTask,
+          holdups,
+          materials,
+          plantAvg: plantVals.length
+            ? Math.round((plantVals.reduce((s, v) => s + v, 0) / plantVals.length) * 10) / 10
+            : null,
+          plantPeak: plantVals.length ? Math.max(...plantVals) : null,
+          wetDays,
+          toolboxTopics,
+          safetyNotes,
+          workNotes,
+          issueSuggestions,
+        };
       }
     }
   }
@@ -1245,6 +1428,50 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     paragraphs.push(s + ".");
   }
 
+  // Site diary paragraph — resourcing, disruption and weather from the
+  // daily record, so a report generated without an AI draft still says
+  // what the site team recorded rather than only what the programme says.
+  if (siteDiary && siteDiary.daysWithRecord > 0) {
+    const bits: string[] = [];
+    bits.push(
+      `The site diary holds a locked record for ${siteDiary.daysWithRecord} of ${siteDiary.workingDayCount} working day${siteDiary.workingDayCount === 1 ? "" : "s"} in the period.`
+    );
+    if (siteDiary.labourAvg != null) {
+      let r = `Site resourcing averaged ${siteDiary.labourAvg} operatives (peak ${siteDiary.labourPeak})`;
+      if (siteDiaryDetail?.plantAvg != null) {
+        r += ` with ${siteDiaryDetail.plantAvg} items of plant on average`;
+      }
+      bits.push(r + ".");
+    }
+    if (siteDiary.hoursLostTotal > 0) {
+      const byCause = new Map<string, number>();
+      for (const d of siteDiary.days) {
+        // Attribute a day's lost hours to its recorded causes (evenly when several).
+        if (d.hoursLost <= 0 || d.causes.length === 0) continue;
+        for (const c of d.causes) {
+          byCause.set(c, (byCause.get(c) ?? 0) + d.hoursLost / d.causes.length);
+        }
+      }
+      const causeParts = [...byCause.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([c, h]) => `${c.toLowerCase()} (${Math.round(h * 10) / 10}h)`);
+      bits.push(
+        `${siteDiary.hoursLostTotal} hours of working time were recorded as lost${causeParts.length ? ` to ${joinList(causeParts, 4)}` : ""}.`
+      );
+    }
+    if (siteDiaryDetail && siteDiaryDetail.wetDays.length > 0) {
+      bits.push(
+        `Rainfall of 1mm or more was recorded on ${siteDiaryDetail.wetDays.length} of those days.`
+      );
+    }
+    if (siteDiary.incidents > 0) {
+      bits.push(
+        `${siteDiary.incidents} incident${siteDiary.incidents === 1 ? " was" : "s were"} recorded in the daily diaries.`
+      );
+    }
+    paragraphs.push(bits.join(" "));
+  }
+
   if (periodEvidence.length > 0) {
     // Only cross-reference the verification page when the recipe includes it.
     // Claims stay within what the system actually proves: metadata is
@@ -1323,6 +1550,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     verificationStats,
     photoMap,
     siteDiary,
+    siteDiaryDetail,
     omittedSections,
     signatures: safeSignatures,
   };

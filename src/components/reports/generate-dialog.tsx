@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
@@ -343,6 +344,38 @@ export function GenerateDialog({
     { enabled: open && periodValid, placeholderData: (prev) => prev }
   );
 
+  // H&S auto-fill from the site diaries: the toolbox count and a note
+  // listing the topics, inspections and unclassified incidents land in
+  // the block without the PM re-keying them; anything the PM types wins
+  // and the block can still be cleared to omit it. Once per period.
+  const hsPrefilledFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open || !diaryAgg || diaryAgg.daysWithRecord === 0) return;
+    const key = `${periodStart}|${periodEnd}`;
+    if (hsPrefilledFor.current === key) return;
+    if (Object.values(hs).some((v) => v.trim() !== "")) return;
+    hsPrefilledFor.current = key;
+    const noteBits: string[] = [];
+    if (diaryAgg.toolboxTopics.length > 0) {
+      noteBits.push(`Toolbox talks covered: ${diaryAgg.toolboxTopics.join("; ")}.`);
+    }
+    if (diaryAgg.inspections > 0) {
+      noteBits.push(
+        `${diaryAgg.inspections} inspection${diaryAgg.inspections === 1 ? "" : "s"} recorded in the site diary.`
+      );
+    }
+    if (diaryAgg.incidents > 0) {
+      noteBits.push(
+        `${diaryAgg.incidents} incident${diaryAgg.incidents === 1 ? "" : "s"} recorded in the site diary this period.`
+      );
+    }
+    setHs((prev) => ({
+      ...prev,
+      toolboxTalks: diaryAgg.toolboxTalks > 0 ? String(diaryAgg.toolboxTalks) : prev.toolboxTalks,
+      note: noteBits.join(" "),
+    }));
+  }, [open, diaryAgg, periodStart, periodEnd, hs]);
+
   function coverAllEvidence() {
     if (!evidencePreview?.earliest || !evidencePreview.latest) return;
     setPeriodStart(
@@ -392,7 +425,7 @@ export function GenerateDialog({
   const suggestMutation = trpc.report.keyIssueSuggestions.useMutation({
     onSuccess: (data) => {
       if (data.suggestions.length === 0) {
-        toast.info("No programme risks found for this period — add issues manually");
+        toast.info("No programme risks or diary hold-ups found for this period — add issues manually");
         return;
       }
       // Append below whatever the PM already added, never overwrite.
@@ -827,12 +860,13 @@ export function GenerateDialog({
             {diaryAgg && diaryAgg.daysWithRecord > 0 && (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-accent/50 p-2.5 text-xs">
                 <span className="min-w-0 flex-1">
-                  Site diaries this period: <strong>{diaryAgg.toolboxTalks}</strong>{" "}
+                  Pre-filled from site diaries: <strong>{diaryAgg.toolboxTalks}</strong>{" "}
                   toolbox talks, <strong>{diaryAgg.incidents}</strong> incidents
                   recorded, <strong>{diaryAgg.inspections}</strong> inspections
-                  ({diaryAgg.daysWithRecord} days on record). Classify
-                  incidents yourself — the diary doesn&apos;t split
-                  accident / near-miss / RIDDOR.
+                  ({diaryAgg.daysWithRecord} days on record). Check the
+                  accident, near-miss and RIDDOR figures yourself — the diary
+                  doesn&apos;t classify incidents. Clear every field to omit
+                  the block.
                 </span>
                 <Button
                   type="button"
