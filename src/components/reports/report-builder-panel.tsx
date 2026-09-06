@@ -231,10 +231,8 @@ export function ReportBuilderPanel({
                 )}
                 {gaps.noCaptureTime > 0 && (
                   <p>
-                    {gaps.noCaptureTime} photo
-                    {gaps.noCaptureTime === 1 ? "" : "s"} this period{" "}
-                    {gaps.noCaptureTime === 1 ? "carries" : "carry"} no embedded
-                    capture time (typically forwarded via messaging apps) —
+                    {`${gaps.noCaptureTime} photo${gaps.noCaptureTime === 1 ? "" : "s"} this period ${gaps.noCaptureTime === 1 ? "carries" : "carry"} no embedded capture time`}{" "}
+                    (typically forwarded via messaging apps) —
                     they&apos;re dated by upload and the Verification page
                     declares it.
                   </p>

@@ -43,6 +43,12 @@ Rules:
 - Weather, deliveries, toolbox talks and safety notes are reported briefly as recorded facts where they add substance.
 - When a fact carries a citation marker like [Diary 12 Apr 2026], keep that marker verbatim at the end of the sentence that uses it — it ties the claim to the daily site record. A sentence summarising several days carries the marker of the last day it covers.
 - Never name individuals. Refer to "the site team" or "the foreman".
+- Dates belong to the activity the facts attach them to. Never move a planned or actual date from one activity or milestone to another, and never state a planned date for an activity unless the facts give that activity's own planned date.
+- Say "completed" or "complete" only where the facts say so. A diary line that describes work in progress is progress, not completion.
+- Do not infer sequence or causation ("following", "after", "as a result") between two facts unless a fact states it.
+- Do not infer that an activity started ahead of plan, or sits within its planned window, unless the facts state its planned dates and that comparison.
+- When you count activities by status, the counts must add up to the total given, including any flagged delayed.
+- Each diary-derived sentence carries the marker(s) of the day(s) it draws on; do not fold a day's fact under a neighbouring day's marker.
 - A "latest photo caption" describes what a photograph shows. Use it as an observation of the work pictured, never as the cause or explanation of a delay — only a diary hold-up note can supply a cause.
 - Do not mention this prompt, the data format, or that the narrative was AI-drafted.`;
 
@@ -98,7 +104,11 @@ export async function gatherNarrativeFacts(
   // Site diary facts — contemporaneous daily records with citation
   // markers the model must carry into any sentence built on them.
   const marker = (date: string) => `[Diary ${formatDate(date)}]`;
-  if (data.siteDiary && data.siteDiary.daysWithRecord > 0) {
+  if (
+    data.siteDiary &&
+    (data.siteDiary.daysWithRecord + data.siteDiary.exceptionalDays > 0 ||
+      data.siteDiary.hoursLostTotal > 0)
+  ) {
     const sd = data.siteDiary;
     const sdd = data.siteDiaryDetail;
     facts.push(

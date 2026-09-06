@@ -442,8 +442,8 @@ function LabourStrip({
     >
       <strong>Resourcing</strong> (from daily site diaries): average{" "}
       <strong>{labour.avg}</strong> operatives on site, peak{" "}
-      <strong>{labour.peak}</strong>, across {labour.daysCounted} recorded
-      working day{labour.daysCounted === 1 ? "" : "s"}
+      <strong>{labour.peak}</strong>, across{" "}
+      {`${labour.daysCounted} recorded day${labour.daysCounted === 1 ? "" : "s"}`}
     </div>
   );
 }

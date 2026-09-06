@@ -365,13 +365,17 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   }
   // Overdue detection: activities past their planned finish and not done.
   // This is the list a client actually asks about — name them.
+  // Judged at the report's data date — the period end, or today for a
+  // period still running — never at generation time, so a July report
+  // generated in September doesn't call August finishes "overdue".
   const todayStr = new Date().toISOString().slice(0, 10);
+  const asOfStr = todayStr < input.periodEnd ? todayStr : input.periodEnd;
   const overdue = leafTasks.filter(
     (t) =>
       t.status !== "completed" &&
       t.status !== "delayed" && // already listed above
       t.plannedEnd &&
-      t.plannedEnd < todayStr
+      t.plannedEnd < asOfStr
   );
   for (const t of overdue.slice(0, 3)) {
     keyRisks.push(
@@ -1175,6 +1179,14 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
           .filter((e) => e.workNote?.trim())
           .map((e) => ({ date: e.entryDate, note: e.workNote!.trim() }));
 
+        // The site team's recorded hold-ups are risks whether or not the
+        // PM presses "Suggest issues" — the no-AI path must not print an
+        // Executive Summary that knows nothing the diary knows. A PM
+        // override of Key Risks still replaces the list wholesale.
+        if (!input.keyRisks) {
+          for (const sug of issueSuggestions.slice(0, 3)) keyRisks.push(sug);
+        }
+
         siteDiaryDetail = {
           workByTask,
           holdups,
@@ -1453,7 +1465,11 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
   // Site diary paragraph — resourcing, disruption and weather from the
   // daily record, so a report generated without an AI draft still says
   // what the site team recorded rather than only what the programme says.
-  if (siteDiary && siteDiary.daysWithRecord > 0) {
+  if (
+    siteDiary &&
+    (siteDiary.daysWithRecord + siteDiary.exceptionalDays > 0 ||
+      siteDiary.hoursLostTotal > 0)
+  ) {
     const bits: string[] = [];
     bits.push(
       `The site diary holds a locked record for ${siteDiary.daysWithRecord} of ${siteDiary.workingDayCount} working day${siteDiary.workingDayCount === 1 ? "" : "s"} in the period${
