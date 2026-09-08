@@ -6,7 +6,8 @@ import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
 async function main() {
-  const client = postgres(process.env.DATABASE_URL!, { max: 1 });
+  // prepare:false — see src/server/db/index.ts (transaction-mode pooler).
+  const client = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   const db = drizzle(client);
   await migrate(db, { migrationsFolder: "./src/server/db/migrations" });
   await client.end();
