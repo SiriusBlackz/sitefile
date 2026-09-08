@@ -54,7 +54,11 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "Can I get my data out?",
-    a: "Your reports are yours as PDFs at any time, and you can request a full export of your project data — see the privacy policy for your data rights.",
+    a: "Your reports are yours as PDFs at any time, and you can request a full export of your project data — photos, diaries and PDFs — free of charge. See the privacy policy for your data rights.",
+  },
+  {
+    q: "What happens to our records if we stop paying?",
+    a: "They stay. Closed projects are kept for six years after completion — the limitation period for most UK construction contracts — whether or not you still have a subscription. They move to read-only storage, a full export is always free on request, and read-only access can be reinstated later (an archive fee may apply). We never delete project records without offering an export first.",
   },
   {
     q: "Do we have to run the daily site diary to get the reports?",

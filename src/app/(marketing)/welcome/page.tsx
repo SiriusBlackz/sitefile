@@ -125,6 +125,10 @@ const FAQS: FaqItem[] = [
     a: "Not silently. Corrections are added as flagged amendments with a name and a time, and the original entry always remains visible underneath.",
   },
   {
+    q: "What happens to our records if we stop paying?",
+    a: "They stay. Closed projects are kept for six years after completion — the limitation period for most UK construction contracts — with or without a subscription. A full export is always free, and read-only access can be reinstated later. Records are never deleted without an export being offered first.",
+  },
+  {
     q: "Whose report is it — yours or ours?",
     a: "Yours. Your logo on the cover, your details throughout, issued from your own email address — password-protected if you choose, with the report’s SHA-256 fingerprint printed on it.",
   },
@@ -723,7 +727,8 @@ export default function WelcomePage() {
                   </li>
                   <li>
                     After that it&rsquo;s £99 per project / month, cancel
-                    monthly, and your data exports any time.
+                    monthly, your data exports any time, and closed projects
+                    stay on record for six years.
                   </li>
                 </ul>
               </div>

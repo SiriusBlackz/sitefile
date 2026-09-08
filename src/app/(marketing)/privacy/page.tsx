@@ -101,9 +101,28 @@ export default function PrivacyPage() {
 
       <Section title="How long we keep it">
         <p>
-          For as long as your account is active. If you close your account, we
-          delete your data within 30 days, except where a legal obligation
-          requires longer retention. You can request deletion at any time.
+          Site records exist to be relied on later, so we keep them for longer
+          than your subscription. Photos, diary entries, programme data and
+          issued reports are kept for the life of your subscription and for
+          six years after a project closes &mdash; the limitation period for
+          most UK construction contracts. Longer is available by arrangement
+          for contracts executed as a deed.
+        </p>
+        <p>
+          If your subscription ends, closed projects are not deleted. They
+          move to read-only storage and remain retrievable: a full export of
+          photos, diaries and PDFs is always free on request, and read-only
+          access can be reinstated (an archive fee may apply). We never delete
+          project records without offering an export first.
+        </p>
+        <p>
+          User accounts and profile details are removed within 30 days of an
+          account closing. Personal data inside site records &mdash; who
+          entered a diary day, who approved a report &mdash; stays with the
+          record for its retention period, because that attribution is what
+          makes the record usable as evidence. You can request earlier
+          deletion of your data at any time, except where a legal obligation
+          requires us to keep it.
         </p>
       </Section>
 
