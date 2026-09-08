@@ -8,6 +8,7 @@ import { auditRouter } from "./audit";
 import { dashboardRouter } from "./dashboard";
 import { orgRouter } from "./org";
 import { diaryRouter } from "./diary";
+import { searchRouter } from "./search";
 
 export const appRouter = createTRPCRouter({
   diary: diaryRouter,
@@ -19,6 +20,7 @@ export const appRouter = createTRPCRouter({
   audit: auditRouter,
   org: orgRouter,
   dashboard: dashboardRouter,
+  search: searchRouter,
 });
 
 export type AppRouter = typeof appRouter;

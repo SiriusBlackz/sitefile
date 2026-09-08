@@ -132,6 +132,12 @@ export default function EvidencePage() {
   const [dateTo, setDateTo] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Deep link from project search: /evidence?q=<filename or note>.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setSearchQuery(q);
+  }, []);
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [uploaderFilter, setUploaderFilter] = useState<string>("");
   const [selectedItem, setSelectedItem] = useState<EvidenceItem | null>(null);

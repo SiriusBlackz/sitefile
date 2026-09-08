@@ -15,6 +15,7 @@ import {
   NotebookPen,
   Send,
   Settings,
+  Search as SearchIcon,
 } from "lucide-react";
 
 /**
@@ -74,6 +75,12 @@ function DesknavInner({ projectId }: { projectId: string }) {
           icon: NotebookPen,
           attention: (gaps?.diaryMissedDays ?? 0) > 0,
           isActive: (p) => p.startsWith(`${base}/diary`),
+        },
+        {
+          href: `${base}/search`,
+          label: "Search",
+          icon: SearchIcon,
+          isActive: (p) => p.startsWith(`${base}/search`),
         },
         {
           href: `${base}/reports`,

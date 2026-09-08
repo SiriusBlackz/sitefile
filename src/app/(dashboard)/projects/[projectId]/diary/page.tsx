@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -66,6 +66,16 @@ export default function DiaryDeskPage() {
   const today = useMemo(() => localToday(), []);
   const [weekOf, setWeekOf] = useState(() => weekStart(localToday()));
   const [detailEntryId, setDetailEntryId] = useState<string | null>(null);
+
+  // Deep links from search results: /diary?week=yyyy-mm-dd&entry=<id>.
+  // Read after mount so the server render matches the default week.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const week = sp.get("week");
+    const entry = sp.get("entry");
+    if (week && /^\d{4}-\d{2}-\d{2}$/.test(week)) setWeekOf(weekStart(week));
+    if (entry) setDetailEntryId(entry);
+  }, []);
 
   const from = useMemo(() => shiftDays(today, -20), [today]);
   const noRetryForbidden = {
