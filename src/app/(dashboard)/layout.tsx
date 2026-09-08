@@ -6,7 +6,7 @@ import { organisations, users } from "@/server/db/schema";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { CommandPalette } from "@/components/layout/command-palette";
-import { isDemoMode } from "@/lib/demo";
+import { isDemoMode, getDemoUser } from "@/lib/demo";
 
 export default async function DashboardLayout({
   children,
@@ -15,8 +15,19 @@ export default async function DashboardLayout({
 }) {
   if (isDemoMode()) {
     const cookieStore = await cookies();
-    if (!cookieStore.get("demo_user")?.value) {
+    const demoCookie = cookieStore.get("demo_user")?.value;
+    if (!demoCookie) {
       redirect("/demo");
+    }
+    // Mirror the Clerk branch: a removed colleague lands on /access-removed.
+    const demo = getDemoUser(demoCookie);
+    if (demo) {
+      const [row] = await db
+        .select({ deactivatedAt: users.deactivatedAt })
+        .from(users)
+        .where(eq(users.clerkId, demo.clerkId))
+        .limit(1);
+      if (row?.deactivatedAt) redirect("/access-removed");
     }
   } else {
     const { auth } = await import("@clerk/nextjs/server");

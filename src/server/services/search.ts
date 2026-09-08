@@ -57,10 +57,14 @@ export async function searchProject(
   // matcher is FTS OR ILIKE so both prose and codes are found.
   const tsq = sql`websearch_to_tsquery('english', ${q})`;
   const headlineOpts = sql`'StartSel=⟦, StopSel=⟧, MaxWords=28, MinWords=12, MaxFragments=1'`;
+  // Filenames arrive as one hyphen/underscore-joined token
+  // ("steel-erection-grid-c.jpg"); compare the spaced form too so the
+  // phrase "steel erection" still finds them.
+  const spaced = (doc: ReturnType<typeof sql>) => sql`translate(${doc}, '-_', '  ')`;
   const match = (doc: ReturnType<typeof sql>) =>
-    sql`(to_tsvector('english', ${doc}) @@ ${tsq} OR ${doc} ILIKE ${like})`;
+    sql`(to_tsvector('english', ${spaced(doc)}) @@ ${tsq} OR ${doc} ILIKE ${like} OR ${spaced(doc)} ILIKE ${like})`;
   const rank = (doc: ReturnType<typeof sql>) =>
-    sql<number>`(ts_rank(to_tsvector('english', ${doc}), ${tsq}) + CASE WHEN ${doc} ILIKE ${like} THEN 0.2 ELSE 0 END)`;
+    sql<number>`(ts_rank(to_tsvector('english', ${spaced(doc)}), ${tsq}) + CASE WHEN ${doc} ILIKE ${like} OR ${spaced(doc)} ILIKE ${like} THEN 0.2 ELSE 0 END)`;
   const headline = (doc: ReturnType<typeof sql>) =>
     sql<string>`ts_headline('english', ${doc}, ${tsq}, ${headlineOpts})`;
 
