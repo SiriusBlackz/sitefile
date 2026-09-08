@@ -11,6 +11,8 @@ export interface DbUser {
   email: string;
   name: string;
   role: string;
+  /** Non-null once an org admin has removed this colleague. */
+  deactivatedAt: Date | null;
 }
 
 export class DemoNotSeededError extends Error {
@@ -41,6 +43,7 @@ export async function lookupDemoUser(db: DB, clerkId: string): Promise<DbUser> {
     email: existing.email,
     name: existing.name,
     role: existing.role,
+    deactivatedAt: existing.deactivatedAt ?? null,
   };
 }
 
@@ -74,6 +77,7 @@ export async function ensureUser(
       email: existing.email,
       name: existing.name,
       role: existing.role,
+      deactivatedAt: existing.deactivatedAt ?? null,
     };
   }
 
@@ -100,6 +104,7 @@ export async function ensureUser(
         email: updated.email,
         name: updated.name,
         role: updated.role,
+        deactivatedAt: updated.deactivatedAt ?? null,
       };
     }
   }
@@ -131,5 +136,6 @@ export async function ensureUser(
     email: user.email,
     name: user.name,
     role: user.role,
+    deactivatedAt: null,
   };
 }

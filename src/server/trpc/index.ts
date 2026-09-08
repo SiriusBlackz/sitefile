@@ -70,6 +70,15 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, type, path, next
     });
   }
 
+  // A colleague removed by their org admin keeps a Clerk identity but no
+  // longer reaches anything behind sign-in.
+  if (ctx.dbUser?.deactivatedAt) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Your access to this organisation has been removed.",
+    });
+  }
+
   // Rate limit mutations by user ID. Queries pass through unlimited —
   // ordinary browsing fires many reads and must never blank out pages.
   if (type === "mutation") {

@@ -11,6 +11,7 @@ import { isPlaceholderOrgName } from "@/lib/org-name";
 import {
   parseApprovalState,
   isApprovalComplete,
+  parseApprovalChain,
 } from "@/lib/report-approval";
 import { getPublicUrl, uploadToStorage } from "@/server/services/storage";
 import {
@@ -707,7 +708,7 @@ export const projectRouter = createTRPCRouter({
 
   orgUsers: protectedProcedure.query(async ({ ctx }) => {
     const orgUsers = await ctx.db.query.users.findMany({
-      where: eq(users.orgId, ctx.orgId),
+      where: and(eq(users.orgId, ctx.orgId), isNull(users.deactivatedAt)),
       columns: { id: true, name: true, email: true, avatarUrl: true, role: true },
     });
     return orgUsers;
@@ -853,6 +854,126 @@ export const projectRouter = createTRPCRouter({
         metadata: { userId: input.userId, role: input.role },
       });
       return member;
+    }),
+
+  /**
+   * Hand a project from one person to another in one audited step — the
+   * "our PM is leaving" case. The replacement takes the leaver's project
+   * role (Project Manager when the leaver was an org admin with no explicit
+   * membership) and their place in the approval chain; the leaver's past
+   * approvals, uploads and diary days keep their attribution untouched.
+   */
+  handOver: adminProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        fromUserId: z.string().uuid(),
+        toUserId: z.string().uuid(),
+        removeFrom: z.boolean().default(true),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      const project = await ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.projectId),
+        columns: { approvalChain: true },
+      });
+      if (!project) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      }
+      if (input.fromUserId === input.toUserId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Choose a different person to hand over to.",
+        });
+      }
+      const people = await ctx.db.query.users.findMany({
+        where: and(
+          eq(users.orgId, ctx.orgId),
+          inArray(users.id, [input.fromUserId, input.toUserId])
+        ),
+        columns: { id: true, name: true, role: true, deactivatedAt: true },
+      });
+      const from = people.find((u) => u.id === input.fromUserId);
+      const to = people.find((u) => u.id === input.toUserId);
+      if (!from || !to) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Both people must belong to your organisation.",
+        });
+      }
+      if (to.deactivatedAt) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${to.name} has been removed from the organisation.`,
+        });
+      }
+
+      const memberships = await ctx.db.query.projectMembers.findMany({
+        where: and(
+          eq(projectMembers.projectId, input.projectId),
+          inArray(projectMembers.userId, [input.fromUserId, input.toUserId])
+        ),
+      });
+      const fromMembership = memberships.find((m) => m.userId === from.id);
+      const toMembership = memberships.find((m) => m.userId === to.id);
+      // Org admins hold every project implicitly; a hand-over from one of
+      // them gives the replacement an explicit management role.
+      const role =
+        fromMembership?.role && fromMembership.role !== "member"
+          ? fromMembership.role
+          : "project_manager";
+
+      await ctx.db.transaction(async (tx) => {
+        if (toMembership) {
+          await tx
+            .update(projectMembers)
+            .set({ role })
+            .where(eq(projectMembers.id, toMembership.id));
+        } else {
+          await tx.insert(projectMembers).values({
+            projectId: input.projectId,
+            userId: to.id,
+            role,
+          });
+        }
+
+        const chain = parseApprovalChain(project.approvalChain);
+        if (chain?.steps.some((s) => s.userId === from.id)) {
+          const seen = new Set<string>();
+          const steps = chain.steps
+            .map((s) => (s.userId === from.id ? { ...s, userId: to.id } : s))
+            .filter((s) => (seen.has(s.userId) ? false : (seen.add(s.userId), true)));
+          await tx
+            .update(projects)
+            .set({ approvalChain: { steps }, updatedAt: new Date() })
+            .where(eq(projects.id, input.projectId));
+        }
+
+        if (input.removeFrom && fromMembership) {
+          await tx
+            .delete(projectMembers)
+            .where(eq(projectMembers.id, fromMembership.id));
+        }
+      });
+
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.projectId,
+        userId: ctx.userId,
+        action: "hand_over",
+        entityType: "project_member",
+        entityId: to.id,
+        metadata: {
+          fromUserId: from.id,
+          fromName: from.name,
+          toUserId: to.id,
+          toName: to.name,
+          role,
+          removedFrom: Boolean(input.removeFrom && fromMembership),
+        },
+      });
+
+      return { role, removedFrom: Boolean(input.removeFrom && fromMembership) };
     }),
 
   setApprovalChain: adminProcedure

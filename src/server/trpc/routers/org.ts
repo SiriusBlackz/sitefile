@@ -1,9 +1,12 @@
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, count } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "crypto";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
-import { organisations, users } from "@/server/db/schema";
+import { organisations, users, projects, projectMembers } from "@/server/db/schema";
+import { USER_ROLES } from "@/server/db/enums";
+import { parseApprovalChain } from "@/lib/report-approval";
+import { writeAuditLogAsync } from "@/server/services/audit";
 import { getPublicUrl, uploadToStorage } from "@/server/services/storage";
 import { sendColleagueInvitation } from "@/server/services/clerk-invitations";
 
@@ -170,4 +173,162 @@ export const orgRouter = createTRPCRouter({
         inviteEmail,
       };
     }),
+
+  /**
+   * The organisation's people, for the Account page team card. Admins only
+   * — it exposes who is still unclaimed (never signed in) and who holds
+   * admin, which is what a super user needs to run the account without us.
+   */
+  teamList: adminProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db.query.users.findMany({
+      where: and(eq(users.orgId, ctx.orgId), isNull(users.deactivatedAt)),
+      columns: { id: true, name: true, email: true, role: true, clerkId: true, createdAt: true },
+      orderBy: (u, { asc }) => [asc(u.createdAt)],
+    });
+    const team = rows.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      claimed: !u.clerkId.startsWith("invited:"),
+      isYou: u.id === ctx.userId,
+    }));
+    return { team, adminCount: team.filter((u) => u.role === "admin").length };
+  }),
+
+  /**
+   * Promote or demote a colleague between Admin and Member. The last admin
+   * can never be demoted — an organisation with no admin has nobody left
+   * who can add people, remove leavers or hand projects over.
+   */
+  setUserRole: adminProcedure
+    .input(z.object({ userId: z.string().uuid(), role: z.enum(USER_ROLES) }))
+    .mutation(async ({ ctx, input }) => {
+      const target = await ctx.db.query.users.findFirst({
+        where: and(eq(users.id, input.userId), eq(users.orgId, ctx.orgId)),
+        columns: { id: true, role: true, deactivatedAt: true, name: true },
+      });
+      if (!target || target.deactivatedAt) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Colleague not found in your organisation." });
+      }
+      if (target.role === input.role) return { id: target.id, role: target.role };
+      if (target.role === "admin" && input.role !== "admin") {
+        await assertNotLastAdmin(ctx.db, ctx.orgId, target.id);
+      }
+      const [updated] = await ctx.db
+        .update(users)
+        .set({ role: input.role })
+        .where(eq(users.id, target.id))
+        .returning({ id: users.id, role: users.role });
+      return updated;
+    }),
+
+  /**
+   * Remove a colleague from the organisation — the leaver case. Unclaimed
+   * invitees are simply deleted. Anyone who has signed in is deactivated
+   * instead: their row stays so every photo, diary day and approval they
+   * made keeps its name, but they lose all project memberships, drop out
+   * of approval chains, and can no longer reach the app. The last admin
+   * cannot be removed, and you cannot remove yourself.
+   */
+  removeColleague: adminProcedure
+    .input(z.object({ userId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.userId === ctx.userId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "You can't remove yourself. Make a colleague an admin and ask them to remove you.",
+        });
+      }
+      const target = await ctx.db.query.users.findFirst({
+        where: and(eq(users.id, input.userId), eq(users.orgId, ctx.orgId)),
+        columns: { id: true, role: true, deactivatedAt: true, name: true, clerkId: true },
+      });
+      if (!target || target.deactivatedAt) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Colleague not found in your organisation." });
+      }
+      if (target.role === "admin") {
+        await assertNotLastAdmin(ctx.db, ctx.orgId, target.id);
+      }
+
+      const orgProjects = await ctx.db.query.projects.findMany({
+        where: eq(projects.orgId, ctx.orgId),
+        columns: { id: true, approvalChain: true },
+      });
+      const projectIds = orgProjects.map((p) => p.id);
+      const memberships = projectIds.length
+        ? await ctx.db.query.projectMembers.findMany({
+            where: and(
+              eq(projectMembers.userId, target.id),
+              inArray(projectMembers.projectId, projectIds)
+            ),
+            columns: { id: true, projectId: true },
+          })
+        : [];
+
+      const unclaimed = target.clerkId.startsWith("invited:");
+      await ctx.db.transaction(async (tx) => {
+        if (memberships.length) {
+          await tx.delete(projectMembers).where(
+            inArray(projectMembers.id, memberships.map((m) => m.id))
+          );
+        }
+        for (const p of orgProjects) {
+          const chain = parseApprovalChain(p.approvalChain);
+          if (!chain?.steps.some((s) => s.userId === target.id)) continue;
+          const steps = chain.steps.filter((s) => s.userId !== target.id);
+          await tx
+            .update(projects)
+            .set({ approvalChain: steps.length ? { steps } : null, updatedAt: new Date() })
+            .where(eq(projects.id, p.id));
+        }
+        if (unclaimed) {
+          await tx.delete(users).where(eq(users.id, target.id));
+        } else {
+          await tx
+            .update(users)
+            .set({ deactivatedAt: new Date(), role: "member" })
+            .where(eq(users.id, target.id));
+        }
+      });
+
+      for (const m of memberships) {
+        writeAuditLogAsync(ctx.db, {
+          projectId: m.projectId,
+          userId: ctx.userId,
+          action: "remove_member",
+          entityType: "project_member",
+          entityId: m.id,
+          metadata: { removedUserId: target.id, removedName: target.name, reason: "left_organisation" },
+        });
+      }
+
+      return { id: target.id, deleted: unclaimed, deactivated: !unclaimed, projectsAffected: memberships.length };
+    }),
 });
+
+/** Refuse to strip admin from the only remaining admin of an organisation. */
+async function assertNotLastAdmin(
+  db: Parameters<typeof writeAuditLogAsync>[0],
+  orgId: string,
+  exceptUserId: string
+) {
+  const [row] = await db
+    .select({ n: count() })
+    .from(users)
+    .where(
+      and(
+        eq(users.orgId, orgId),
+        eq(users.role, "admin"),
+        isNull(users.deactivatedAt),
+        ne(users.id, exceptUserId)
+      )
+    );
+  if (!row || Number(row.n) === 0) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "That would leave the organisation with no admin. Make someone else an admin first.",
+    });
+  }
+}

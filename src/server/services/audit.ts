@@ -29,7 +29,8 @@ export type AuditAction =
   | "bulk_link"
   | "bulk_delete"
   | "add_member"
-  | "remove_member";
+  | "remove_member"
+  | "hand_over";
 
 export type AuditEntityType =
   | "project"

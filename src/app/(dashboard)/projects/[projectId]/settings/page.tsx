@@ -7,6 +7,7 @@ import { ProjectForm, type ProjectFormValues } from "@/components/projects/proje
 import { toast } from "sonner";
 import { BillingBanner } from "@/components/projects/billing-banner";
 import { AddColleagueForm } from "@/components/projects/add-colleague-form";
+import { HandOverDialog } from "@/components/projects/hand-over-dialog";
 import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
 import { getProjectStatusLabel } from "@/lib/project-status";
 import { Button } from "@/components/ui/button";
@@ -318,8 +319,19 @@ export default function ProjectSettingsPage() {
 
       {/* Team Members */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
           <CardTitle className="text-base">Team Members</CardTitle>
+          <HandOverDialog
+            projectId={params.projectId}
+            disabled={isArchived}
+            current={[
+              ...owners.map((o) => ({ id: o.id, name: o.name, email: o.email })),
+              ...members
+                .filter((m) => !ownerIds.has(m.userId))
+                .map((m) => ({ id: m.userId, name: m.user.name, email: m.user.email })),
+            ]}
+            candidates={orgUsers.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
+          />
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="rounded-lg border border-dashed bg-muted/40 p-3 text-xs text-muted-foreground">

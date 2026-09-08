@@ -76,6 +76,10 @@ export const users = pgTable(
     role: text("role").notNull().default("member"),
     avatarUrl: text("avatar_url"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+    // Set when an org admin removes a colleague who has already signed in.
+    // The row stays (evidence / reports / diary / audit rows reference it
+    // for attribution) but the account can no longer reach the app.
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true, mode: "date" }),
   },
   (t) => [
     check(

@@ -134,6 +134,13 @@
       "when": 1788477894745,
       "tag": "0018_site_diary",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788898854959,
+      "tag": "0019_user_deactivation",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { OrgBrandingForm } from "@/components/projects/org-branding-form";
+import { OrgTeamCard } from "@/components/projects/org-team-card";
 import { LogOut, Paintbrush, UserRound } from "lucide-react";
 
 const isClerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
@@ -21,6 +22,12 @@ const ROLE_LABELS: Record<string, string> = {
 function hasDemoCookie() {
   if (typeof document === "undefined") return false;
   return document.cookie.split(";").some((c) => c.trim().startsWith("demo_user="));
+}
+
+function TeamCardForAdmins() {
+  const { data: me } = trpc.project.currentUser.useQuery();
+  if (me?.role !== "admin") return null;
+  return <OrgTeamCard />;
 }
 
 function ProfileCard() {
@@ -153,6 +160,7 @@ export default function AccountPage() {
     <div className="space-y-4 max-w-3xl">
       <h1 className="text-2xl font-bold tracking-tight">Account</h1>
       <ProfileCard />
+      <TeamCardForAdmins />
       <BrandingCard />
       {isDemo ? (
         <DemoSessionCard />

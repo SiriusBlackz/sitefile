@@ -29,11 +29,17 @@ export default async function DashboardLayout({
     // wizard goes to /onboarding. A missing users row means this account
     // hasn't been provisioned yet — brand new, so the wizard applies too.
     const [row] = await db
-      .select({ onboardingCompletedAt: organisations.onboardingCompletedAt })
+      .select({
+        onboardingCompletedAt: organisations.onboardingCompletedAt,
+        deactivatedAt: users.deactivatedAt,
+      })
       .from(users)
       .innerJoin(organisations, eq(users.orgId, organisations.id))
       .where(eq(users.clerkId, userId))
       .limit(1);
+    if (row?.deactivatedAt) {
+      redirect("/access-removed");
+    }
     if (!row || row.onboardingCompletedAt === null) {
       redirect("/onboarding");
     }
