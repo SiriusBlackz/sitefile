@@ -20,6 +20,11 @@ export interface OfflineCapture {
   altitude: number | null;
   note: string;
   taskId: string | null;
+  /** Inspection projects: attach to this register item with this role
+   *  instead of linking to a task. Optional so existing queued rows and
+   *  the progress capture path are untouched (no DB version bump). */
+  inspectionItemId?: string | null;
+  photoRole?: string | null;
   status: "pending" | "uploading" | "done" | "error";
   error?: string;
   createdAt: number;

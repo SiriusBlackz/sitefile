@@ -38,6 +38,7 @@ import { MEMBER_ROLE_LABELS } from "@/lib/member-roles";
 import { PROJECT_MEMBER_ROLES } from "@/server/db/enums";
 import { ApprovalChainCard } from "@/components/projects/approval-chain-card";
 import { WorkingDaysCard } from "@/components/projects/working-days-card";
+import { InspectionSettingsCard } from "@/components/inspection/inspection-settings-card";
 
 function ClientLogoCard({
   projectId,
@@ -308,6 +309,16 @@ export default function ProjectSettingsPage() {
         isSubmitting={updateProject.isPending}
         submitLabel="Update Project"
       />
+
+      {project.projectType === "inspection" && (
+        <InspectionSettingsCard
+          projectId={params.projectId}
+          contractForm={project.contractForm}
+          locationScheme={project.locationScheme}
+          defaultCorrectionPeriodDays={project.defaultCorrectionPeriodDays}
+          contractDates={project.contractDates}
+        />
+      )}
 
       {/* Client branding */}
       <ClientLogoCard

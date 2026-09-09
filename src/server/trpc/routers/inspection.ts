@@ -547,16 +547,23 @@ export const inspectionRouter = createTRPCRouter({
         where: and(...conditions),
         orderBy: [asc(inspectionItems.locationSort), asc(inspectionItems.seq)],
         with: {
-          photos: { with: { evidence: { columns: { id: true, thumbnailKey: true, deletedAt: true } } } },
+          photos: {
+            with: {
+              evidence: {
+                columns: { id: true, storageKey: true, thumbnailKey: true, deletedAt: true },
+              },
+            },
+          },
         },
       });
       const withThumbs = await Promise.all(
         items.map(async (it) => {
           const live = it.photos.filter((p) => p.evidence && !p.evidence.deletedAt);
           const first = live.find((p) => p.role === "defect") ?? live[0];
-          const thumbUrl = first?.evidence?.thumbnailKey
-            ? await getReadUrl(first.evidence.thumbnailKey)
-            : null;
+          // Thumbnails are produced by the upload job; until then show the
+          // original so a freshly recorded item never reads "no photo".
+          const key = first?.evidence?.thumbnailKey ?? first?.evidence?.storageKey ?? null;
+          const thumbUrl = key ? await getReadUrl(key) : null;
           const { photos, ...rest } = it;
           void photos;
           return { ...rest, photoCount: live.length, thumbUrl };

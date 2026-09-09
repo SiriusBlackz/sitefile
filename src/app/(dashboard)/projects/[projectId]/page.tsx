@@ -28,6 +28,8 @@ import { BillingBanner } from "@/components/projects/billing-banner";
 import { ReportChecklist } from "@/components/projects/report-checklist";
 import { GapListCard } from "@/components/projects/gap-list-card";
 import { PhoneProjectHome } from "@/components/projects/phone-home";
+import { InspectionPhoneHome } from "@/components/inspection/inspection-phone-home";
+import { InspectionOverviewCard } from "@/components/inspection/inspection-overview-card";
 import { getProjectStatusColor, getProjectStatusLabel } from "@/lib/project-status";
 
 // Error codes meaning "this project isn't reachable" — don't retry, show not-found.
@@ -155,7 +157,13 @@ export default function ProjectDetailPage() {
   // hero, due chip, week tracker, big Capture, gap list. Desk keeps the
   // overview below. Same query cache either way (branch at render).
   if (isPhone) {
-    return <PhoneProjectHome projectId={project.id} projectName={project.name} />;
+    // Inspection projects have their own home (register counts + Record
+    // item); the progress home is untouched.
+    return project.projectType === "inspection" ? (
+      <InspectionPhoneHome projectId={project.id} projectName={project.name} />
+    ) : (
+      <PhoneProjectHome projectId={project.id} projectName={project.name} />
+    );
   }
 
   return (
@@ -190,7 +198,9 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* Progress Stats */}
+      {/* Progress Stats (progress projects only — inspection projects show
+          the register card instead) */}
+      {project.projectType !== "inspection" && (
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="pt-4 pb-4">
@@ -232,11 +242,14 @@ export default function ProjectDetailPage() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* First report: the A-to-Z setup checklist. From report #1 onward
           it hands over to the living gap list — countdown, this period's
           gaps, and the programme-refresh ritual. */}
-      {totalReports === 0 ? (
+      {project.projectType === "inspection" ? (
+        <InspectionOverviewCard projectId={project.id} />
+      ) : totalReports === 0 ? (
         <ReportChecklist
           projectId={project.id}
           taskCount={totalTasks}

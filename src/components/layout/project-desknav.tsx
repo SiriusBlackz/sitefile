@@ -31,7 +31,7 @@ function DesknavInner({ projectId }: { projectId: string }) {
   const pathname = usePathname();
   const base = `/projects/${projectId}`;
 
-  const { error } = trpc.project.get.useQuery(
+  const { data: project, error } = trpc.project.get.useQuery(
     { id: projectId },
     {
       retry: (failureCount, err) =>
@@ -40,7 +40,9 @@ function DesknavInner({ projectId }: { projectId: string }) {
   );
   const { data: gaps } = trpc.project.gapList.useQuery(
     { id: projectId },
-    { retry: false }
+    // True while loading and for every progress project — only an
+    // inspection project skips the gap engine.
+    { retry: false, enabled: project?.projectType !== "inspection" }
   );
 
   if (error && UNREACHABLE_CODES.has(error.data?.code ?? "")) return null;
@@ -49,7 +51,7 @@ function DesknavInner({ projectId }: { projectId: string }) {
   const open = (keys: string[]) =>
     rows.some((r) => keys.includes(r.key) && r.state !== "done");
 
-  const groups: {
+  const progressGroups: {
     label: string;
     items: {
       href: string;
@@ -126,6 +128,61 @@ function DesknavInner({ projectId }: { projectId: string }) {
       ],
     },
   ];
+
+  const inspectionGroups: typeof progressGroups = [
+    {
+      label: "Every day",
+      items: [
+        {
+          href: `${base}/inspection`,
+          label: "Register",
+          icon: ClipboardList,
+          isActive: (p) => p.startsWith(`${base}/inspection`),
+        },
+        {
+          href: `${base}/evidence`,
+          label: "Photos",
+          icon: ImageIcon,
+          isActive: (p) => p === `${base}/evidence`,
+        },
+        {
+          href: `${base}/search`,
+          label: "Search",
+          icon: SearchIcon,
+          isActive: (p) => p.startsWith(`${base}/search`),
+        },
+        {
+          href: `${base}/reports`,
+          label: "Reports",
+          icon: FileText,
+          isActive: (p) => p.startsWith(`${base}/reports`) && !p.endsWith("/send"),
+        },
+      ],
+    },
+    {
+      label: "Setup",
+      items: [
+        {
+          href: `${base}/zones`,
+          label: "Zones",
+          icon: Map,
+          isActive: (p) => p.startsWith(`${base}/zones`),
+        },
+      ],
+    },
+    {
+      label: "Send",
+      items: [
+        {
+          href: `${base}/reports`,
+          label: "Review & send",
+          icon: Send,
+          isActive: (p) => p.endsWith("/send"),
+        },
+      ],
+    },
+  ];
+  const groups = project?.projectType === "inspection" ? inspectionGroups : progressGroups;
 
   return (
     <nav className="hidden w-48 shrink-0 md:block">

@@ -189,6 +189,16 @@ async function uploadOne(client: Client, item: OfflineCapture): Promise<void> {
     note: item.note || undefined,
   });
 
+  // 4a. Inspection projects: attach to the register item with its role.
+  if (item.inspectionItemId && evidence) {
+    await client.inspection.attachPhoto.mutate({
+      itemId: item.inspectionItemId,
+      evidenceId: evidence.id,
+      role: (item.photoRole ?? "defect") as "defect" | "during" | "rectified" | "verified",
+    });
+    return;
+  }
+
   // 4. Link to task if requested at capture time
   if (item.taskId && evidence) {
     await client.evidence.link.mutate({

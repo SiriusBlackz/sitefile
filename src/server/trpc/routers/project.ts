@@ -4,7 +4,13 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../index";
 import { projects, organisations, projectMembers, users, reports, evidence, tasks, gpsZones, reportDrafts, reportShares, diaryEntries } from "@/server/db/schema";
 import { localDateString, effectiveDiaryStatus } from "@/lib/dates";
-import { PROJECT_MEMBER_ROLES, PROJECT_STATUSES } from "@/server/db/enums";
+import {
+  PROJECT_MEMBER_ROLES,
+  PROJECT_STATUSES,
+  PROJECT_TYPES,
+  CONTRACT_FORMS,
+  LOCATION_SCHEMES,
+} from "@/server/db/enums";
 import { assertProjectAccess } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 import { isPlaceholderOrgName } from "@/lib/org-name";
@@ -120,6 +126,11 @@ export const projectRouter = createTRPCRouter({
           reportingFrequency: z.string().optional(),
           nextReportDue: z.string().optional(),
           firstReportNumber: z.number().int().min(1).max(9999).optional(),
+          // Inspection projects (optional; omitted = progress, today's insert)
+          projectType: z.enum(PROJECT_TYPES).optional(),
+          contractForm: z.enum(CONTRACT_FORMS).optional(),
+          locationScheme: z.enum(LOCATION_SCHEMES).optional(),
+          defaultCorrectionPeriodDays: z.number().int().min(1).max(365).optional(),
         })
         .refine(
           (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,
@@ -147,6 +158,12 @@ export const projectRouter = createTRPCRouter({
           reportingFrequency: input.reportingFrequency || null,
           nextReportDue: input.nextReportDue || null,
           firstReportNumber: input.firstReportNumber ?? 1,
+          ...(input.projectType ? { projectType: input.projectType } : {}),
+          ...(input.contractForm ? { contractForm: input.contractForm } : {}),
+          ...(input.locationScheme ? { locationScheme: input.locationScheme } : {}),
+          ...(input.defaultCorrectionPeriodDays
+            ? { defaultCorrectionPeriodDays: input.defaultCorrectionPeriodDays }
+            : {}),
         })
         .returning();
 
@@ -215,6 +232,20 @@ export const projectRouter = createTRPCRouter({
             )
             .optional(),
           status: z.enum(PROJECT_STATUSES).optional(),
+          // Inspection settings (only ever sent from the inspection card)
+          contractForm: z.enum(CONTRACT_FORMS).nullable().optional(),
+          locationScheme: z.enum(LOCATION_SCHEMES).nullable().optional(),
+          defaultCorrectionPeriodDays: z.number().int().min(1).max(365).nullable().optional(),
+          contractDates: z
+            .object({
+              completion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+              defectsDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+              confirmed: z
+                .object({ completion: z.boolean().optional(), defectsDate: z.boolean().optional() })
+                .optional(),
+            })
+            .nullable()
+            .optional(),
         })
         .refine(
           (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,
