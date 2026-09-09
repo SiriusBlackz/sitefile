@@ -134,11 +134,17 @@ export default function SendPage() {
     setConfirming(false);
     const url = await ensureShare();
     if (!url) return;
+    const docLabel =
+      report!.reportKind === "inspection"
+        ? "Defects Inspection and Closeout Report"
+        : "Progress Report";
     const subject = encodeURIComponent(
-      `${project?.name ? `${project.name} — ` : ""}Progress Report №${report!.reportNumber}`
+      `${project?.name ? `${project.name} — ` : ""}${docLabel} №${report!.reportNumber}`
     );
     const body = encodeURIComponent(
-      `Please find our Progress Report №${report!.reportNumber} for the period ${formatDate(report!.periodStart)} – ${formatDate(report!.periodEnd)}:\n\n${url}\n\n` +
+      (report!.reportKind === "inspection"
+        ? `Please find our ${docLabel} №${report!.reportNumber} for the inspection on ${formatDate(report!.periodEnd)}:\n\n${url}\n\n`
+        : `Please find our Progress Report №${report!.reportNumber} for the period ${formatDate(report!.periodStart)} – ${formatDate(report!.periodEnd)}:\n\n${url}\n\n`) +
         (report!.hasPassword
           ? "The PDF is password-protected — I will send the password separately.\n\n"
           : "") +
@@ -151,7 +157,7 @@ export default function SendPage() {
     const url = await ensureShare();
     if (!url) return;
     const text = encodeURIComponent(
-      `${project?.name ? `${project.name} — ` : ""}Progress Report №${report!.reportNumber}: ${url}` +
+      `${project?.name ? `${project.name} — ` : ""}${report!.reportKind === "inspection" ? "Defects Inspection and Closeout Report" : "Progress Report"} №${report!.reportNumber}: ${url}` +
         (report!.hasPassword ? " (password to follow separately)" : "")
     );
     window.open(`https://wa.me/?text=${text}`, "_blank", "noopener");

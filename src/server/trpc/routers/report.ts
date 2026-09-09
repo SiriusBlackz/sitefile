@@ -67,6 +67,8 @@ export const reportRouter = createTRPCRouter({
           passwordHash: true,
           approvalState: true,
           createdAt: true,
+          reportKind: true,
+          revision: true,
         },
       });
       return rows.map(({ passwordHash, approvalState, ...row }) => {
@@ -98,6 +100,8 @@ export const reportRouter = createTRPCRouter({
           reportData: true,
           approvalState: true,
           createdAt: true,
+          reportKind: true,
+          revision: true,
         },
       });
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });

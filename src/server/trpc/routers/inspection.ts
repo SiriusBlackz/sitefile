@@ -1,16 +1,34 @@
 import { z } from "zod";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../index";
 import {
   projects,
   projectMembers,
   evidence,
+  reports,
+  users,
   inspectionVisits,
   inspectionItems,
   inspectionItemEvents,
   inspectionItemPhotos,
 } from "@/server/db/schema";
+import { inArray } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+import { inngest } from "@/server/inngest/client";
+import { encryptReportPassword } from "@/server/services/report-password-crypto";
+import { parseApprovalChain, type ApprovalState } from "@/lib/report-approval";
+import { MEMBER_ROLE_LABELS } from "@/lib/member-roles";
+import type { ProjectMemberRole } from "@/server/db/enums";
+import {
+  INSPECTION_VISIT_STAGES as STAGES,
+  INSPECTION_REPORT_KINDS,
+} from "@/server/db/enums";
+import { INSPECTION_SECTION_KEYS } from "@/lib/inspection-report-sections";
+import {
+  gatherInspectionReportData,
+  renderInspectionReportHTML,
+} from "@/server/services/inspection-report-generator";
 import {
   INSPECTION_VISIT_STAGES,
   INSPECTION_ITEM_TYPES,
@@ -111,6 +129,59 @@ async function loadProject(
   if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
   return project;
 }
+
+const inspectionSectionsSchema = z
+  .object(
+    Object.fromEntries(
+      INSPECTION_SECTION_KEYS.map((key) => [key, z.boolean().optional()])
+    ) as Record<(typeof INSPECTION_SECTION_KEYS)[number], z.ZodOptional<z.ZodBoolean>>
+  )
+  .strict();
+
+const signatureSchema = z.array(
+  z.object({
+    role: z.enum(["contractor", "project_manager", "client"]),
+    name: z.string().min(1),
+    title: z.string().optional(),
+    date: z.string().optional(),
+    imageDataUrl: z.string().optional(),
+  })
+);
+
+const reportFactsSchema = z.object({
+  projectId: z.string().uuid(),
+  visitId: z.string().uuid(),
+  stage: z.enum(STAGES),
+  kind: z.enum(INSPECTION_REPORT_KINDS).default("inspection_record"),
+  sections: inspectionSectionsSchema.optional(),
+  coverEvidenceId: z.string().uuid().optional(),
+  signatures: signatureSchema.optional(),
+  scopeNote: z.string().trim().max(2000).optional(),
+  methodLine: z.string().trim().max(500).optional(),
+  urgentConcerns: z.string().trim().max(2000).optional(),
+  attendees: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(120),
+        org: z.string().trim().max(120).optional(),
+        role: z.string().trim().max(120).optional(),
+        authority: z.string().trim().max(200).optional(),
+      })
+    )
+    .max(30)
+    .optional(),
+  notInspected: z
+    .array(
+      z.object({
+        area: z.string().trim().min(1).max(200),
+        reason: z.string().trim().max(300).optional(),
+        owner: z.string().trim().max(120).optional(),
+        followUp: z.string().trim().max(300).optional(),
+      })
+    )
+    .max(50)
+    .optional(),
+});
 
 const photoColumns = {
   id: true,
@@ -700,5 +771,170 @@ export const inspectionRouter = createTRPCRouter({
         withPhotos: Number(withPhotos),
         withoutPhotos: total - Number(withPhotos),
       };
+    }),
+
+  /**
+   * Same data-gather + templates the PDF pipeline uses, for review before
+   * generating. Also persists the visit facts typed in the dialog.
+   */
+  previewHtml: protectedProcedure
+    .input(reportFactsSchema)
+    .mutation(async ({ ctx, input }) => {
+      const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      assertProjectType(access, "inspection");
+      const existing = await ctx.db.query.reports.findMany({
+        where: eq(reports.projectId, input.projectId),
+        columns: { reportNumber: true },
+        orderBy: [desc(reports.reportNumber)],
+        limit: 1,
+      });
+      const data = await gatherInspectionReportData(ctx.db, {
+        ...input,
+        generatedBy: ctx.userId,
+        reportNumber: (existing[0]?.reportNumber ?? 0) + 1,
+      });
+      return { html: await renderInspectionReportHTML(data), summary: data.summary };
+    }),
+
+  /**
+   * Allocate the reports row (same numbering, one-in-flight and approval
+   * chain snapshot as report.generate — duplicated deliberately so the
+   * progress procedure stays untouched) and queue the inspection pipeline.
+   * Period start = period end = the visit date; report_kind = 'inspection'.
+   */
+  generateReport: protectedProcedure
+    .input(reportFactsSchema.extend({ password: z.string().min(4).max(128).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId, {
+        requireActive: true,
+      });
+      assertProjectType(access, "inspection");
+      const visit = await ctx.db.query.inspectionVisits.findFirst({
+        where: and(eq(inspectionVisits.id, input.visitId), eq(inspectionVisits.projectId, input.projectId)),
+      });
+      if (!visit) throw new TRPCError({ code: "NOT_FOUND", message: "Visit not found" });
+
+      // Persist the visit facts typed in the dialog so the register and
+      // later revisions carry them.
+      const visitPatch: Record<string, unknown> = {};
+      if (input.scopeNote !== undefined) visitPatch.scopeNote = input.scopeNote || null;
+      if (input.methodLine !== undefined) visitPatch.methodLine = input.methodLine || null;
+      if (input.urgentConcerns !== undefined) visitPatch.urgentConcerns = input.urgentConcerns || null;
+      if (input.attendees !== undefined) visitPatch.attendees = input.attendees;
+      if (input.notInspected !== undefined) visitPatch.notInspected = input.notInspected;
+      if (Object.keys(visitPatch).length) {
+        await ctx.db.update(inspectionVisits).set(visitPatch).where(eq(inspectionVisits.id, visit.id));
+      }
+
+      const projectRow = await ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.projectId),
+        columns: { approvalChain: true, firstReportNumber: true },
+      });
+      const chain = parseApprovalChain(projectRow?.approvalChain);
+      let approvalState: ApprovalState | null = null;
+      if (chain) {
+        const ids = chain.steps.map((s) => s.userId);
+        const [stepUsers, stepMembers] = await Promise.all([
+          ctx.db.query.users.findMany({ where: inArray(users.id, ids), columns: { id: true, name: true } }),
+          ctx.db.query.projectMembers.findMany({
+            where: and(eq(projectMembers.projectId, input.projectId), inArray(projectMembers.userId, ids)),
+            columns: { userId: true, role: true },
+          }),
+        ]);
+        const nameById = new Map(stepUsers.map((u) => [u.id, u.name]));
+        const roleById = new Map(stepMembers.map((m) => [m.userId, m.role]));
+        approvalState = {
+          steps: chain.steps.map((s) => ({
+            userId: s.userId,
+            label: s.label,
+            name: nameById.get(s.userId) ?? "Unknown user",
+            roleLabel: MEMBER_ROLE_LABELS[roleById.get(s.userId) as ProjectMemberRole] ?? null,
+            approvedAt: null,
+            approvedName: null,
+          })),
+          completedAt: null,
+        };
+      }
+
+      const passwordHash = input.password ? await bcrypt.hash(input.password, 10) : null;
+      const passwordCiphertext = input.password ? encryptReportPassword(input.password) : null;
+
+      const STALE_GENERATING_MS = 15 * 60 * 1000;
+      await ctx.db
+        .update(reports)
+        .set({ status: "failed", passwordCiphertext: null })
+        .where(and(eq(reports.projectId, input.projectId), eq(reports.status, "generating"), lt(reports.createdAt, new Date(Date.now() - STALE_GENERATING_MS))));
+
+      let report: typeof reports.$inferSelect | undefined;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const existing = await ctx.db.query.reports.findMany({
+          where: eq(reports.projectId, input.projectId),
+          columns: { reportNumber: true },
+          orderBy: [desc(reports.reportNumber)],
+          limit: 1,
+        });
+        const reportNumber = existing[0] ? existing[0].reportNumber + 1 : (projectRow?.firstReportNumber ?? 1);
+        try {
+          [report] = await ctx.db
+            .insert(reports)
+            .values({
+              projectId: input.projectId,
+              generatedBy: ctx.userId,
+              reportNumber,
+              periodStart: visit.visitDate,
+              periodEnd: visit.visitDate,
+              passwordHash,
+              passwordCiphertext,
+              approvalState,
+              status: "generating",
+              reportKind: "inspection",
+              revision: 1,
+            })
+            .returning();
+          break;
+        } catch (err) {
+          const dbErr = err as { code?: string; constraint_name?: string; constraint?: string };
+          if (dbErr.code !== "23505") throw err;
+          const constraint = dbErr.constraint_name ?? dbErr.constraint ?? "";
+          if (constraint.includes("one_generating_per_project")) {
+            throw new TRPCError({ code: "CONFLICT", message: "A report is already being generated. Please wait for it to complete." });
+          }
+          if (attempt === 2) throw new TRPCError({ code: "CONFLICT", message: "Could not allocate a report number. Please try again.", cause: err });
+        }
+      }
+      if (!report) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Report insert failed after retries" });
+
+      const { password: _pw, ...facts } = input;
+      void _pw;
+      try {
+        await inngest.send({
+          name: "report/generate-inspection",
+          data: { reportId: report.id, generatedBy: ctx.userId, ...facts },
+        });
+      } catch (err) {
+        console.error("[inspection.generateReport] Failed to queue:", err);
+        await ctx.db.update(reports).set({ status: "failed", passwordCiphertext: null }).where(eq(reports.id, report.id));
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Could not queue report generation. Please try again later.", cause: err });
+      }
+
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.projectId,
+        userId: ctx.userId,
+        action: "generate",
+        entityType: "report",
+        entityId: report.id,
+        metadata: { reportNumber: report.reportNumber, kind: "inspection", stage: input.stage, reportKind: input.kind, visitId: input.visitId },
+      });
+      if (input.signatures?.length) {
+        writeAuditLogAsync(ctx.db, {
+          projectId: input.projectId,
+          userId: ctx.userId,
+          action: "approve",
+          entityType: "report",
+          entityId: report.id,
+          metadata: { reportNumber: report.reportNumber, approvals: input.signatures.map((s) => ({ role: s.role, name: s.name, title: s.title ?? null, method: s.imageDataUrl ? "signature-image" : "typed-name" })) },
+        });
+      }
+      return { id: report.id, reportNumber: report.reportNumber, status: report.status };
     }),
 });

@@ -7,6 +7,9 @@ import { ReportList } from "@/components/reports/report-list";
 import { GenerateDialog } from "@/components/reports/generate-dialog";
 import { ReportBuilderPanel } from "@/components/reports/report-builder-panel";
 import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
+import { InspectionGenerateDialog } from "@/components/inspection/inspection-generate-dialog";
+import { InspectionOverviewCard } from "@/components/inspection/inspection-overview-card";
+import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 export default function ReportsPage() {
@@ -15,7 +18,9 @@ export default function ReportsPage() {
   // Bumped on each open so GenerateDialog remounts with fresh default dates.
   const [generateKey, setGenerateKey] = useState(0);
   const utils = trpc.useUtils();
-  const { data: draft } = trpc.report.getDraft.useQuery({ projectId });
+  const { data: project } = trpc.project.get.useQuery({ id: projectId });
+  const isInspection = project?.projectType === "inspection";
+  const { data: draft } = trpc.report.getDraft.useQuery({ projectId }, { enabled: !isInspection });
   // Report ids seen as "generating", so we can toast when they finish.
   const generatingIdsRef = useRef<Set<string>>(new Set());
 
@@ -67,17 +72,37 @@ export default function ReportsPage() {
         <h2 className="text-2xl font-bold tracking-tight">Reports</h2>
       </div>
 
-      {/* The standing draft — readiness ring, fix rows, Review & send. */}
-      <ReportBuilderPanel
-        projectId={projectId}
-        onReviewAndSend={() => {
-          setGenerateKey((k) => k + 1);
-          setGenerateOpen(true);
-        }}
-      />
+      {isInspection ? (
+        <>
+          <InspectionOverviewCard projectId={projectId} />
+          <div className="flex justify-end">
+            <Button onClick={() => { setGenerateKey((k) => k + 1); setGenerateOpen(true); }}>
+              Generate inspection report
+            </Button>
+          </div>
+        </>
+      ) : (
+        /* The standing draft — readiness ring, fix rows, Review & send. */
+        <ReportBuilderPanel
+          projectId={projectId}
+          onReviewAndSend={() => {
+            setGenerateKey((k) => k + 1);
+            setGenerateOpen(true);
+          }}
+        />
+      )}
 
       <ReportList reports={reports} />
 
+      {isInspection ? (
+        <InspectionGenerateDialog
+          key={generateKey}
+          open={generateOpen}
+          onOpenChange={setGenerateOpen}
+          projectId={projectId}
+          onGenerated={() => utils.report.list.invalidate({ projectId })}
+        />
+      ) : (
       <GenerateDialog
         key={generateKey}
         open={generateOpen}
@@ -92,6 +117,7 @@ export default function ReportsPage() {
             null
           )}
       />
+      )}
     </div>
   );
 }

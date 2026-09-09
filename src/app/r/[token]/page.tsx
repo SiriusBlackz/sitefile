@@ -80,7 +80,9 @@ export default async function SharePage({
             <div className="mb-3 text-lg font-bold">{org.name}</div>
           )}
           <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Progress Report
+            {report.reportKind === "inspection"
+              ? "Defects Inspection and Closeout Report"
+              : "Progress Report"}
           </div>
         </div>
 
