@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
+import { DiaryRecordDownload } from "@/components/diary/diary-record-download";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Sheet,
@@ -300,6 +301,8 @@ export default function DiaryDeskPage() {
           )}
         </CardContent>
       </Card>
+
+      <DiaryRecordDownload projectId={projectId} today={today} />
 
       <EntryDetailSheet entryId={detailEntryId} onClose={() => setDetailEntryId(null)} />
     </div>
