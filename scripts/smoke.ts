@@ -77,7 +77,7 @@ async function main() {
     process.exit(1);
   }
 
-  const client = postgres(process.env.DATABASE_URL, { max: 1, ssl: "require" });
+  const client = postgres(process.env.DATABASE_URL, { max: 1, ssl: "require", prepare: false });
   const db = drizzle(client, { schema });
 
   console.log("→ Resolving demo users");
@@ -219,6 +219,45 @@ async function main() {
     const [row] = await db.select({ kind: schema.reports.reportKind, rev: schema.reports.revision, ps: schema.reports.periodStart }).from(schema.reports).where(eq(schema.reports.id, insGen.id));
     check("report row is inspection kind, rev 1, period = visit date", row?.kind === "inspection" && row.rev === 1 && row.ps === "2026-09-09");
   }
+
+  // ── Transitions (Phase B1) ────────────────────────────────────────────
+  console.log("→ Transitions: ready → verify (marker refused) → verify with photo → reopen → reject → notify → void");
+  const readyRow = await trpcB.inspection.transition({ itemId: item1.id, to: "ready_for_review" });
+  check("B marks ready; ready_marked_by = B", readyRow.status === "ready_for_review" && readyRow.readyMarkedBy === ctxB.userId);
+  let markerRefused = false; let markerCode: string | null = null;
+  try { await trpcB.inspection.transition({ itemId: item1.id, to: "verified_closed", visitId: visit.id }); } catch (e) { markerRefused = true; if (e instanceof TRPCError) markerCode = e.code; }
+  check("marker cannot verify own item", markerRefused && markerCode === "FORBIDDEN", `code=${markerCode}`);
+  let noPhoto = false; let noPhotoCode: string | null = null;
+  try { await trpcA.inspection.transition({ itemId: item1.id, to: "verified_closed", visitId: visit.id }); } catch (e) { noPhoto = true; if (e instanceof TRPCError) noPhotoCode = e.code; }
+  check("verify without verified photo refused", noPhoto && noPhotoCode === "PRECONDITION_FAILED", `code=${noPhotoCode}`);
+  let noVisit = false;
+  try { await trpcA.inspection.transition({ itemId: item1.id, to: "verified_closed", evidenceIds: [evB.id] }); } catch { noVisit = true; }
+  check("verify without visitId refused (schema)", noVisit);
+  const [evV] = await db.insert(schema.evidence).values({ projectId: projectB.id, uploadedBy: ctxA.userId, type: "photo", storageKey: `projects/${projectB.id}/evidence/smoke-V/test.jpg`, originalFilename: "verified.jpg", fileSizeBytes: 1024, mimeType: "image/jpeg" }).returning();
+  const verified = await trpcA.inspection.transition({ itemId: item1.id, to: "verified_closed", visitId: visit.id, evidenceIds: [evV.id] });
+  check("A verifies with photo + visit", verified.status === "verified_closed" && verified.verifiedBy === ctxA.userId);
+  const sum2 = await trpcB.inspection.summary({ projectId: projectB.id, visitId: visit.id });
+  check("closedThisVisit = 1, verifiedClosed = 1", sum2.closedThisVisit === 1 && sum2.verifiedClosed === 1, JSON.stringify({ c: sum2.closedThisVisit, v: sum2.verifiedClosed }));
+  const det2 = await trpcA.inspection.get({ itemId: item1.id });
+  const sc = det2.events.filter((e) => e.kind === "status_change");
+  check("events carry from → to", sc.length === 2 && sc[0].fromStatus === "open" && sc[0].toStatus === "ready_for_review" && sc[1].fromStatus === "ready_for_review" && sc[1].toStatus === "verified_closed");
+  check("verified photo attached with role", det2.photos.some((p) => p.role === "verified"));
+  check("permissions: verified item → reopen only for oversight", det2.permissions.reopen === true && det2.permissions.verify === false);
+  const reopened = await trpcA.inspection.transition({ itemId: item1.id, to: "reopened", note: "Cover rocking again after traffic" });
+  check("reopen clears verifier/marker", reopened.status === "reopened" && reopened.verifiedBy === null && reopened.readyMarkedBy === null);
+  await trpcB.inspection.transition({ itemId: item1.id, to: "ready_for_review" });
+  const rejected = await trpcA.inspection.reject({ itemId: item1.id, reason: "Frame still not bedded on the north side" });
+  check("reject → open with reason event", rejected.status === "open" && (await trpcA.inspection.get({ itemId: item1.id })).events.some((e) => e.kind === "not_accepted" && e.fromStatus === "ready_for_review"));
+  const notified = await trpcA.inspection.notify({ itemId: item1.id, notifiedAt: "2026-09-10", notifiedBy: "Supervisor", notifiedTo: "Contractor", notificationRef: "NCR-7" });
+  check("notify computes correction due = notified + 28 d", notified.correctionDue === "2026-10-08", `due=${notified.correctionDue}`);
+  await trpcB.inspection.setFlag({ itemId: item2.id, flag: "access_blocked", reason: "Live carriageway — TM needed" });
+  const sum3 = await trpcB.inspection.summary({ projectId: projectB.id });
+  check("flag counted", sum3.flags.access_blocked === 1);
+  const voided = await trpcA.inspection.disposition({ itemId: item2.id, to: "void", reference: "Raised in error — duplicate of DEF-0001" });
+  check("admin voids with reference", voided.status === "void" && voided.dispositionRef !== null);
+  let afterVoid = false;
+  try { await trpcB.inspection.transition({ itemId: item2.id, to: "in_progress" }); } catch { afterVoid = true; }
+  check("terminal item refuses transitions", afterVoid);
 
   // Cleanup: remove the smoke projects (cascade removes tasks/evidence/links)
   console.log("→ Cleaning up smoke projects");

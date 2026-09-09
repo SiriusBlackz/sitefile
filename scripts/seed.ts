@@ -6,7 +6,7 @@ import { organisations, users, projects } from "../src/server/db/schema";
 dotenv.config({ path: ".env.local" });
 
 async function main() {
-  const client = postgres(process.env.DATABASE_URL!, { max: 1 });
+  const client = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   const db = drizzle(client);
 
   // Create org

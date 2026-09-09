@@ -9,7 +9,7 @@ dotenv.config({ path: ".env.production-snapshot" });
 const TARGET_EMAIL = process.argv[2];
 
 async function main() {
-  const client = postgres(process.env.DATABASE_URL!, { max: 1, ssl: "require" });
+  const client = postgres(process.env.DATABASE_URL!, { max: 1, ssl: "require", prepare: false });
   const db = drizzle(client, { schema: { users, organisations, projectMembers, auditLog } });
 
   // Most recent users

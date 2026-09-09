@@ -30,7 +30,14 @@ export type AuditAction =
   | "bulk_delete"
   | "add_member"
   | "remove_member"
-  | "hand_over";
+  | "hand_over"
+  | "status_change"
+  | "verify"
+  | "reopen"
+  | "flag"
+  | "disposition"
+  | "notify"
+  | "nudge";
 
 export type AuditEntityType =
   | "project"

@@ -32,6 +32,14 @@ import {
   renderInspectionReportHTML,
 } from "@/server/services/inspection-report-generator";
 import {
+  canTransition,
+  canReject,
+  canDispose,
+  canNotify,
+  permissionsFor,
+  type Actor,
+} from "@/lib/inspection-transitions";
+import {
   INSPECTION_VISIT_STAGES,
   INSPECTION_ITEM_TYPES,
   INSPECTION_ITEM_STATUSES,
@@ -75,6 +83,20 @@ async function assertInspectionOversight(
       message: "This action is for project managers, construction managers or supervisors.",
     });
   }
+}
+
+/** Who the caller is on this project, for the transition rules. */
+async function actorFor(
+  db: Parameters<typeof assertProjectAccess>[0],
+  projectId: string,
+  userId: string,
+  orgRole: string
+): Promise<Actor> {
+  const membership = await db.query.projectMembers.findFirst({
+    where: and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)),
+    columns: { role: true },
+  });
+  return { userId, isOrgAdmin: orgRole === "admin", projectRole: membership?.role ?? null };
 }
 
 const locationSchema = z.object({
@@ -685,7 +707,8 @@ export const inspectionRouter = createTRPCRouter({
       );
       const { photos: _drop, ...rest } = item;
       void _drop;
-      return { ...rest, photos };
+      const actor = await actorFor(ctx.db, item.projectId, ctx.userId, ctx.dbUser.role);
+      return { ...rest, photos, permissions: permissionsFor(item, actor) };
     }),
 
   /** Counts for the phone home tiles and the report summary. */
@@ -776,6 +799,201 @@ export const inspectionRouter = createTRPCRouter({
         withPhotos: Number(withPhotos),
         withoutPhotos: total - Number(withPhotos),
       };
+    }),
+
+  /**
+   * Move an item through the register. The rule module decides who may do
+   * what; this procedure locks the row, re-reads it, attaches any photos
+   * with the role the transition implies, and appends an event carrying
+   * BOTH from and to status.
+   */
+  transition: protectedProcedure
+    .input(
+      z
+        .object({
+          itemId: z.string().uuid(),
+          to: z.enum(["in_progress", "ready_for_review", "verified_closed", "reopened"]),
+          note: z.string().trim().max(1000).optional(),
+          evidenceIds: z.array(z.string().uuid()).max(10).optional(),
+          visitId: z.string().uuid().optional(),
+          clientAt: z.string().datetime().optional(),
+        })
+        .superRefine((d, ctx) => {
+          if (d.to === "verified_closed" && !d.visitId) {
+            ctx.addIssue({ code: "custom", path: ["visitId"], message: "Verification must be recorded against a visit." });
+          }
+          if (d.to === "reopened" && !(d.note && d.note.length >= 5)) {
+            ctx.addIssue({ code: "custom", path: ["note"], message: "Give a reason for reopening." });
+          }
+        })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const head = await ctx.db.query.inspectionItems.findFirst({
+        where: eq(inspectionItems.id, input.itemId),
+        columns: { id: true, projectId: true },
+      });
+      if (!head) throw new TRPCError({ code: "NOT_FOUND", message: "Item not found" });
+      const access = await assertProjectAccess(ctx.db, head.projectId, ctx.orgId, ctx.userId, { requireActive: true });
+      assertProjectType(access, "inspection");
+      const actor = await actorFor(ctx.db, head.projectId, ctx.userId, ctx.dbUser.role);
+      if (input.visitId) {
+        const visit = await ctx.db.query.inspectionVisits.findFirst({
+          where: and(eq(inspectionVisits.id, input.visitId), eq(inspectionVisits.projectId, head.projectId)),
+          columns: { id: true },
+        });
+        if (!visit) throw new TRPCError({ code: "NOT_FOUND", message: "Visit not found" });
+      }
+      for (const evId of input.evidenceIds ?? []) await assertEvidenceInProject(ctx.db, evId, head.projectId);
+
+      const result = await ctx.db.transaction(async (tx) => {
+        const [item] = await tx.select().from(inspectionItems).where(eq(inspectionItems.id, input.itemId)).for("update");
+        const rule = canTransition(item, actor, input.to);
+        if (!rule.ok) throw new TRPCError({ code: "FORBIDDEN", message: rule.reason ?? "Not allowed" });
+
+        // Photos supplied with the transition take the role it implies.
+        const role = input.to === "verified_closed" ? "verified" : input.to === "ready_for_review" ? "rectified" : "during";
+        for (const evId of input.evidenceIds ?? []) {
+          await tx
+            .insert(inspectionItemPhotos)
+            .values({ itemId: item.id, evidenceId: evId, role, addedBy: ctx.userId })
+            .onConflictDoUpdate({ target: [inspectionItemPhotos.itemId, inspectionItemPhotos.evidenceId], set: { role } });
+        }
+        if (rule.requires.verifiedPhoto) {
+          const [{ n }] = await tx
+            .select({ n: sql<number>`count(*)` })
+            .from(inspectionItemPhotos)
+            .innerJoin(evidence, eq(evidence.id, inspectionItemPhotos.evidenceId))
+            .where(and(eq(inspectionItemPhotos.itemId, item.id), eq(inspectionItemPhotos.role, "verified"), isNull(evidence.deletedAt)));
+          if (Number(n) === 0) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Attach a verification photo before marking this item verified closed." });
+          }
+        }
+
+        const patch: Record<string, unknown> = { status: input.to, updatedAt: new Date() };
+        if (input.to === "ready_for_review") patch.readyMarkedBy = ctx.userId;
+        if (input.to === "verified_closed") { patch.verifiedBy = ctx.userId; patch.verifiedAt = new Date(); }
+        if (input.to === "reopened") { patch.readyMarkedBy = null; patch.verifiedBy = null; patch.verifiedAt = null; }
+        const [updated] = await tx.update(inspectionItems).set(patch).where(eq(inspectionItems.id, item.id)).returning();
+        await tx.insert(inspectionItemEvents).values({
+          itemId: item.id,
+          projectId: item.projectId,
+          visitId: input.visitId ?? null,
+          actorId: ctx.userId,
+          kind: input.to === "reopened" ? "reopened" : "status_change",
+          fromStatus: item.status,
+          toStatus: input.to,
+          note: input.note ?? null,
+          evidenceIds: input.evidenceIds?.length ? input.evidenceIds : null,
+          clientAt: input.clientAt ? new Date(input.clientAt) : null,
+        });
+        return { updated, from: item.status };
+      });
+
+      writeAuditLogAsync(ctx.db, {
+        projectId: head.projectId,
+        userId: ctx.userId,
+        action: input.to === "verified_closed" ? "verify" : input.to === "reopened" ? "reopen" : "status_change",
+        entityType: "inspection_item",
+        entityId: head.id,
+        metadata: { ref: result.updated.ref, from: result.from, to: input.to, visitId: input.visitId ?? null },
+      });
+      return result.updated;
+    }),
+
+  /** Ready for review → Open with a reason (event `not_accepted`). */
+  reject: protectedProcedure
+    .input(z.object({ itemId: z.string().uuid(), reason: z.string().trim().min(5).max(1000), visitId: z.string().uuid().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const head = await ctx.db.query.inspectionItems.findFirst({ where: eq(inspectionItems.id, input.itemId), columns: { id: true, projectId: true } });
+      if (!head) throw new TRPCError({ code: "NOT_FOUND", message: "Item not found" });
+      const access = await assertProjectAccess(ctx.db, head.projectId, ctx.orgId, ctx.userId, { requireActive: true });
+      assertProjectType(access, "inspection");
+      const actor = await actorFor(ctx.db, head.projectId, ctx.userId, ctx.dbUser.role);
+      const updated = await ctx.db.transaction(async (tx) => {
+        const [item] = await tx.select().from(inspectionItems).where(eq(inspectionItems.id, input.itemId)).for("update");
+        const rule = canReject(item, actor);
+        if (!rule.ok) throw new TRPCError({ code: "FORBIDDEN", message: rule.reason ?? "Not allowed" });
+        const [row] = await tx.update(inspectionItems).set({ status: "open", readyMarkedBy: null, updatedAt: new Date() }).where(eq(inspectionItems.id, item.id)).returning();
+        await tx.insert(inspectionItemEvents).values({ itemId: item.id, projectId: item.projectId, visitId: input.visitId ?? null, actorId: ctx.userId, kind: "not_accepted", fromStatus: item.status, toStatus: "open", note: input.reason });
+        return row;
+      });
+      writeAuditLogAsync(ctx.db, { projectId: head.projectId, userId: ctx.userId, action: "status_change", entityType: "inspection_item", entityId: head.id, metadata: { ref: updated.ref, from: "ready_for_review", to: "open", notAccepted: true } });
+      return updated;
+    }),
+
+  setFlag: protectedProcedure
+    .input(z.object({ itemId: z.string().uuid(), flag: z.enum(["disputed", "access_blocked", "awaiting_test"]), reason: z.string().trim().min(3).max(500) }))
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.db.query.inspectionItems.findFirst({ where: eq(inspectionItems.id, input.itemId), columns: { id: true, projectId: true, ref: true, status: true, flags: true } });
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item not found" });
+      const access = await assertProjectAccess(ctx.db, item.projectId, ctx.orgId, ctx.userId, { requireActive: true });
+      assertProjectType(access, "inspection");
+      if (item.status === "accepted_as_is" || item.status === "void") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This item has a final disposition." });
+      const flags = { ...((item.flags ?? {}) as Record<string, unknown>), [input.flag]: { reason: input.reason, since: new Date().toISOString(), by: ctx.userId } };
+      await ctx.db.update(inspectionItems).set({ flags, updatedAt: new Date() }).where(eq(inspectionItems.id, item.id));
+      await ctx.db.insert(inspectionItemEvents).values({ itemId: item.id, projectId: item.projectId, actorId: ctx.userId, kind: "flag_set", note: `${input.flag.replace(/_/g, " ")}: ${input.reason}` });
+      writeAuditLogAsync(ctx.db, { projectId: item.projectId, userId: ctx.userId, action: "flag", entityType: "inspection_item", entityId: item.id, metadata: { ref: item.ref, flag: input.flag, set: true } });
+      return { ok: true, flags };
+    }),
+
+  clearFlag: protectedProcedure
+    .input(z.object({ itemId: z.string().uuid(), flag: z.enum(["disputed", "access_blocked", "awaiting_test"]), note: z.string().trim().max(500).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.db.query.inspectionItems.findFirst({ where: eq(inspectionItems.id, input.itemId), columns: { id: true, projectId: true, ref: true, flags: true } });
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item not found" });
+      const access = await assertProjectAccess(ctx.db, item.projectId, ctx.orgId, ctx.userId, { requireActive: true });
+      assertProjectType(access, "inspection");
+      const flags = { ...((item.flags ?? {}) as Record<string, unknown>) };
+      delete flags[input.flag];
+      await ctx.db.update(inspectionItems).set({ flags, updatedAt: new Date() }).where(eq(inspectionItems.id, item.id));
+      await ctx.db.insert(inspectionItemEvents).values({ itemId: item.id, projectId: item.projectId, actorId: ctx.userId, kind: "flag_cleared", note: `${input.flag.replace(/_/g, " ")}${input.note ? `: ${input.note}` : ""}` });
+      writeAuditLogAsync(ctx.db, { projectId: item.projectId, userId: ctx.userId, action: "flag", entityType: "inspection_item", entityId: item.id, metadata: { ref: item.ref, flag: input.flag, set: false } });
+      return { ok: true, flags };
+    }),
+
+  /** Accepted as-is (NEC cl. 45 style) or void — terminal, reference required. */
+  disposition: protectedProcedure
+    .input(z.object({ itemId: z.string().uuid(), to: z.enum(["accepted_as_is", "void"]), reference: z.string().trim().min(3).max(300) }))
+    .mutation(async ({ ctx, input }) => {
+      const head = await ctx.db.query.inspectionItems.findFirst({ where: eq(inspectionItems.id, input.itemId), columns: { id: true, projectId: true } });
+      if (!head) throw new TRPCError({ code: "NOT_FOUND", message: "Item not found" });
+      const access = await assertProjectAccess(ctx.db, head.projectId, ctx.orgId, ctx.userId, { requireActive: true });
+      assertProjectType(access, "inspection");
+      const actor = await actorFor(ctx.db, head.projectId, ctx.userId, ctx.dbUser.role);
+      const updated = await ctx.db.transaction(async (tx) => {
+        const [item] = await tx.select().from(inspectionItems).where(eq(inspectionItems.id, input.itemId)).for("update");
+        const rule = canDispose(item, actor, input.to);
+        if (!rule.ok) throw new TRPCError({ code: "FORBIDDEN", message: rule.reason ?? "Not allowed" });
+        const [row] = await tx.update(inspectionItems).set({ status: input.to, dispositionRef: input.reference, dispositionBy: ctx.userId, dispositionAt: new Date(), updatedAt: new Date() }).where(eq(inspectionItems.id, item.id)).returning();
+        await tx.insert(inspectionItemEvents).values({ itemId: item.id, projectId: item.projectId, actorId: ctx.userId, kind: "disposition", fromStatus: item.status, toStatus: input.to, note: input.reference });
+        return row;
+      });
+      writeAuditLogAsync(ctx.db, { projectId: head.projectId, userId: ctx.userId, action: "disposition", entityType: "inspection_item", entityId: head.id, metadata: { ref: updated.ref, to: input.to, reference: input.reference } });
+      return updated;
+    }),
+
+  /** Record a formal notification and compute the correction due date from the project setting. */
+  notify: protectedProcedure
+    .input(z.object({ itemId: z.string().uuid(), notifiedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), notifiedBy: z.string().trim().min(1).max(120), notifiedTo: z.string().trim().min(1).max(120), notificationRef: z.string().trim().max(120).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.db.query.inspectionItems.findFirst({ where: eq(inspectionItems.id, input.itemId), columns: { id: true, projectId: true, ref: true } });
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item not found" });
+      const access = await assertProjectAccess(ctx.db, item.projectId, ctx.orgId, ctx.userId, { requireActive: true });
+      assertProjectType(access, "inspection");
+      const actor = await actorFor(ctx.db, item.projectId, ctx.userId, ctx.dbUser.role);
+      const rule = canNotify(actor);
+      if (!rule.ok) throw new TRPCError({ code: "FORBIDDEN", message: rule.reason ?? "Not allowed" });
+      const project = await loadProject(ctx.db, item.projectId);
+      let correctionDue: string | null = null;
+      if (project.defaultCorrectionPeriodDays) {
+        const d = new Date(input.notifiedAt + "T00:00:00Z");
+        d.setUTCDate(d.getUTCDate() + project.defaultCorrectionPeriodDays);
+        correctionDue = d.toISOString().slice(0, 10);
+      }
+      const [updated] = await ctx.db.update(inspectionItems).set({ notifiedAt: input.notifiedAt, notifiedBy: input.notifiedBy, notifiedTo: input.notifiedTo, notificationRef: input.notificationRef ?? null, correctionDue, updatedAt: new Date() }).where(eq(inspectionItems.id, item.id)).returning();
+      await ctx.db.insert(inspectionItemEvents).values({ itemId: item.id, projectId: item.projectId, actorId: ctx.userId, kind: "notified", note: `Notified ${input.notifiedAt} by ${input.notifiedBy} to ${input.notifiedTo}${input.notificationRef ? ` (${input.notificationRef})` : ""}${correctionDue ? ` · correction due ${correctionDue} (computed)` : ""}` });
+      writeAuditLogAsync(ctx.db, { projectId: item.projectId, userId: ctx.userId, action: "notify", entityType: "inspection_item", entityId: item.id, metadata: { ref: item.ref, notifiedAt: input.notifiedAt, correctionDue } });
+      return updated;
     }),
 
   /**

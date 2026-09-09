@@ -27,7 +27,7 @@ async function main() {
     process.exit(1);
   }
 
-  const client = postgres(process.env.DATABASE_URL, { max: 1, ssl: "require" });
+  const client = postgres(process.env.DATABASE_URL, { max: 1, ssl: "require", prepare: false });
   const db = drizzle(client, {
     schema: { organisations, users, projectMembers },
   });
