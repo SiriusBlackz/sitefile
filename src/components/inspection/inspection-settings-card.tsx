@@ -47,7 +47,7 @@ export function InspectionSettingsCard({
   const [completionConfirmed, setCompletionConfirmed] = useState(Boolean(cd?.confirmed?.completion));
   const [defectsConfirmed, setDefectsConfirmed] = useState(Boolean(cd?.confirmed?.defectsDate));
 
-  const update = trpc.project.update.useMutation({
+  const update = trpc.inspection.settingsUpdate.useMutation({
     onSuccess: () => {
       toast.success("Inspection settings saved");
       utils.project.get.invalidate({ id: projectId });
@@ -120,7 +120,7 @@ export function InspectionSettingsCard({
           disabled={update.isPending}
           onClick={() =>
             update.mutate({
-              id: projectId,
+              projectId,
               contractForm: (form || null) as "nec4_ecc" | "nec3_ecc" | "jct" | "other" | null,
               locationScheme: (scheme || null) as "building" | "linear" | "grid" | null,
               defaultCorrectionPeriodDays: days ? Number(days) : null,

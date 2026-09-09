@@ -62,6 +62,7 @@ export function ScopeLimitationsPage({ meta, data, startPage }: { meta: Inspecti
           <tr><td style={{ width: "40%", fontWeight: 600 }}>Contract form</td><td>{meta.contractFormLabel ?? "not set"}</td></tr>
           <tr><td style={{ fontWeight: 600 }}>Completion</td><td>{cd.completion ? `${fmtDate(cd.completion)} (${flag(cd.completionConfirmed)})` : "not confirmed"}</td></tr>
           <tr><td style={{ fontWeight: 600 }}>Defects date</td><td>{cd.defectsDate ? `${fmtDate(cd.defectsDate)} (${flag(cd.defectsConfirmed)})` : "not confirmed"}</td></tr>
+          <tr><td style={{ fontWeight: 600 }}>Default correction period</td><td>{meta.defaultCorrectionPeriodDays ? `${meta.defaultCorrectionPeriodDays} days (project setting — confirm with contract)` : "not set"}</td></tr>
         </tbody>
       </table>
 

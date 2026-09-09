@@ -183,6 +183,43 @@ async function main() {
     console.log("→ Skipping HTTP check (SMOKE_BASE_URL not set)");
   }
 
+  // ── Inspection branch (Phase A/B) ─────────────────────────────────────
+  console.log("→ Inspection: comp projectB as a defects-inspection project");
+  await db
+    .update(schema.projects)
+    .set({ status: "active", projectType: "inspection", locationScheme: "linear", contractForm: "nec4_ecc", defaultCorrectionPeriodDays: 28 })
+    .where(eq(schema.projects.id, projectB.id));
+  const visit = await trpcB.inspection.visitEnsure({ projectId: projectB.id, visitDate: "2026-09-09", stage: "end_of_defects_period" });
+  check("inspection visit ensured", !!visit.id);
+  const clientId = crypto.randomUUID();
+  const item1 = await trpcB.inspection.itemCreate({ projectId: projectB.id, id: clientId, visitId: visit.id, title: "Rocking cover", finding: "Cover rocks; mortar fractured.", location: { description: "MH-07", alignment: "Access Rd", chainage: "0+245", side: "L" } });
+  const item2 = await trpcB.inspection.itemCreate({ projectId: projectB.id, visitId: visit.id, type: "snag", title: "Kerb chipped", finding: "Kerb face chipped 40 mm.", location: { description: "ch 0+120", alignment: "Access Rd", chainage: "0+120", side: "R" } });
+  check("refs allocated DEF-0001/0002", item1.ref === "DEF-0001" && item2.ref === "DEF-0002", `${item1.ref} ${item2.ref}`);
+  const again = await trpcB.inspection.itemCreate({ projectId: projectB.id, id: clientId, visitId: visit.id, title: "dup", finding: "dup", location: { description: "dup" } });
+  check("itemCreate idempotent on client id", again.ref === item1.ref);
+  let progressRefused = false; let progressCode: string | null = null;
+  try { await trpcA.inspection.itemCreate({ projectId: projectA.id, visitId: visit.id, title: "x", finding: "y", location: { description: "z" } }); } catch (e) { progressRefused = true; if (e instanceof TRPCError) progressCode = e.code; }
+  check("itemCreate on a progress project refused", progressRefused && progressCode === "PRECONDITION_FAILED", `code=${progressCode}`);
+  let foreignId = false; let foreignCode: string | null = null;
+  try { await trpcA.inspection.itemCreate({ projectId: projectB.id, id: clientId, visitId: visit.id, title: "steal", finding: "steal", location: { description: "x" } }); } catch (e) { foreignId = true; if (e instanceof TRPCError) foreignCode = e.code; }
+  check("foreign client id → CONFLICT", foreignId && foreignCode === "CONFLICT", `code=${foreignCode}`);
+  const [evB] = await db.insert(schema.evidence).values({ projectId: projectB.id, uploadedBy: ctxB.userId, type: "photo", storageKey: `projects/${projectB.id}/evidence/smoke-B/test.jpg`, originalFilename: "smoke-B.jpg", fileSizeBytes: 1024, mimeType: "image/jpeg" }).returning();
+  await trpcB.inspection.attachPhoto({ itemId: item1.id, evidenceId: evB.id, role: "defect" });
+  let crossPhoto = false; let crossPhotoCode: string | null = null;
+  try { await trpcB.inspection.attachPhoto({ itemId: item1.id, evidenceId: evA.id, role: "defect" }); } catch (e) { crossPhoto = true; if (e instanceof TRPCError) crossPhotoCode = e.code; }
+  check("cross-project attachPhoto refused", crossPhoto && crossPhotoCode === "FORBIDDEN", `code=${crossPhotoCode}`);
+  const sum = await trpcB.inspection.summary({ projectId: projectB.id, visitId: visit.id });
+  check("summary counts", sum.total === 2 && sum.open === 2 && sum.withPhotos === 1 && sum.newThisVisit === 2, JSON.stringify({ total: sum.total, open: sum.open, withPhotos: sum.withPhotos }));
+  const detail = await trpcB.inspection.get({ itemId: item1.id });
+  check("detail has photo + created event", detail.photos.length === 1 && detail.events.some((e) => e.kind === "created"));
+  let insGen: { id: string; status: string | null } | null = null; let insGenErr: string | null = null;
+  try { insGen = await trpcB.inspection.generateReport({ projectId: projectB.id, visitId: visit.id, stage: "end_of_defects_period", kind: "inspection_record", weather: "Dry" }); } catch (e) { insGenErr = e instanceof Error ? e.message : String(e); }
+  check("inspection report queued", !!insGen?.id && insGen.status !== "failed", insGenErr ?? (insGen ? `status=${insGen.status}` : "no row"));
+  if (insGen?.id) {
+    const [row] = await db.select({ kind: schema.reports.reportKind, rev: schema.reports.revision, ps: schema.reports.periodStart }).from(schema.reports).where(eq(schema.reports.id, insGen.id));
+    check("report row is inspection kind, rev 1, period = visit date", row?.kind === "inspection" && row.rev === 1 && row.ps === "2026-09-09");
+  }
+
   // Cleanup: remove the smoke projects (cascade removes tasks/evidence/links)
   console.log("→ Cleaning up smoke projects");
   await db.delete(schema.projects).where(eq(schema.projects.id, projectA.id));

@@ -55,6 +55,8 @@ const ENTITY_LABELS: Record<string, string> = {
   evidence_link: "Evidence Link",
   report: "Report",
   gps_zone: "GPS Zone",
+  inspection_visit: "Inspection Visit",
+  inspection_item: "Register Item",
 };
 
 export default function AuditPage() {

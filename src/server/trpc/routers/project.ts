@@ -232,20 +232,6 @@ export const projectRouter = createTRPCRouter({
             )
             .optional(),
           status: z.enum(PROJECT_STATUSES).optional(),
-          // Inspection settings (only ever sent from the inspection card)
-          contractForm: z.enum(CONTRACT_FORMS).nullable().optional(),
-          locationScheme: z.enum(LOCATION_SCHEMES).nullable().optional(),
-          defaultCorrectionPeriodDays: z.number().int().min(1).max(365).nullable().optional(),
-          contractDates: z
-            .object({
-              completion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-              defectsDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-              confirmed: z
-                .object({ completion: z.boolean().optional(), defectsDate: z.boolean().optional() })
-                .optional(),
-            })
-            .nullable()
-            .optional(),
         })
         .refine(
           (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,

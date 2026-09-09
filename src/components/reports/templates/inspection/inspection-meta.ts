@@ -8,6 +8,12 @@ export interface InspectionMeta extends ReportMeta {
   visitDate: string;
   revision: number;
   contractFormLabel: string | null;
+  /** Project default defect correction period, printed with the contract dates. */
+  defaultCorrectionPeriodDays: number | null;
+  /** Name of the person who generated the report. */
+  preparedBy: string;
+  /** Intended recipients, one per line in the dialog. */
+  distribution: string[];
   /** Each date prints with its confirmed / not confirmed flag. */
   contractDates: {
     completion: string | null;

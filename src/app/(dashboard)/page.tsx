@@ -48,6 +48,8 @@ const ENTITY_LABELS: Record<string, string> = {
   gps_zone: "GPS zone",
   project_member: "member",
   subscription: "subscription",
+  inspection_visit: "inspection visit",
+  inspection_item: "register item",
 };
 
 /**
@@ -338,6 +340,8 @@ type PortfolioProject = {
   photosThisPeriod: number;
   unlinked: number;
   programmeConfirmedThisPeriod: boolean;
+  projectType?: string;
+  inspection?: { open: number; readyForReview: number; verifiedClosed: number; total: number } | null;
   lastReport: {
     id: string;
     number: number;
@@ -352,7 +356,46 @@ type PortfolioProject = {
   } | null;
 };
 
+function InspectionPortfolioTile({ project: p }: { project: PortfolioProject }) {
+  const s = p.inspection ?? { open: 0, readyForReview: 0, verifiedClosed: 0, total: 0 };
+  return (
+    <Link
+      href={`/projects/${p.id}`}
+      className="block rounded-xl border bg-card p-4 transition-shadow hover:shadow-md"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold">{p.name}</h3>
+          {p.reference && (
+            <p className="font-mono text-[10px] text-muted-foreground">{p.reference}</p>
+          )}
+        </div>
+        <span className="rounded-full bg-accent px-2 py-0.5 font-mono text-[10px] font-bold text-(--accent-ink)">
+          DEFECTS
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-4 gap-1.5 text-center">
+        {[
+          ["Items", s.total],
+          ["Open", s.open],
+          ["Ready", s.readyForReview],
+          ["Closed", s.verifiedClosed],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="rounded-lg border px-1 py-1.5">
+            <div className="text-[10px] text-muted-foreground">{label}</div>
+            <div className="font-mono text-sm font-bold">{value}</div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {p.lastReport ? `Report № ${p.lastReport.number} ${p.lastReport.sentAt ? "sent" : "generated"}` : "No reports yet"}
+      </p>
+    </Link>
+  );
+}
+
 function PortfolioCard({ project: p }: { project: PortfolioProject }) {
+  if (p.projectType === "inspection") return <InspectionPortfolioTile project={p} />;
   const pct = portfolioPct(p);
   const days = p.nextReportDue ? daysUntil(p.nextReportDue) : null;
   const R = 16;

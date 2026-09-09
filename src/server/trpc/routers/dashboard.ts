@@ -9,6 +9,7 @@ import {
   reports,
   reportShares,
   reportDrafts,
+  inspectionItems,
 } from "@/server/db/schema";
 import type { Context } from "../context";
 
@@ -63,9 +64,35 @@ export const dashboardRouter = createTRPCRouter({
         nextReportDue: projects.nextReportDue,
         reportingFrequency: projects.reportingFrequency,
         programmeConfirmedAt: projects.programmeConfirmedAt,
+        projectType: projects.projectType,
       })
       .from(projects)
       .where(inArray(projects.id, ids));
+
+    // Inspection projects: register counts instead of report readiness.
+    // One grouped query, only when such projects exist; progress rows
+    // gain a single inert field.
+    const inspectionIds = projectRows.filter((p) => p.projectType === "inspection").map((p) => p.id);
+    const inspectionBy = new Map<string, { open: number; readyForReview: number; verifiedClosed: number; total: number }>();
+    if (inspectionIds.length > 0) {
+      const rows = await ctx.db
+        .select({
+          projectId: inspectionItems.projectId,
+          status: inspectionItems.status,
+          n: sql<number>`count(*)::int`,
+        })
+        .from(inspectionItems)
+        .where(inArray(inspectionItems.projectId, inspectionIds))
+        .groupBy(inspectionItems.projectId, inspectionItems.status);
+      for (const r of rows) {
+        const cur = inspectionBy.get(r.projectId) ?? { open: 0, readyForReview: 0, verifiedClosed: 0, total: 0 };
+        cur.total += r.n;
+        if (r.status === "open" || r.status === "in_progress" || r.status === "reopened") cur.open += r.n;
+        if (r.status === "ready_for_review") cur.readyForReview += r.n;
+        if (r.status === "verified_closed") cur.verifiedClosed += r.n;
+        inspectionBy.set(r.projectId, cur);
+      }
+    }
 
     // Last completed report per project.
     const lastReports = await ctx.db
@@ -169,6 +196,11 @@ export const dashboardRouter = createTRPCRouter({
         unlinked: inPeriod.filter((e) => e.linkCount === 0).length,
         programmeConfirmedThisPeriod:
           p.programmeConfirmedAt != null && p.programmeConfirmedAt >= periodStart,
+        projectType: p.projectType,
+        inspection:
+          p.projectType === "inspection"
+            ? (inspectionBy.get(p.id) ?? { open: 0, readyForReview: 0, verifiedClosed: 0, total: 0 })
+            : null,
         lastReport: last
           ? {
               id: last.id,

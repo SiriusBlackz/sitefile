@@ -46,6 +46,7 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
   const [methodLine, setMethodLine] = useState("");
   const [weather, setWeather] = useState("");
   const [urgentConcerns, setUrgentConcerns] = useState("");
+  const [distributionText, setDistributionText] = useState("");
   const [attendeesText, setAttendeesText] = useState("");
   const [notInspectedText, setNotInspectedText] = useState("");
   const [sections, setSections] = useState<Record<string, boolean>>({ ...INSPECTION_RECIPE });
@@ -96,6 +97,7 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
     methodLine: methodLine || undefined,
     weather: weather || undefined,
     urgentConcerns: urgentConcerns || undefined,
+    distribution: distributionText.split("\n").map((l) => l.trim()).filter(Boolean),
     attendees: parseAttendees(),
     notInspected: parseNotInspected(),
     signatures: (Object.values(sigs).filter(Boolean) as Sig[]).map((s) => ({ ...s, date: s.date ?? new Date().toLocaleDateString("en-GB") })),
@@ -184,6 +186,10 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
               <div className="space-y-1.5">
                 <Label htmlFor="ig-ni">Not inspected (one per line: area — reason)</Label>
                 <textarea id="ig-ni" rows={3} value={notInspectedText} onChange={(e) => setNotInspectedText(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="Attenuation tank interior — confined space, no entry" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ig-dist">Distribution (one recipient per line)</Label>
+                <textarea id="ig-dist" rows={3} value={distributionText} onChange={(e) => setDistributionText(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder={"A. Client, Demo Client Ltd\nSite file"} />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="ig-urgent">Urgent concerns (leave blank for none observed within scope)</Label>

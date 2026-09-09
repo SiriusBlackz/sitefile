@@ -60,6 +60,7 @@ export interface InspectionReportInput {
   methodLine?: string;
   weather?: string;
   urgentConcerns?: string;
+  distribution?: string[];
   attendees?: { name: string; org?: string; role?: string; authority?: string }[];
   notInspected?: { area: string; reason?: string; owner?: string; followUp?: string }[];
 }
@@ -134,6 +135,7 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
     : [];
   const uploaderName = new Map(uploaders.map((u) => [u.id, u.name]));
   const zones = await db.query.gpsZones.findMany({ where: eq(gpsZones.projectId, input.projectId) });
+  const preparer = await db.query.users.findFirst({ where: eq(users.id, input.generatedBy), columns: { name: true } });
 
   // Meta (logos signed for Puppeteer)
   const logoUrl = org.logoUrl ? (org.logoUrl.startsWith("http") ? org.logoUrl : await getReadUrl(org.logoUrl)) : null;
@@ -168,6 +170,9 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
     visitDate: visit.visitDate,
     revision,
     contractFormLabel: project.contractForm ? (CONTRACT_FORM_LABELS[project.contractForm] ?? project.contractForm) : null,
+    defaultCorrectionPeriodDays: project.defaultCorrectionPeriodDays ?? null,
+    preparedBy: preparer?.name ?? "—",
+    distribution: input.distribution ?? [],
     contractDates: {
       completion: cd.completion ?? null,
       defectsDate: cd.defectsDate ?? null,

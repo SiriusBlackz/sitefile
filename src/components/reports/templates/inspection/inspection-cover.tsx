@@ -47,6 +47,8 @@ export function InspectionCoverPage({ meta }: { meta: InspectionMeta }) {
             <Row label="Report number" value={`#${meta.reportNumber} · revision ${meta.revision}`} />
             <Row label="Visit date" value={fmtDate(meta.visitDate)} />
             <Row label="Issue date" value={fmtDate(meta.generatedAt)} />
+            <Row label="Prepared by" value={meta.preparedBy} />
+            {meta.distribution.length > 0 && <Row label="Distribution" value={meta.distribution.join("; ")} />}
           </tbody>
         </table>
       </div>

@@ -23,6 +23,8 @@ import type { ProjectMemberRole } from "@/server/db/enums";
 import {
   INSPECTION_VISIT_STAGES as STAGES,
   INSPECTION_REPORT_KINDS,
+  CONTRACT_FORMS,
+  LOCATION_SCHEMES,
 } from "@/server/db/enums";
 import { INSPECTION_SECTION_KEYS } from "@/lib/inspection-report-sections";
 import {
@@ -160,6 +162,7 @@ const reportFactsSchema = z.object({
   methodLine: z.string().trim().max(500).optional(),
   weather: z.string().trim().max(200).optional(),
   urgentConcerns: z.string().trim().max(2000).optional(),
+  distribution: z.array(z.string().trim().min(1).max(160)).max(20).optional(),
   attendees: z
     .array(
       z.object({
@@ -773,6 +776,52 @@ export const inspectionRouter = createTRPCRouter({
         withPhotos: Number(withPhotos),
         withoutPhotos: total - Number(withPhotos),
       };
+    }),
+
+  /**
+   * Inspection project settings — oversight roles only (C30): the template
+   * says an authorised role confirms contract dates, so any-member
+   * project.update must not carry these.
+   */
+  settingsUpdate: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        contractForm: z.enum(CONTRACT_FORMS).nullable().optional(),
+        locationScheme: z.enum(LOCATION_SCHEMES).nullable().optional(),
+        defaultCorrectionPeriodDays: z.number().int().min(1).max(365).nullable().optional(),
+        contractDates: z
+          .object({
+            completion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+            defectsDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+            confirmed: z
+              .object({ completion: z.boolean().optional(), defectsDate: z.boolean().optional() })
+              .optional(),
+          })
+          .nullable()
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      assertProjectType(access, "inspection");
+      await assertInspectionOversight(ctx.db, input.projectId, ctx.userId, ctx.dbUser.role);
+      const { projectId, ...rest } = input;
+      const patch = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+      if (Object.keys(patch).length === 0) return { ok: true };
+      await ctx.db
+        .update(projects)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(projects.id, projectId));
+      writeAuditLogAsync(ctx.db, {
+        projectId,
+        userId: ctx.userId,
+        action: "update",
+        entityType: "project",
+        entityId: projectId,
+        metadata: { inspectionSettings: Object.keys(patch) },
+      });
+      return { ok: true };
     }),
 
   /**
