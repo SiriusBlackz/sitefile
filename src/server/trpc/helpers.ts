@@ -38,7 +38,7 @@ export async function assertProjectAccess(
 ) {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
-    columns: { id: true, orgId: true, status: true },
+    columns: { id: true, orgId: true, status: true, projectType: true },
   });
   if (!project) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
@@ -81,6 +81,23 @@ export async function assertProjectAccess(
   }
 
   return project;
+}
+
+/**
+ * Inspection / survey procedures are opt-in on the project's type: a
+ * progress project can never be written to by the inspection router, and
+ * an inspection project never enters the progress code paths.
+ */
+export function assertProjectType(
+  project: { projectType: string },
+  expected: "progress" | "inspection" | "condition_survey"
+) {
+  if (project.projectType !== expected) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: `This action is only available on ${expected.replace(/_/g, " ")} projects.`,
+    });
+  }
 }
 
 export async function assertTaskInProject(db: DB, taskId: string, projectId: string) {

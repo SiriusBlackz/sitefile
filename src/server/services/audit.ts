@@ -42,7 +42,9 @@ export type AuditEntityType =
   | "subscription"
   | "project_member"
   | "diary_entry"
-  | "diary_holdup";
+  | "diary_holdup"
+  | "inspection_visit"
+  | "inspection_item";
 
 export interface AuditEntry {
   projectId: string;
