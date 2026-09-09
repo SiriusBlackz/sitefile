@@ -141,6 +141,13 @@
       "when": 1788898854959,
       "tag": "0019_user_deactivation",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788937152099,
+      "tag": "0020_inspection_foundation",
+      "breakpoints": true
     }
   ]
 }

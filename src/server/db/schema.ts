@@ -33,6 +33,16 @@ import {
   HOLDUP_CAUSES,
   HOLDUP_STATUSES,
   DIARY_EVENT_KINDS,
+  PROJECT_TYPES,
+  CONTRACT_FORMS,
+  LOCATION_SCHEMES,
+  INSPECTION_VISIT_KINDS,
+  INSPECTION_VISIT_STAGES,
+  INSPECTION_ITEM_TYPES,
+  INSPECTION_ITEM_STATUSES,
+  INSPECTION_EVENT_KINDS,
+  INSPECTION_PHOTO_ROLES,
+  REPORT_KINDS,
 } from "./enums";
 
 function quotedList(values: readonly string[]): string {
@@ -140,6 +150,18 @@ export const projects = pgTable("projects", {
   // phone's client-supplied local date.
   timezone: text("timezone").notNull().default("Europe/London"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+  // ── Inspection / condition-survey projects (additive; progress rows keep
+  // the defaults and never enter an inspection code path) ──
+  projectType: text("project_type").notNull().default("progress"),
+  contractForm: text("contract_form"),
+  // NEC defect correction period in days; drives the computed
+  // correction_due when an item is formally notified. NULL = not set.
+  defaultCorrectionPeriodDays: integer("default_correction_period_days"),
+  locationScheme: text("location_scheme"),
+  // { labels: string[] } — off when NULL (severity is project-configurable).
+  priorityScheme: jsonb("priority_scheme"),
+  // { completion?, defectsDate?, confirmed?: { completion?, defectsDate? } }
+  contractDates: jsonb("contract_dates"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
 }, (t) => [
@@ -148,6 +170,18 @@ export const projects = pgTable("projects", {
   check(
     "projects_status_check",
     sql.raw(`${t.status.name} IN (${quotedList(PROJECT_STATUSES)})`)
+  ),
+  check(
+    "projects_project_type_check",
+    sql.raw(`${t.projectType.name} IN (${quotedList(PROJECT_TYPES)})`)
+  ),
+  check(
+    "projects_contract_form_check",
+    sql.raw(`${t.contractForm.name} IS NULL OR ${t.contractForm.name} IN (${quotedList(CONTRACT_FORMS)})`)
+  ),
+  check(
+    "projects_location_scheme_check",
+    sql.raw(`${t.locationScheme.name} IS NULL OR ${t.locationScheme.name} IN (${quotedList(LOCATION_SCHEMES)})`)
   ),
 ]).enableRLS();
 
@@ -161,6 +195,8 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   gpsZones: many(gpsZones),
   evidence: many(evidence),
   reports: many(reports),
+  inspectionVisits: many(inspectionVisits),
+  inspectionItems: many(inspectionItems),
 }));
 
 // ─── Project Members ─────────────────────────────────────────────────────────
@@ -386,6 +422,11 @@ export const reports = pgTable("reports", {
   // completed). Status stays generating/completed/failed regardless.
   approvalState: jsonb("approval_state"),
   status: text("status").default("generating"),
+  // Which document this row is. Progress reports keep the default; the
+  // send page, share page and list label the document from this column.
+  reportKind: text("report_kind").notNull().default("progress"),
+  // Issue revision of the same document (re-issued inspection reports).
+  revision: integer("revision").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
 }, (t) => [
   index("reports_project_id_idx").on(t.projectId),
@@ -404,6 +445,10 @@ export const reports = pgTable("reports", {
   check(
     "reports_status_check",
     sql.raw(`${t.status.name} IN (${quotedList(REPORT_STATUSES)})`)
+  ),
+  check(
+    "reports_report_kind_check",
+    sql.raw(`${t.reportKind.name} IN (${quotedList(REPORT_KINDS)})`)
   ),
 ]).enableRLS();
 
@@ -880,6 +925,251 @@ export const diaryEventsRelations = relations(diaryEvents, ({ one }) => ({
   holdup: one(diaryHoldups, {
     fields: [diaryEvents.holdupId],
     references: [diaryHoldups.id],
+  }),
+}));
+
+// ─── Inspection (defects) ────────────────────────────────────────────────────
+// Permanent register of defects/snags per inspection project. Items keep a
+// stable per-project reference (DEF-0001) for life; every change is an
+// append-only event; photos are ordinary `evidence` rows tagged with a role.
+// Progress projects never write here. See
+// Research/Sitefile_Defects_Inspection_FINAL_TEMPLATE.md.
+
+export const inspectionVisits = pgTable(
+  "inspection_visits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().default("defects"),
+    stage: text("stage").notNull(),
+    visitDate: date("visit_date", { mode: "string" }).notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "date" }),
+    finishedAt: timestamp("finished_at", { withTimezone: true, mode: "date" }),
+    weather: text("weather"),
+    // [{ name, org, role, authority }]
+    attendees: jsonb("attendees").notNull().default([]),
+    scopeNote: text("scope_note"),
+    methodLine: text("method_line"),
+    // [{ area, reason, owner, followUp }]
+    notInspected: jsonb("not_inspected").notNull().default([]),
+    urgentConcerns: text("urgent_concerns"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+  },
+  (t) => [
+    unique("inspection_visits_project_date_stage_unique").on(
+      t.projectId,
+      t.visitDate,
+      t.stage
+    ),
+    index("inspection_visits_project_date_idx").on(t.projectId, t.visitDate),
+    check(
+      "inspection_visits_kind_check",
+      sql.raw(`${t.kind.name} IN (${quotedList(INSPECTION_VISIT_KINDS)})`)
+    ),
+    check(
+      "inspection_visits_stage_check",
+      sql.raw(`${t.stage.name} IN (${quotedList(INSPECTION_VISIT_STAGES)})`)
+    ),
+  ]
+).enableRLS();
+
+export const inspectionItems = pgTable(
+  "inspection_items",
+  {
+    // Client-suppliable so offline-queued photos can reference the item
+    // before the server has seen it; itemCreate is idempotent on id.
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    ref: text("ref").notNull(),
+    type: text("type").notNull().default("defect"),
+    title: text("title").notNull(),
+    finding: text("finding").notNull(),
+    suspectedCause: text("suspected_cause"),
+    acceptanceBasis: text("acceptance_basis"),
+    interimAction: text("interim_action"),
+    accessNote: text("access_note"),
+    locationScheme: text("location_scheme").notNull(),
+    // { description (always), block/level/room/element | alignment/chainage/side/offset | grid }
+    location: jsonb("location").notNull(),
+    // Server-derived, scheme-aware sort key so the register orders by
+    // location then ref without a JSONB expression index.
+    locationSort: text("location_sort"),
+    latitude: doublePrecision("latitude"),
+    longitude: doublePrecision("longitude"),
+    accuracyM: real("accuracy_m"),
+    category: text("category"),
+    priority: text("priority"),
+    responsibleOrg: text("responsible_org"),
+    responsibleUserId: uuid("responsible_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    repairTarget: date("repair_target", { mode: "string" }),
+    // Formal notification is an explicit act, never implied by recording.
+    notifiedAt: date("notified_at", { mode: "string" }),
+    notifiedBy: text("notified_by"),
+    notifiedTo: text("notified_to"),
+    notificationRef: text("notification_ref"),
+    // notified_at + project default correction period; printed as
+    // "computed — confirm with contract".
+    correctionDue: date("correction_due", { mode: "string" }),
+    status: text("status").notNull().default("open"),
+    // { disputed?, access_blocked?, awaiting_test? } each { reason, since, by }
+    flags: jsonb("flags").notNull().default({}),
+    nextAction: text("next_action"),
+    nextActionOwner: text("next_action_owner"),
+    nextActionDue: date("next_action_due", { mode: "string" }),
+    firstVisitId: uuid("first_visit_id").references(() => inspectionVisits.id, {
+      onDelete: "set null",
+    }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
+    // Who marked Ready for review — the verifier must be someone else.
+    readyMarkedBy: uuid("ready_marked_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    verifiedBy: uuid("verified_by").references(() => users.id, { onDelete: "set null" }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true, mode: "date" }),
+    // accepted_as_is / void need a reference and an authorised actor.
+    dispositionRef: text("disposition_ref"),
+    dispositionBy: uuid("disposition_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    dispositionAt: timestamp("disposition_at", { withTimezone: true, mode: "date" }),
+  },
+  (t) => [
+    unique("inspection_items_project_seq_unique").on(t.projectId, t.seq),
+    unique("inspection_items_project_ref_unique").on(t.projectId, t.ref),
+    index("inspection_items_project_status_idx").on(t.projectId, t.status),
+    index("inspection_items_project_location_idx").on(t.projectId, t.locationSort),
+    index("inspection_items_project_first_visit_idx").on(t.projectId, t.firstVisitId),
+    check(
+      "inspection_items_type_check",
+      sql.raw(`${t.type.name} IN (${quotedList(INSPECTION_ITEM_TYPES)})`)
+    ),
+    check(
+      "inspection_items_status_check",
+      sql.raw(`${t.status.name} IN (${quotedList(INSPECTION_ITEM_STATUSES)})`)
+    ),
+    check(
+      "inspection_items_location_scheme_check",
+      sql.raw(`${t.locationScheme.name} IN (${quotedList(LOCATION_SCHEMES)})`)
+    ),
+  ]
+).enableRLS();
+
+export const inspectionItemEvents = pgTable(
+  "inspection_item_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => inspectionItems.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    visitId: uuid("visit_id").references(() => inspectionVisits.id, { onDelete: "set null" }),
+    actorId: uuid("actor_id").references(() => users.id),
+    kind: text("kind").notNull(),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
+    note: text("note"),
+    evidenceIds: jsonb("evidence_ids"),
+    clientAt: timestamp("client_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("inspection_item_events_item_created_idx").on(t.itemId, t.createdAt),
+    index("inspection_item_events_visit_idx").on(t.visitId),
+    check(
+      "inspection_item_events_kind_check",
+      sql.raw(`${t.kind.name} IN (${quotedList(INSPECTION_EVENT_KINDS)})`)
+    ),
+  ]
+).enableRLS();
+
+export const inspectionItemPhotos = pgTable(
+  "inspection_item_photos",
+  {
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => inspectionItems.id, { onDelete: "cascade" }),
+    evidenceId: uuid("evidence_id")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    addedBy: uuid("added_by").references(() => users.id),
+    addedAt: timestamp("added_at", { withTimezone: true, mode: "date" }).defaultNow(),
+  },
+  (t) => [
+    unique("inspection_item_photos_item_evidence_unique").on(t.itemId, t.evidenceId),
+    index("inspection_item_photos_evidence_idx").on(t.evidenceId),
+    check(
+      "inspection_item_photos_role_check",
+      sql.raw(`${t.role.name} IN (${quotedList(INSPECTION_PHOTO_ROLES)})`)
+    ),
+  ]
+).enableRLS();
+
+export const inspectionVisitsRelations = relations(inspectionVisits, ({ one, many }) => ({
+  project: one(projects, { fields: [inspectionVisits.projectId], references: [projects.id] }),
+  creator: one(users, { fields: [inspectionVisits.createdBy], references: [users.id] }),
+  events: many(inspectionItemEvents),
+}));
+
+export const inspectionItemsRelations = relations(inspectionItems, ({ one, many }) => ({
+  project: one(projects, { fields: [inspectionItems.projectId], references: [projects.id] }),
+  creator: one(users, { fields: [inspectionItems.createdBy], references: [users.id] }),
+  responsibleUser: one(users, {
+    fields: [inspectionItems.responsibleUserId],
+    references: [users.id],
+    relationName: "inspectionItemResponsible",
+  }),
+  verifier: one(users, {
+    fields: [inspectionItems.verifiedBy],
+    references: [users.id],
+    relationName: "inspectionItemVerifier",
+  }),
+  firstVisit: one(inspectionVisits, {
+    fields: [inspectionItems.firstVisitId],
+    references: [inspectionVisits.id],
+  }),
+  events: many(inspectionItemEvents),
+  photos: many(inspectionItemPhotos),
+}));
+
+export const inspectionItemEventsRelations = relations(inspectionItemEvents, ({ one }) => ({
+  item: one(inspectionItems, {
+    fields: [inspectionItemEvents.itemId],
+    references: [inspectionItems.id],
+  }),
+  visit: one(inspectionVisits, {
+    fields: [inspectionItemEvents.visitId],
+    references: [inspectionVisits.id],
+  }),
+  actor: one(users, { fields: [inspectionItemEvents.actorId], references: [users.id] }),
+}));
+
+export const inspectionItemPhotosRelations = relations(inspectionItemPhotos, ({ one }) => ({
+  item: one(inspectionItems, {
+    fields: [inspectionItemPhotos.itemId],
+    references: [inspectionItems.id],
+  }),
+  evidence: one(evidence, {
+    fields: [inspectionItemPhotos.evidenceId],
+    references: [evidence.id],
   }),
 }));
 

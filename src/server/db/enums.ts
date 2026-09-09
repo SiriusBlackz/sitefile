@@ -94,3 +94,63 @@ export const PROJECT_MEMBER_ROLES = [
   "supervisor",
 ] as const;
 export type ProjectMemberRole = (typeof PROJECT_MEMBER_ROLES)[number];
+
+// ─── Inspection (defects) — see Research/Sitefile_Defects_Inspection_FINAL_TEMPLATE.md ───
+
+/** What a project is for. Everything inspection-related is opt-in on 'inspection'. */
+export const PROJECT_TYPES = ["progress", "inspection", "condition_survey"] as const;
+export type ProjectType = (typeof PROJECT_TYPES)[number];
+
+export const CONTRACT_FORMS = ["nec4_ecc", "nec3_ecc", "jct", "other"] as const;
+export type ContractForm = (typeof CONTRACT_FORMS)[number];
+
+export const LOCATION_SCHEMES = ["building", "linear", "grid"] as const;
+export type LocationScheme = (typeof LOCATION_SCHEMES)[number];
+
+export const INSPECTION_VISIT_KINDS = ["defects"] as const;
+export type InspectionVisitKind = (typeof INSPECTION_VISIT_KINDS)[number];
+
+export const INSPECTION_VISIT_STAGES = [
+  "initial_walkthrough",
+  "interim_reinspection",
+  "end_of_defects_period",
+] as const;
+export type InspectionVisitStage = (typeof INSPECTION_VISIT_STAGES)[number];
+
+export const INSPECTION_REPORT_KINDS = ["inspection_record", "register_status", "closeout"] as const;
+export type InspectionReportKind = (typeof INSPECTION_REPORT_KINDS)[number];
+
+export const INSPECTION_ITEM_TYPES = ["defect", "snag", "outstanding_work", "observation"] as const;
+export type InspectionItemType = (typeof INSPECTION_ITEM_TYPES)[number];
+
+export const INSPECTION_ITEM_STATUSES = [
+  "open",
+  "in_progress",
+  "ready_for_review",
+  "verified_closed",
+  "reopened",
+  "accepted_as_is",
+  "void",
+] as const;
+export type InspectionItemStatus = (typeof INSPECTION_ITEM_STATUSES)[number];
+
+export const INSPECTION_EVENT_KINDS = [
+  "created",
+  "updated",
+  "status_change",
+  "not_accepted",
+  "flag_set",
+  "flag_cleared",
+  "photo_added",
+  "notified",
+  "reopened",
+  "disposition",
+] as const;
+export type InspectionEventKind = (typeof INSPECTION_EVENT_KINDS)[number];
+
+export const INSPECTION_PHOTO_ROLES = ["defect", "during", "rectified", "verified"] as const;
+export type InspectionPhotoRole = (typeof INSPECTION_PHOTO_ROLES)[number];
+
+/** Which document a `reports` row is. Progress rows keep the default. */
+export const REPORT_KINDS = ["progress", "inspection", "condition_survey"] as const;
+export type ReportKind = (typeof REPORT_KINDS)[number];
