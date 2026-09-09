@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PWAInstallBanner } from "@/components/layout/pwa-install-banner";
-import { ITEM_STATUS_LABELS, locationLine } from "@/lib/inspection-location";
+import { ITEM_STATUS_LABELS, STAGE_LABELS, locationLine } from "@/lib/inspection-location";
+import { readStage, writeStage, writeCachedProject, type Stage } from "@/lib/inspection-local";
 import { ClipboardPlus, ChevronRight, FileText, ListChecks } from "lucide-react";
 
 /**
@@ -24,6 +26,13 @@ export function InspectionPhoneHome({
   const { data: summary } = trpc.inspection.summary.useQuery({ projectId });
   const { data: items = [] } = trpc.inspection.list.useQuery({ projectId });
   const { data: project } = trpc.project.get.useQuery({ id: projectId });
+  const [stage, setStage] = useState<Stage>("end_of_defects_period");
+  useEffect(() => { setStage(readStage(projectId)); }, [projectId]);
+  useEffect(() => {
+    if (project) writeCachedProject(projectId, { locationScheme: project.locationScheme ?? null, name: project.name });
+  }, [project, projectId]);
+  const reinspecting = stage !== "initial_walkthrough";
+  const ready = items.filter((i) => i.status === "ready_for_review");
 
   const latest = [...items].sort((a, b) => b.seq - a.seq).slice(0, 5);
 
@@ -36,6 +45,18 @@ export function InspectionPhoneHome({
           {" · Defects inspection"}
         </p>
         <h1 className="text-xl font-extrabold leading-tight tracking-tight">{projectName}</h1>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Visit stage</span>
+        <select
+          value={stage}
+          onChange={(e) => { const s = e.target.value as Stage; setStage(s); writeStage(projectId, s); }}
+          className="h-8 flex-1 rounded-lg border bg-background px-2 text-sm"
+          aria-label="Visit stage"
+        >
+          {(Object.keys(STAGE_LABELS) as Stage[]).map((s) => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
+        </select>
       </div>
 
       <div className="grid grid-cols-4 gap-1.5" aria-label="Register counts">
@@ -77,6 +98,21 @@ export function InspectionPhoneHome({
           Report
         </Link>
       </div>
+
+      {reinspecting && ready.length > 0 && (
+        <div className="space-y-2">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Ready for review · {ready.length}
+          </span>
+          {ready.slice(0, 5).map((it) => (
+            <div key={it.id} className="flex items-center gap-3 rounded-xl border border-primary/40 bg-accent p-3">
+              <span className="font-mono text-xs font-bold">{it.ref}</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{it.title}</span>
+              <Link href={`/inspect/${it.id}?projectId=${projectId}&verify=1`} className="shrink-0 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">Verify</Link>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="space-y-2">
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">

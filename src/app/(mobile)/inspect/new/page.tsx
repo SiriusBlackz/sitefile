@@ -14,6 +14,7 @@ import {
   type LocationFields,
 } from "@/lib/inspection-location";
 import { ArrowLeft, Camera, CloudOff, MapPin, X } from "lucide-react";
+import { readStage, readCachedProject, writeCachedProject } from "@/lib/inspection-local";
 
 function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -40,7 +41,13 @@ function RecordItem() {
   const { isOnline } = usePWA();
   const utils = trpc.useUtils();
   const { data: project } = trpc.project.get.useQuery({ id: projectId }, { enabled: !!projectId });
-  const scheme = project?.locationScheme ?? "building";
+  // Cold offline open: react-query has nothing, so fall back to what the
+  // last online visit cached rather than guessing "building" (C27).
+  const cached = typeof window !== "undefined" ? readCachedProject(projectId) : null;
+  const scheme = project?.locationScheme ?? cached?.locationScheme ?? "building";
+  useEffect(() => {
+    if (project) writeCachedProject(projectId, { locationScheme: project.locationScheme ?? null, name: project.name });
+  }, [project, projectId]);
   const fields = SCHEME_FIELDS[scheme] ?? [];
   const lastKey = `sitefile.inspect.${projectId}.lastLocation`;
 
@@ -95,7 +102,7 @@ function RecordItem() {
       const visit = await visitEnsure.mutateAsync({
         projectId,
         visitDate: todayLocal(),
-        stage: "end_of_defects_period",
+        stage: readStage(projectId),
       });
       const id = crypto.randomUUID();
       const item = await itemCreate.mutateAsync({
@@ -128,7 +135,7 @@ function RecordItem() {
           role: "defect",
           position: position ? { latitude: position.latitude, longitude: position.longitude } : null,
         });
-        if (r === "queued") queued++;
+        if (r.status === "queued") queued++;
       }
       utils.inspection.list.invalidate({ projectId });
       utils.inspection.summary.invalidate({ projectId });
@@ -161,7 +168,7 @@ function RecordItem() {
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="text-base font-bold">Record item</h1>
-          <p className="truncate text-xs text-muted-foreground">{project?.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{project?.name ?? cached?.name}</p>
         </div>
         <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
           <MapPin className="h-3 w-3" />

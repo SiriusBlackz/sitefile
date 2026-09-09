@@ -23,7 +23,9 @@ export function useItemPhotoUpload() {
       role?: "defect" | "during" | "rectified" | "verified";
       position?: { latitude: number; longitude: number } | null;
       capturedAt?: string;
-    }): Promise<"uploaded" | "queued"> => {
+      /** Return the evidence id so a transition can cite it in the same call. */
+      wantEvidenceId?: boolean;
+    }): Promise<{ status: "uploaded" | "queued"; evidenceId?: string }> => {
       const { projectId, itemId, file, role = "defect", position, capturedAt } = args;
       const mimeType = (file.type || "image/jpeg") as
         | "image/jpeg"
@@ -52,7 +54,7 @@ export function useItemPhotoUpload() {
           status: "pending",
           createdAt: Date.now(),
         });
-        return "queued" as const;
+        return { status: "queued" as const };
       };
 
       if (typeof navigator !== "undefined" && !navigator.onLine) return queue();
@@ -82,7 +84,7 @@ export function useItemPhotoUpload() {
           longitude: position?.longitude ?? null,
         });
         await attachPhoto.mutateAsync({ itemId, evidenceId: ev.id, role });
-        return "uploaded";
+        return { status: "uploaded" as const, evidenceId: ev.id };
       } catch {
         return queue();
       }
