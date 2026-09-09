@@ -44,6 +44,7 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
   const [kind, setKind] = useState<(typeof INSPECTION_REPORT_KINDS)[number]>("inspection_record");
   const [scopeNote, setScopeNote] = useState("");
   const [methodLine, setMethodLine] = useState("");
+  const [weather, setWeather] = useState("");
   const [urgentConcerns, setUrgentConcerns] = useState("");
   const [attendeesText, setAttendeesText] = useState("");
   const [notInspectedText, setNotInspectedText] = useState("");
@@ -63,17 +64,22 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
     setStage(visit.stage as typeof stage);
     setScopeNote(visit.scopeNote ?? "");
     setMethodLine(visit.methodLine ?? "");
+    setWeather(visit.weather ?? "");
     setUrgentConcerns(visit.urgentConcerns ?? "");
     const at = (visit.attendees as { name: string; org?: string; role?: string }[]) ?? [];
-    setAttendeesText(at.map((a) => [a.name, a.org, a.role].filter(Boolean).join(", ")).join("\n"));
+    setAttendeesText(
+      (at as { name: string; org?: string; role?: string; authority?: string }[])
+        .map((a) => [a.name, a.org, a.role, a.authority].filter(Boolean).join(", "))
+        .join("\n")
+    );
     const ni = (visit.notInspected as { area: string; reason?: string }[]) ?? [];
     setNotInspectedText(ni.map((n) => [n.area, n.reason].filter(Boolean).join(" — ")).join("\n"));
   }, [visit]);
 
   const parseAttendees = () =>
     attendeesText.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
-      const [name, org, role] = l.split(",").map((x) => x.trim());
-      return { name, org: org || undefined, role: role || undefined };
+      const [name, org, role, authority] = l.split(",").map((x) => x.trim());
+      return { name, org: org || undefined, role: role || undefined, authority: authority || undefined };
     });
   const parseNotInspected = () =>
     notInspectedText.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
@@ -88,6 +94,7 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
     sections: sections as Partial<Record<(typeof INSPECTION_SECTION_KEYS)[number], boolean>>,
     scopeNote: scopeNote || undefined,
     methodLine: methodLine || undefined,
+    weather: weather || undefined,
     urgentConcerns: urgentConcerns || undefined,
     attendees: parseAttendees(),
     notInspected: parseNotInspected(),
@@ -167,8 +174,12 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
                 <textarea id="ig-method" rows={3} value={methodLine} onChange={(e) => setMethodLine(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="Visual walkover from ground level; dry, overcast" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="ig-att">Attendees (one per line: name, organisation, role)</Label>
-                <textarea id="ig-att" rows={3} value={attendeesText} onChange={(e) => setAttendeesText(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder={`${me?.name ?? "Name"}, Contractor, Inspector\nJ Smith, Client, Supervisor`} />
+                <Label htmlFor="ig-weather">Weather and conditions</Label>
+                <Input id="ig-weather" value={weather} onChange={(e) => setWeather(e.target.value)} placeholder="e.g. Dry, overcast, 14°C" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ig-att">Attendees (one per line: name, organisation, role, decision authority)</Label>
+                <textarea id="ig-att" rows={3} value={attendeesText} onChange={(e) => setAttendeesText(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder={`${me?.name ?? "Name"}, Contractor, Inspector\nJ Smith, Client, Supervisor, NEC4 Supervisor`} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="ig-ni">Not inspected (one per line: area — reason)</Label>

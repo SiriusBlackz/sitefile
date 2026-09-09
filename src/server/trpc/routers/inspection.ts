@@ -158,6 +158,7 @@ const reportFactsSchema = z.object({
   signatures: signatureSchema.optional(),
   scopeNote: z.string().trim().max(2000).optional(),
   methodLine: z.string().trim().max(500).optional(),
+  weather: z.string().trim().max(200).optional(),
   urgentConcerns: z.string().trim().max(2000).optional(),
   attendees: z
     .array(
@@ -193,6 +194,7 @@ const photoColumns = {
   latitude: true,
   longitude: true,
   note: true,
+  deletedAt: true,
 } as const;
 
 export const inspectionRouter = createTRPCRouter({
@@ -663,7 +665,7 @@ export const inspectionRouter = createTRPCRouter({
       await assertProjectAccess(ctx.db, item.projectId, ctx.orgId, ctx.userId);
       const photos = await Promise.all(
         item.photos
-          .filter((p) => p.evidence && !("deletedAt" in p.evidence && p.evidence.deletedAt))
+          .filter((p) => p.evidence && !p.evidence.deletedAt)
           .map(async (p) => ({
             evidenceId: p.evidenceId,
             role: p.role,
@@ -819,6 +821,7 @@ export const inspectionRouter = createTRPCRouter({
       const visitPatch: Record<string, unknown> = {};
       if (input.scopeNote !== undefined) visitPatch.scopeNote = input.scopeNote || null;
       if (input.methodLine !== undefined) visitPatch.methodLine = input.methodLine || null;
+      if (input.weather !== undefined) visitPatch.weather = input.weather || null;
       if (input.urgentConcerns !== undefined) visitPatch.urgentConcerns = input.urgentConcerns || null;
       if (input.attendees !== undefined) visitPatch.attendees = input.attendees;
       if (input.notInspected !== undefined) visitPatch.notInspected = input.notInspected;

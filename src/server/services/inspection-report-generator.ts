@@ -58,6 +58,7 @@ export interface InspectionReportInput {
   /** Dialog-time overrides for the visit facts (also persisted on the visit). */
   scopeNote?: string;
   methodLine?: string;
+  weather?: string;
   urgentConcerns?: string;
   attendees?: { name: string; org?: string; role?: string; authority?: string }[];
   notInspected?: { area: string; reason?: string; owner?: string; followUp?: string }[];
@@ -179,7 +180,7 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
   const scope: ScopeData = {
     scopeNote: input.scopeNote ?? visit.scopeNote,
     methodLine: input.methodLine ?? visit.methodLine,
-    weather: visit.weather,
+    weather: input.weather ?? visit.weather,
     attendees: (input.attendees ?? (visit.attendees as ScopeData["attendees"])) ?? [],
     notInspected: (input.notInspected ?? (visit.notInspected as ScopeData["notInspected"])) ?? [],
     existingRecords: null,
