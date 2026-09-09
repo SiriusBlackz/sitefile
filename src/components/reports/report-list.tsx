@@ -38,6 +38,8 @@ interface Report {
   awaitingApproval?: boolean;
   nextApprover?: string | null;
   createdAt: Date | null;
+  reportKind?: string;
+  revision?: number;
 }
 
 interface ReportListProps {
@@ -127,7 +129,12 @@ export function ReportList({ reports }: ReportListProps) {
           <TableBody>
             {reports.map((report) => (
               <TableRow key={report.id}>
-                <TableCell className="font-medium">#{report.reportNumber}</TableCell>
+                <TableCell className="font-medium">
+                  #{report.reportNumber}
+                  {report.reportKind === "inspection" && (report.revision ?? 1) > 1 && (
+                    <span className="ml-1 font-mono text-[10px] text-muted-foreground">rev {report.revision}</span>
+                  )}
+                </TableCell>
                 <TableCell>
                   {formatDate(report.periodStart)} — {formatDate(report.periodEnd)}
                 </TableCell>

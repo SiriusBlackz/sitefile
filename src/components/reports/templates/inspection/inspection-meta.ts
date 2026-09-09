@@ -5,8 +5,11 @@ export interface InspectionMeta extends ReportMeta {
   reportTitle: string;
   stageLabel: string;
   kindLabel: string;
+  kind: "inspection_record" | "register_status" | "closeout";
   visitDate: string;
   revision: number;
+  /** Re-issue: the report this revision replaces. */
+  supersedes: { reportNumber: number; revision: number; issuedAt: string | null } | null;
   contractFormLabel: string | null;
   /** Project default defect correction period, printed with the contract dates. */
   defaultCorrectionPeriodDays: number | null;

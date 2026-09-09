@@ -15,6 +15,8 @@ import {
 } from "@/lib/inspection-location";
 import { ArrowLeft, Camera, CloudOff, MapPin, X } from "lucide-react";
 import { readStage, readCachedProject, writeCachedProject } from "@/lib/inspection-local";
+import { saveItemDraft } from "@/lib/inspection-offline";
+import { useInspectionDrain } from "@/components/inspection/use-inspection-drain";
 
 function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -92,11 +94,79 @@ function RecordItem() {
   const visitEnsure = trpc.inspection.visitEnsure.useMutation();
   const itemCreate = trpc.inspection.itemCreate.useMutation();
   const { upload } = useItemPhotoUpload();
+  useInspectionDrain(projectId);
 
-  const canSave = isOnline && loc.description.trim().length > 0 && finding.trim().length > 0 && !saving;
+  const canSave = loc.description.trim().length > 0 && finding.trim().length > 0 && !saving;
+
+  const buildPayload = () => ({
+    type,
+    title: title.trim() || finding.trim().slice(0, 80),
+    finding: finding.trim(),
+    location: Object.fromEntries(
+      Object.entries(loc).map(([k, v]) => [k, typeof v === "string" ? v.trim() : v]).filter(([, v]) => v)
+    ) as LocationFields,
+    latitude: position?.latitude,
+    longitude: position?.longitude,
+    accuracyM: position?.accuracy,
+    clientAt: new Date().toISOString(),
+  });
+  const rememberLocation = () => {
+    try {
+      const { description: _d, ...rest } = loc;
+      void _d;
+      localStorage.setItem(lastKey, JSON.stringify(rest));
+    } catch {}
+  };
+  const resetForm = (andAnother: boolean) => {
+    if (andAnother) {
+      setTitle("");
+      setFinding("");
+      setFiles([]);
+      setLoc((l) => ({ ...l, description: "" }));
+      setSaving(null);
+      window.scrollTo({ top: 0 });
+    } else {
+      router.push(`/inspect?projectId=${projectId}`);
+    }
+  };
+
+  // No signal: the whole item (payload + photo blobs) goes to the separate
+  // inspection drafts database and is drained item-first when signal returns.
+  const saveOffline = async (andAnother: boolean) => {
+    if (!canSave) return;
+    setSaving("Saving offline…");
+    try {
+      await saveItemDraft({
+        id: crypto.randomUUID(),
+        projectId,
+        visitDate: todayLocal(),
+        stage: readStage(projectId),
+        payload: buildPayload(),
+        photos: files.map((f) => ({
+          blob: f,
+          filename: f.name || `item-${Date.now()}.jpg`,
+          mimeType: f.type || "image/jpeg",
+          role: "defect",
+          capturedAt: new Date(f.lastModified || Date.now()).toISOString(),
+          latitude: position?.latitude ?? null,
+          longitude: position?.longitude ?? null,
+        })),
+        createdAt: Date.now(),
+        status: "pending",
+      });
+      rememberLocation();
+      window.dispatchEvent(new CustomEvent("inspection-drafts-changed"));
+      toast.success("Saved on this phone · ref pending until you have signal");
+      resetForm(andAnother);
+    } catch (err) {
+      setSaving(null);
+      toast.error(err instanceof Error ? err.message : "Could not save offline");
+    }
+  };
 
   const save = async (andAnother: boolean) => {
     if (!canSave) return;
+    if (!isOnline) return saveOffline(andAnother);
     setSaving("Saving item…");
     try {
       const visit = await visitEnsure.mutateAsync({
@@ -105,26 +175,8 @@ function RecordItem() {
         stage: readStage(projectId),
       });
       const id = crypto.randomUUID();
-      const item = await itemCreate.mutateAsync({
-        projectId,
-        id,
-        visitId: visit.id,
-        type,
-        title: title.trim() || finding.trim().slice(0, 80),
-        finding: finding.trim(),
-        location: Object.fromEntries(
-          Object.entries(loc).map(([k, v]) => [k, typeof v === "string" ? v.trim() : v]).filter(([, v]) => v)
-        ) as LocationFields,
-        latitude: position?.latitude,
-        longitude: position?.longitude,
-        accuracyM: position?.accuracy,
-        clientAt: new Date().toISOString(),
-      });
-      try {
-        const { description: _d, ...rest } = loc;
-        void _d;
-        localStorage.setItem(lastKey, JSON.stringify(rest));
-      } catch {}
+      const item = await itemCreate.mutateAsync({ projectId, id, visitId: visit.id, ...buildPayload() });
+      rememberLocation();
       let queued = 0;
       for (let i = 0; i < files.length; i++) {
         setSaving(`Uploading photo ${i + 1} of ${files.length}…`);
@@ -144,17 +196,10 @@ function RecordItem() {
           ? `${item.ref} saved · ${queued} photo${queued === 1 ? "" : "s"} queued for upload`
           : `${item.ref} saved`
       );
-      if (andAnother) {
-        setTitle("");
-        setFinding("");
-        setFiles([]);
-        setLoc((l) => ({ ...l, description: "" }));
-        setSaving(null);
-        window.scrollTo({ top: 0 });
-      } else {
-        router.push(`/inspect?projectId=${projectId}`);
-      }
+      resetForm(andAnother);
     } catch (err) {
+      // Signal dropped mid-save: keep the work rather than losing it.
+      if (typeof navigator !== "undefined" && !navigator.onLine) return saveOffline(andAnother);
       setSaving(null);
       toast.error(err instanceof Error ? err.message : "Could not save the item");
     }
@@ -179,7 +224,7 @@ function RecordItem() {
       {mounted && !isOnline && (
         <div className="flex items-center gap-2 border-b bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <CloudOff className="h-4 w-4 shrink-0" />
-          No signal — connect to save this item. Photos taken now will queue once it is saved.
+          No signal — this item saves on the phone and gets its reference once you open the app with signal.
         </div>
       )}
 

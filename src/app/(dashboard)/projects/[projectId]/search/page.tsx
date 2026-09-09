@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   FileText,
   ListTodo,
+  ClipboardList,
   Search as SearchIcon,
 } from "lucide-react";
 import { SEARCH_MARK_START, SEARCH_MARK_END } from "@/server/services/search";
@@ -28,6 +29,7 @@ const KIND: Record<
   photo: { label: "Photo", icon: ImageIcon },
   report: { label: "Report", icon: FileText },
   task: { label: "Activity", icon: ListTodo },
+  inspection_item: { label: "Register item", icon: ClipboardList },
 };
 
 /** Render a ts_headline snippet, bolding the marked terms — no HTML. */
@@ -141,7 +143,8 @@ export default function ProjectSearchPage() {
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           Nothing on the record matches &ldquo;{q}&rdquo;. Search looks at
           locked and draft diary days, hold-up notes, photo captions and
-          filenames, issued report narrative, and activity names.
+          filenames, issued report narrative, activity names, and defect
+          register items.
         </div>
       )}
 

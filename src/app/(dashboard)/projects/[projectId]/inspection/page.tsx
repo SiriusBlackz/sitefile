@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -11,11 +10,26 @@ import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
 import { formatDate } from "@/lib/format";
 import { ITEM_STATUS_LABELS, ITEM_TYPE_LABELS, locationLine } from "@/lib/inspection-location";
 import { INSPECTION_ITEM_STATUSES } from "@/server/db/enums";
+import { ItemDetailSheet } from "@/components/inspection/item-detail-sheet";
 
-/** Desk register: every item, sortable by location, filter by status. */
 export default function InspectionRegisterPage() {
+  return (
+    <Suspense fallback={<div className="mx-auto max-w-6xl" />}>
+      <InspectionRegister />
+    </Suspense>
+  );
+}
+
+/** Desk register: every item, sortable by location, filter by status.
+ *  `?item=` opens the read-view sheet (search hits deep-link here). */
+function InspectionRegister() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
+  const router = useRouter();
+  const search = useSearchParams();
+  const openItem = search.get("item");
+  const setOpenItem = (id: string | null) =>
+    router.replace(`/projects/${projectId}/inspection${id ? `?item=${id}` : ""}`, { scroll: false });
   const [status, setStatus] = useState<string>("");
   const { data: project } = trpc.project.get.useQuery({ id: projectId });
   const { data: summary } = trpc.inspection.summary.useQuery({ projectId });
@@ -70,7 +84,7 @@ export default function InspectionRegisterPage() {
               {shown.map((it) => (
                 <tr key={it.id} className="border-t align-top hover:bg-muted/30">
                   <td className="px-3 py-2 font-mono text-xs font-bold">
-                    <Link href={`/inspect/${it.id}?projectId=${projectId}`} className="hover:underline">{it.ref}</Link>
+                    <button type="button" onClick={() => setOpenItem(it.id)} className="hover:underline">{it.ref}</button>
                   </td>
                   <td className="max-w-[16rem] px-3 py-2">{locationLine(project?.locationScheme, it.location as never)}</td>
                   <td className="px-3 py-2 text-xs">{ITEM_TYPE_LABELS[it.type]}</td>
@@ -91,6 +105,8 @@ export default function InspectionRegisterPage() {
           </table>
         </CardContent>
       </Card>
+
+      <ItemDetailSheet itemId={openItem} projectId={projectId} locationScheme={project?.locationScheme} onClose={() => setOpenItem(null)} />
     </div>
   );
 }

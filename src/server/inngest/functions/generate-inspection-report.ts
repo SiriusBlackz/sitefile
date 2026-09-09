@@ -50,7 +50,8 @@ export const generateInspectionReport = inngest.createFunction(
       if (existing.passwordCiphertext) {
         pdfBuffer = await encryptPdfBuffer(pdfBuffer, decryptReportPassword(existing.passwordCiphertext));
       }
-      const key = `projects/${input.projectId}/reports/report-${existing.reportNumber}.pdf`;
+      // Revision in the key so a re-issue never overwrites the PDF it supersedes.
+      const key = `projects/${input.projectId}/reports/report-${existing.reportNumber}-r${existing.revision}.pdf`;
       await uploadToStorage(key, pdfBuffer, "application/pdf");
       const { createHash } = await import("node:crypto");
       const pdfSha256 = createHash("sha256").update(pdfBuffer).digest("hex");
@@ -77,6 +78,8 @@ export const generateInspectionReport = inngest.createFunction(
             kind: "inspection",
             stage: result.stage,
             reportKind: result.kind,
+            revision: result.meta.revision,
+            supersedes: result.meta.supersedes,
             visitId: result.visitId,
             stats: result.stats,
             meta: result.meta,

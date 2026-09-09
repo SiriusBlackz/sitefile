@@ -50,6 +50,8 @@ export interface InspectionReportInput {
   generatedBy: string;
   reportNumber?: number;
   revision?: number;
+  /** Re-issue: the report this revision replaces (cover prints it). */
+  supersedes?: { reportNumber: number; revision: number; issuedAt: string | null } | null;
   stage: "initial_walkthrough" | "interim_reinspection" | "end_of_defects_period";
   kind: "inspection_record" | "register_status" | "closeout";
   sections?: Partial<InspectionSections>;
@@ -111,7 +113,10 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
   const revision = input.revision ?? 1;
 
   // Items + role-tagged photos (deleted evidence excluded) + events.
-  const items = await db.query.inspectionItems.findMany({
+  // Kind decides the population: an inspection record covers this visit
+  // only (items first recorded or acted on at it); register status and
+  // closeout cover the whole register.
+  const allItems = await db.query.inspectionItems.findMany({
     where: eq(inspectionItems.projectId, input.projectId),
     orderBy: [asc(inspectionItems.locationSort), asc(inspectionItems.seq)],
     with: {
@@ -129,6 +134,10 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
       },
     },
   });
+  const items =
+    input.kind === "inspection_record"
+      ? allItems.filter((it) => it.firstVisitId === visit.id || it.events.some((e) => e.visitId === visit.id))
+      : allItems;
   const uploaderIds = Array.from(new Set(items.flatMap((i) => i.photos.map((p) => p.evidence?.uploadedBy)).filter((x): x is string => !!x)));
   const uploaders = uploaderIds.length
     ? await db.query.users.findMany({ where: inArray(users.id, uploaderIds), columns: { id: true, name: true } })
@@ -167,8 +176,10 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
     reportTitle: INSPECTION_REPORT_TITLE,
     stageLabel: STAGE_LABELS[input.stage] ?? input.stage,
     kindLabel: KIND_LABELS[input.kind] ?? input.kind,
+    kind: input.kind,
     visitDate: visit.visitDate,
     revision,
+    supersedes: input.supersedes ?? null,
     contractFormLabel: project.contractForm ? (CONTRACT_FORM_LABELS[project.contractForm] ?? project.contractForm) : null,
     defaultCorrectionPeriodDays: project.defaultCorrectionPeriodDays ?? null,
     preparedBy: preparer?.name ?? "—",
@@ -213,7 +224,15 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
   const records: ItemRecord[] = [];
   for (const it of items) {
     const photos = livePhotos(it).sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role) || ((a.evidence!.capturedAt?.getTime() ?? 0) - (b.evidence!.capturedAt?.getTime() ?? 0)));
-    const shown = photos.slice(0, MAX_PHOTOS_PER_ITEM);
+    // Closeout pairs the original defect photo with the verified (or, failing
+    // that, rectified) photo so each closed item shows before and after.
+    let shown = photos.slice(0, MAX_PHOTOS_PER_ITEM);
+    if (input.kind === "closeout") {
+      const original = photos.find((p) => p.role === "defect");
+      const after = [...photos].reverse().find((p) => p.role === "verified") ?? [...photos].reverse().find((p) => p.role === "rectified");
+      const pair = [original, after].filter((p): p is NonNullable<typeof p> => !!p);
+      if (pair.length) shown = pair;
+    }
     const photoRecords = [];
     for (const p of shown) {
       const url = await getReadUrl(p.evidence!.storageKey);
@@ -234,7 +253,7 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
       .filter((e) => ["created", "status_change", "not_accepted", "reopened", "disposition", "notified"].includes(e.kind))
       .map((e) => ({
         at: e.createdAt.toISOString(),
-        text: `${e.kind.replace(/_/g, " ")}${e.toStatus ? ` → ${e.toStatus.replace(/_/g, " ")}` : ""}${e.actor ? ` · ${e.actor.name}` : ""}${e.note ? ` · ${e.note}` : ""}`,
+        text: `${e.kind.replace(/_/g, " ")}${e.toStatus ? ` ${e.fromStatus ? `${e.fromStatus.replace(/_/g, " ")} → ` : ""}${e.toStatus.replace(/_/g, " ")}` : ""}${e.actor ? ` · ${e.actor.name}` : ""}${e.note ? ` · ${e.note}` : ""}`,
       }));
     records.push({
       ref: it.ref,
@@ -390,7 +409,7 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
     omittedSections.push({ title: "Photo location map", reason: gpsPhotos.length === 0 ? "No item photograph carried a GPS position." : "The map image could not be produced at generation time." });
   }
   if (sections.items && records.length === 0) {
-    omittedSections.push({ title: "Item records", reason: "No items were recorded on this visit." });
+    omittedSections.push({ title: "Item records", reason: input.kind === "inspection_record" ? "No items were recorded or acted on at this visit." : "No items on the register." });
   }
 
   return { meta, sections, scope, summary, registerRows, records, decisions, photoMap, verificationStats, omittedSections, signatures: input.signatures ?? [] };

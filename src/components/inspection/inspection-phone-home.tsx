@@ -9,6 +9,8 @@ import { PWAInstallBanner } from "@/components/layout/pwa-install-banner";
 import { ITEM_STATUS_LABELS, STAGE_LABELS, locationLine } from "@/lib/inspection-location";
 import { readStage, writeStage, writeCachedProject, type Stage } from "@/lib/inspection-local";
 import { ClipboardPlus, ChevronRight, FileText, ListChecks } from "lucide-react";
+import { PendingDraftsBanner } from "./pending-drafts-banner";
+import { DueItemsPanel } from "./due-items-panel";
 
 /**
  * Phone home for an inspection project. No readiness ring, no diary, no
@@ -39,6 +41,7 @@ export function InspectionPhoneHome({
   return (
     <div className="mx-auto max-w-md space-y-4 pb-8">
       <PWAInstallBanner />
+      <PendingDraftsBanner projectId={projectId} />
       <div className="space-y-1">
         <p className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
           {new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
@@ -98,6 +101,8 @@ export function InspectionPhoneHome({
           Report
         </Link>
       </div>
+
+      <DueItemsPanel projectId={projectId} compact />
 
       {reinspecting && ready.length > 0 && (
         <div className="space-y-2">

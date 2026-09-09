@@ -10,7 +10,8 @@ export type SearchKind =
   | "holdup"
   | "photo"
   | "report"
-  | "task";
+  | "task"
+  | "inspection_item";
 
 export interface SearchHit {
   kind: SearchKind;
@@ -182,13 +183,33 @@ export async function searchProject(
     limit ${MAX_PER_SOURCE}
   `);
 
-  const [wl, nt, hu, ph, rp, tk] = await Promise.all([
+  // 7. Defect register items (inspection projects; zero rows elsewhere).
+  const itemDoc = sql`concat_ws(' · ', ii.ref, ii.title, ii.finding, ii.location->>'description', ii.suspected_cause, ii.acceptance_basis, ii.interim_action, ii.access_note, ii.responsible_org, ii.disposition_ref)`;
+  const itemsQ = db.execute<{
+    id: string;
+    ref: string;
+    title: string;
+    status: string;
+    recorded_on: string | null;
+    snippet: string;
+    rank: number;
+  }>(sql`
+    select ii.id, ii.ref, ii.title, ii.status, ii.created_at::date::text as recorded_on,
+           ${headline(itemDoc)} as snippet, ${rank(itemDoc)} as rank
+    from inspection_items ii
+    where ii.project_id = ${projectId}::uuid and ${match(itemDoc)}
+    order by rank desc, ii.seq desc
+    limit ${MAX_PER_SOURCE}
+  `);
+
+  const [wl, nt, hu, ph, rp, tk, ii] = await Promise.all([
     workLines,
     notes,
     holdups,
     photos,
     reportsQ,
     tasksQ,
+    itemsQ,
   ]);
 
   const hits: SearchHit[] = [];
@@ -257,6 +278,18 @@ export async function searchProject(
       snippet: r.snippet,
       href: `${base}/tasks`,
       context: r.status ? r.status.replace(/_/g, " ") : null,
+      rank: Number(r.rank),
+    });
+  }
+
+  for (const r of ii) {
+    hits.push({
+      kind: "inspection_item",
+      date: r.recorded_on,
+      title: `${r.ref} · ${r.title}`,
+      snippet: r.snippet,
+      href: `${base}/inspection?item=${r.id}`,
+      context: r.status.replace(/_/g, " "),
       rank: Number(r.rank),
     });
   }

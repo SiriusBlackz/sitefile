@@ -25,6 +25,8 @@ export interface OfflineCapture {
    *  the progress capture path are untouched (no DB version bump). */
   inspectionItemId?: string | null;
   photoRole?: string | null;
+  /** Set once evidence.confirm succeeded so a retry never re-uploads. */
+  confirmedEvidenceId?: string | null;
   status: "pending" | "uploading" | "done" | "error";
   error?: string;
   createdAt: number;

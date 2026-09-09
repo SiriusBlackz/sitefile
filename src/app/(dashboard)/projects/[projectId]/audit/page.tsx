@@ -46,6 +46,7 @@ const ACTION_CONFIG: Record<
   unlink: { label: "Unlinked", icon: Unlink2, color: "bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-400" },
   generate: { label: "Generated", icon: FileText, color: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400" },
   import: { label: "Imported", icon: FileUp, color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400" },
+  nudge: { label: "Due-date nudge", icon: FileText, color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
 };
 
 const ENTITY_LABELS: Record<string, string> = {

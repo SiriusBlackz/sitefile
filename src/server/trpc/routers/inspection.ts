@@ -738,6 +738,21 @@ export const inspectionRouter = createTRPCRouter({
             )})`
           )
         );
+      const weekAhead = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+      const [{ dueSoon }] = await ctx.db
+        .select({ dueSoon: sql<number>`count(*)` })
+        .from(inspectionItems)
+        .where(
+          and(
+            eq(inspectionItems.projectId, input.projectId),
+            sql`${inspectionItems.correctionDue} >= ${today}`,
+            sql`${inspectionItems.correctionDue} <= ${weekAhead}`,
+            sql`${inspectionItems.status} NOT IN (${sql.join(
+              CLOSED_STATUSES.map((s) => sql`${s}`),
+              sql`, `
+            )})`
+          )
+        );
       const flagged = await ctx.db
         .select({ flags: inspectionItems.flags })
         .from(inspectionItems)
@@ -793,6 +808,7 @@ export const inspectionRouter = createTRPCRouter({
         reopened: byStatus.reopened ?? 0,
         otherDisposition: (byStatus.accepted_as_is ?? 0) + (byStatus.void ?? 0),
         overdue: Number(overdue),
+        dueSoon: Number(dueSoon),
         flags: flagCounts,
         newThisVisit,
         closedThisVisit,
@@ -1072,7 +1088,13 @@ export const inspectionRouter = createTRPCRouter({
    * Period start = period end = the visit date; report_kind = 'inspection'.
    */
   generateReport: protectedProcedure
-    .input(reportFactsSchema.extend({ password: z.string().min(4).max(128).optional() }))
+    .input(
+      reportFactsSchema.extend({
+        password: z.string().min(4).max(128).optional(),
+        /** Re-issue: replaces this completed inspection report (same number, revision + 1). */
+        supersedesReportId: z.string().uuid().optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId, {
         requireActive: true,
@@ -1082,6 +1104,25 @@ export const inspectionRouter = createTRPCRouter({
         where: and(eq(inspectionVisits.id, input.visitId), eq(inspectionVisits.projectId, input.projectId)),
       });
       if (!visit) throw new TRPCError({ code: "NOT_FOUND", message: "Visit not found" });
+
+      // Re-issue: the superseded report must be a completed inspection
+      // report of this project and the latest revision of its number.
+      let superseded: { id: string; reportNumber: number; revision: number; createdAt: Date | null } | null = null;
+      if (input.supersedesReportId) {
+        const prev = await ctx.db.query.reports.findFirst({
+          where: and(eq(reports.id, input.supersedesReportId), eq(reports.projectId, input.projectId)),
+          columns: { id: true, reportNumber: true, revision: true, createdAt: true, reportKind: true, status: true },
+        });
+        if (!prev || prev.reportKind !== "inspection") throw new TRPCError({ code: "NOT_FOUND", message: "Report to supersede not found" });
+        if (prev.status !== "completed") throw new TRPCError({ code: "BAD_REQUEST", message: "Only a completed report can be re-issued" });
+        const latest = await ctx.db.query.reports.findFirst({
+          where: and(eq(reports.projectId, input.projectId), eq(reports.reportNumber, prev.reportNumber)),
+          orderBy: [desc(reports.revision)],
+          columns: { id: true },
+        });
+        if (latest && latest.id !== prev.id) throw new TRPCError({ code: "BAD_REQUEST", message: "A later revision of that report already exists — re-issue the latest revision" });
+        superseded = prev;
+      }
 
       // Persist the visit facts typed in the dialog so the register and
       // later revisions carry them.
@@ -1143,7 +1184,9 @@ export const inspectionRouter = createTRPCRouter({
           orderBy: [desc(reports.reportNumber)],
           limit: 1,
         });
-        const reportNumber = existing[0] ? existing[0].reportNumber + 1 : (projectRow?.firstReportNumber ?? 1);
+        const reportNumber = superseded
+          ? superseded.reportNumber
+          : existing[0] ? existing[0].reportNumber + 1 : (projectRow?.firstReportNumber ?? 1);
         try {
           [report] = await ctx.db
             .insert(reports)
@@ -1158,7 +1201,8 @@ export const inspectionRouter = createTRPCRouter({
               approvalState,
               status: "generating",
               reportKind: "inspection",
-              revision: 1,
+              revision: superseded ? superseded.revision + 1 : 1,
+              supersedesReportId: superseded?.id ?? null,
             })
             .returning();
           break;
@@ -1174,12 +1218,20 @@ export const inspectionRouter = createTRPCRouter({
       }
       if (!report) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Report insert failed after retries" });
 
-      const { password: _pw, ...facts } = input;
+      const { password: _pw, supersedesReportId: _sup, ...facts } = input;
       void _pw;
+      void _sup;
       try {
         await inngest.send({
           name: "report/generate-inspection",
-          data: { reportId: report.id, generatedBy: ctx.userId, ...facts },
+          data: {
+            reportId: report.id,
+            generatedBy: ctx.userId,
+            ...facts,
+            supersedes: superseded
+              ? { reportNumber: superseded.reportNumber, revision: superseded.revision, issuedAt: superseded.createdAt?.toISOString() ?? null }
+              : null,
+          },
         });
       } catch (err) {
         console.error("[inspection.generateReport] Failed to queue:", err);
@@ -1193,7 +1245,7 @@ export const inspectionRouter = createTRPCRouter({
         action: "generate",
         entityType: "report",
         entityId: report.id,
-        metadata: { reportNumber: report.reportNumber, kind: "inspection", stage: input.stage, reportKind: input.kind, visitId: input.visitId },
+        metadata: { reportNumber: report.reportNumber, revision: report.revision, supersedesReportId: superseded?.id ?? null, kind: "inspection", stage: input.stage, reportKind: input.kind, visitId: input.visitId },
       });
       if (input.signatures?.length) {
         writeAuditLogAsync(ctx.db, {
@@ -1205,6 +1257,29 @@ export const inspectionRouter = createTRPCRouter({
           metadata: { reportNumber: report.reportNumber, approvals: input.signatures.map((s) => ({ role: s.role, name: s.name, title: s.title ?? null, method: s.imageDataUrl ? "signature-image" : "typed-name" })) },
         });
       }
-      return { id: report.id, reportNumber: report.reportNumber, status: report.status };
+      return { id: report.id, reportNumber: report.reportNumber, revision: report.revision, status: report.status };
+    }),
+
+  /** Completed inspection reports that can be re-issued (latest revision of each number). */
+  reissuable: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      assertProjectType(access, "inspection");
+      const rows = await ctx.db.query.reports.findMany({
+        where: and(eq(reports.projectId, input.projectId), eq(reports.reportKind, "inspection"), eq(reports.status, "completed")),
+        orderBy: [desc(reports.reportNumber), desc(reports.revision)],
+        columns: { id: true, reportNumber: true, revision: true, createdAt: true, reportData: true },
+      });
+      const seen = new Set<number>();
+      return rows
+        .filter((r) => (seen.has(r.reportNumber) ? false : (seen.add(r.reportNumber), true)))
+        .map((r) => ({
+          id: r.id,
+          reportNumber: r.reportNumber,
+          revision: r.revision,
+          createdAt: r.createdAt,
+          kind: ((r.reportData as { reportKind?: string } | null)?.reportKind ?? "inspection_record") as string,
+        }));
     }),
 });

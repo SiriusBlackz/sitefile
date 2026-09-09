@@ -143,6 +143,12 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
 }
 
 async function uploadOne(client: Client, item: OfflineCapture): Promise<void> {
+  // Inspection photo whose upload already succeeded on an earlier attempt:
+  // skip straight to attaching (never a second evidence row).
+  if (item.inspectionItemId && item.confirmedEvidenceId) {
+    await attachInspectionPhoto(client, item, item.confirmedEvidenceId);
+    return;
+  }
   if (!SUPPORTED_MIME_TYPES.includes(item.mimeType as SupportedMimeType)) {
     throw new Error(`Unsupported mime type: ${item.mimeType}`);
   }
@@ -191,11 +197,8 @@ async function uploadOne(client: Client, item: OfflineCapture): Promise<void> {
 
   // 4a. Inspection projects: attach to the register item with its role.
   if (item.inspectionItemId && evidence) {
-    await client.inspection.attachPhoto.mutate({
-      itemId: item.inspectionItemId,
-      evidenceId: evidence.id,
-      role: (item.photoRole ?? "defect") as "defect" | "during" | "rectified" | "verified",
-    });
+    await updateQueueItem(item.id, { confirmedEvidenceId: evidence.id });
+    await attachInspectionPhoto(client, item, evidence.id);
     return;
   }
 
@@ -206,6 +209,27 @@ async function uploadOne(client: Client, item: OfflineCapture): Promise<void> {
       taskId: item.taskId,
       linkMethod: "manual",
     });
+  }
+}
+
+/**
+ * Attach a queued photo to its register item. An item that has not synced
+ * yet answers NOT_FOUND; that is transient (the draft drains item-first),
+ * so it is rethrown as a plain error rather than a 4xx that
+ * isPermanentError would classify as final.
+ */
+async function attachInspectionPhoto(client: Client, item: OfflineCapture, evidenceId: string): Promise<void> {
+  try {
+    await client.inspection.attachPhoto.mutate({
+      itemId: item.inspectionItemId!,
+      evidenceId,
+      role: (item.photoRole ?? "defect") as "defect" | "during" | "rectified" | "verified",
+    });
+  } catch (err) {
+    if (err instanceof TRPCClientError && err.data?.code === "NOT_FOUND") {
+      throw new Error("Item not synced yet (will retry)");
+    }
+    throw err;
   }
 }
 

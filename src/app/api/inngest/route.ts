@@ -5,6 +5,7 @@ import { processUpload } from "@/server/inngest/functions/process-upload";
 import { deleteProjectStorage } from "@/server/inngest/functions/delete-project-storage";
 import { diaryAutolock } from "@/server/inngest/functions/diary-autolock";
 import { generateInspectionReport } from "@/server/inngest/functions/generate-inspection-report";
+import { inspectionDueNudge } from "@/server/inngest/functions/inspection-due-nudge";
 
 // Report generation launches Chromium and renders a photo-heavy PDF in a
 // single step; Vercel's default function timeout kills it mid-render.
@@ -13,5 +14,5 @@ export const maxDuration = 300;
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [generateReport, processUpload, deleteProjectStorage, diaryAutolock, generateInspectionReport],
+  functions: [generateReport, processUpload, deleteProjectStorage, diaryAutolock, generateInspectionReport, inspectionDueNudge],
 });

@@ -45,6 +45,9 @@ export function InspectionCoverPage({ meta }: { meta: InspectionMeta }) {
             {meta.clientName && <Row label="Client" value={meta.clientName} />}
             {meta.contractFormLabel && <Row label="Contract form" value={meta.contractFormLabel} />}
             <Row label="Report number" value={`#${meta.reportNumber} · revision ${meta.revision}`} />
+            {meta.supersedes && (
+              <Row label="Supersedes" value={`Report #${meta.supersedes.reportNumber} revision ${meta.supersedes.revision}${meta.supersedes.issuedAt ? ` issued ${fmtDate(meta.supersedes.issuedAt)}` : ""}`} />
+            )}
             <Row label="Visit date" value={fmtDate(meta.visitDate)} />
             <Row label="Issue date" value={fmtDate(meta.generatedAt)} />
             <Row label="Prepared by" value={meta.preparedBy} />

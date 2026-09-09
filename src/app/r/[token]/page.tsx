@@ -92,7 +92,10 @@ export default async function SharePage({
         <dl className="mx-auto mt-4 max-w-xs space-y-1.5 text-sm">
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Report</dt>
-            <dd className="font-medium">№ {report.reportNumber}</dd>
+            <dd className="font-medium">
+              № {report.reportNumber}
+              {report.reportKind === "inspection" && report.revision > 1 ? ` · revision ${report.revision}` : ""}
+            </dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Period</dt>

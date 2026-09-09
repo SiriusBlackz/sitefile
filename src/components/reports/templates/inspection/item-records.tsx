@@ -97,6 +97,11 @@ export function ItemRecordPages({ meta, records, startPage }: { meta: Inspection
                 <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
                   {r.photos.map((p) => (
                     <figure key={p.evidenceNo} style={{ width: `${Math.floor(100 / Math.max(r.photos.length, 2))}%`, maxWidth: 240 }}>
+                      {meta.kind === "closeout" && (
+                        <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: p.role === "defect" ? "#b45309" : "#15803d", marginBottom: 2 }}>
+                          {p.role === "defect" ? "As found" : p.role === "verified" ? "Verified" : "Reported rectified (not verified)"}
+                        </div>
+                      )}
                       {/* eslint-disable-next-line @next/next/no-img-element -- Puppeteer static HTML */}
                       <img src={p.url} alt="" data-evidence style={{ width: "100%", height: 150, objectFit: "cover", borderRadius: 6, border: "1px solid #e2e8f0" }} />
                       <figcaption className="text-xs text-muted" style={{ marginTop: 3, lineHeight: 1.4 }}>

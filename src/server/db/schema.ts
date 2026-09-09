@@ -427,15 +427,20 @@ export const reports = pgTable("reports", {
   reportKind: text("report_kind").notNull().default("progress"),
   // Issue revision of the same document (re-issued inspection reports).
   revision: integer("revision").notNull().default(1),
+  // Re-issue: the report this revision replaces (same number, revision + 1).
+  // NULL for first issues and every progress report.
+  supersedesReportId: uuid("supersedes_report_id"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
 }, (t) => [
   index("reports_project_id_idx").on(t.projectId),
-  // Two reports in the same project must not share a report number — makes
-  // the MAX+1 race in report.generate fail at the DB level instead of
-  // creating duplicate-numbered rows.
+  // Two reports in the same project must not share a report number AND
+  // revision — makes the MAX+1 race in report.generate fail at the DB level
+  // instead of creating duplicate-numbered rows (progress always inserts
+  // revision 1, so its behaviour is unchanged by the revision column).
   unique("reports_project_report_number_unique").on(
     t.projectId,
-    t.reportNumber
+    t.reportNumber,
+    t.revision
   ),
   // Only one in-flight report per project — the partial unique index turns
   // the check-then-insert race in report.generate into a hard CONFLICT.

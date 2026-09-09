@@ -178,7 +178,8 @@ export default function SendPage() {
           <CardContent className="space-y-4 p-4 sm:p-5">
             <div>
               <h1 className="text-lg font-extrabold tracking-tight">
-                Report № {report.reportNumber}{" "}
+                Report № {report.reportNumber}
+                {report.reportKind === "inspection" && (report.revision ?? 1) > 1 ? ` rev ${report.revision}` : ""}{" "}
                 {sealed ? "is sealed" : "— not sealed yet"}
               </h1>
               <p className="text-sm text-muted-foreground">

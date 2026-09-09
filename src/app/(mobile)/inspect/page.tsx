@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ITEM_STATUS_LABELS, locationLine } from "@/lib/inspection-location";
 import { ArrowLeft, ChevronRight, ClipboardPlus, Search } from "lucide-react";
+import { PendingDraftsBanner } from "@/components/inspection/pending-drafts-banner";
 
 export default function InspectListPage() {
   return (
@@ -66,6 +67,7 @@ function InspectList() {
       </header>
 
       <div className="space-y-2 px-3 py-2">
+        <PendingDraftsBanner projectId={projectId} />
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input

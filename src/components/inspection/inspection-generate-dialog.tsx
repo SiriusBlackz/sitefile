@@ -39,6 +39,8 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
   const utils = trpc.useUtils();
   const { data: visits = [] } = trpc.inspection.visitList.useQuery({ projectId }, { enabled: open });
   const { data: me } = trpc.project.currentUser.useQuery(undefined, { enabled: open });
+  const { data: reissuable = [] } = trpc.inspection.reissuable.useQuery({ projectId }, { enabled: open });
+  const [supersedesReportId, setSupersedesReportId] = useState<string>("");
   const [visitId, setVisitId] = useState<string>("");
   const [stage, setStage] = useState<(typeof INSPECTION_VISIT_STAGES)[number]>("end_of_defects_period");
   const [kind, setKind] = useState<(typeof INSPECTION_REPORT_KINDS)[number]>("inspection_record");
@@ -109,7 +111,7 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
   });
   const generate = trpc.inspection.generateReport.useMutation({
     onSuccess: (r) => {
-      toast.success(`Report #${r.reportNumber} is generating`);
+      toast.success(`Report #${r.reportNumber}${r.revision > 1 ? ` revision ${r.revision}` : ""} is generating`);
       utils.report.list.invalidate({ projectId });
       onGenerated();
       onOpenChange(false);
@@ -135,7 +137,7 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
             <iframe title="Report preview" srcDoc={previewHtml} className="h-[60vh] w-full rounded border bg-white" />
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setPreviewHtml(null)}>Back to edit</Button>
-              <Button disabled={generate.isPending} onClick={() => generate.mutate({ ...facts(), password: protect ? password : undefined })}>
+              <Button disabled={generate.isPending} onClick={() => generate.mutate({ ...facts(), password: protect ? password : undefined, supersedesReportId: supersedesReportId || undefined })}>
                 {generate.isPending ? "Queuing…" : "Generate PDF"}
               </Button>
             </div>
@@ -163,8 +165,26 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
                 <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
                   {INSPECTION_REPORT_KINDS.map((k) => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
                 </select>
+                <p className="text-xs text-muted-foreground">
+                  {kind === "inspection_record" ? "This visit only — items first recorded or acted on at it." : kind === "closeout" ? "Whole register; each item shows as-found beside verified." : "Whole register at the issue date."}
+                </p>
               </div>
             </div>
+
+            {reissuable.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Re-issue</Label>
+                <select value={supersedesReportId} onChange={(e) => setSupersedesReportId(e.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+                  <option value="">New report number</option>
+                  {reissuable.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      Supersede #{r.reportNumber} rev {r.revision} · {KIND_LABELS[r.kind] ?? r.kind}{r.createdAt ? ` · ${new Date(r.createdAt).toLocaleDateString("en-GB")}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">A re-issue keeps the number, adds a revision and prints which issue it supersedes. The earlier PDF stays on file.</p>
+              </div>
+            )}
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -248,7 +268,7 @@ export function InspectionGenerateDialog({ open, onOpenChange, projectId, onGene
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button variant="outline" disabled={!visitId || preview.isPending} onClick={() => preview.mutate(facts())}>{preview.isPending ? "Rendering…" : "Preview"}</Button>
-              <Button disabled={!visitId || generate.isPending} onClick={() => generate.mutate({ ...facts(), password: protect ? password : undefined })}>
+              <Button disabled={!visitId || generate.isPending} onClick={() => generate.mutate({ ...facts(), password: protect ? password : undefined, supersedesReportId: supersedesReportId || undefined })}>
                 {generate.isPending ? "Queuing…" : "Generate PDF"}
               </Button>
             </DialogFooter>
