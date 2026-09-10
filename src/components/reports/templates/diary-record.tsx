@@ -11,6 +11,9 @@ export interface DiaryRecordEntry {
   holdups: DiaryRecordHoldup[];
   visitors: number; inspections: number; toolboxTalk: boolean; toolboxTopic: string | null; incidents: number;
   safetyNote: string | null; workNote: string | null;
+  /** Package 3b additions; empty / null when the project has them off. */
+  contractors: { company: string; discipline: string; headcount: number }[];
+  plannedWorks: string | null; nextDayImpact: string | null;
   amendments: { field: string; previous: string | null; next: string | null; note: string | null; at: string; by: string | null }[];
 }
 export interface DiaryRecordDay { date: string; workingDay: boolean; entries: DiaryRecordEntry[]; orphanHoldups: DiaryRecordHoldup[]; photos: DiaryRecordPhoto[]; morePhotos: number }
@@ -114,11 +117,20 @@ export function DiaryRecordPages({ data }: { data: DiaryRecordData }) {
           </tbody></table>
 
           <Section title="Crew and kit on site">
-            {labour.length + plant.length + materials.length === 0 ? <p style={{ fontSize: 10 }}>Not recorded.</p> : (
+            {e.contractors.length > 0 && (
+              <table style={{ fontSize: 10, marginBottom: 6 }}>
+                <thead><tr><th>Contractor</th><th>Discipline</th><th style={{ width: "12%" }}>Headcount</th></tr></thead>
+                <tbody>
+                  {e.contractors.map((c, i) => <tr key={i}><td>{c.company}</td><td>{c.discipline || ""}</td><td>{c.headcount}</td></tr>)}
+                  <tr><td colSpan={2} style={{ fontWeight: 600 }}>Operatives on site</td><td style={{ fontWeight: 600 }}>{e.contractors.reduce((s, c) => s + c.headcount, 0)}</td></tr>
+                </tbody>
+              </table>
+            )}
+            {labour.length + plant.length + materials.length === 0 && e.contractors.length === 0 ? <p style={{ fontSize: 10 }}>Not recorded.</p> : labour.length + plant.length + materials.length === 0 ? null : (
               <table style={{ fontSize: 10 }}>
                 <thead><tr><th>Kind</th><th>Description</th><th style={{ width: "10%" }}>Qty</th><th>Note</th><th style={{ width: "12%" }}>Provenance</th></tr></thead>
                 <tbody>
-                  {[...labour, ...plant, ...materials].map((r, i) => (
+                  {(e.contractors.length > 0 ? [...plant, ...materials] : [...labour, ...plant, ...materials]).map((r, i) => (
                     <tr key={i}><td>{r.kind}</td><td>{r.label || (r.kind === "labour" ? "Operatives" : r.kind === "plant" ? "Plant" : "Materials")}</td><td>{r.qty || ""}</td><td>{r.note ?? ""}</td><td className="text-xs">{PROV[r.provenance] ?? r.provenance}</td></tr>
                   ))}
                 </tbody>
@@ -135,8 +147,11 @@ export function DiaryRecordPages({ data }: { data: DiaryRecordData }) {
             ))}
           </Section>
 
+          {e.plannedWorks && <Section title="Planned works for the next day"><p style={{ fontSize: 10.5, whiteSpace: "pre-wrap" }}>{e.plannedWorks}</p></Section>}
+
           <Section title="Hold-ups and disruption">
             {e.holdups.length === 0 ? <p style={{ fontSize: 10 }}>None logged.</p> : <HoldupTable rows={e.holdups} />}
+            {e.nextDayImpact && <p style={{ fontSize: 10.5, marginTop: 4 }}><b>Impact on the next day.</b> {e.nextDayImpact}</p>}
           </Section>
 
           <Section title="People and safety">

@@ -145,6 +145,10 @@ export const projects = pgTable("projects", {
   // Site diary cadence: ISO weekday numbers (1=Mon..7=Sun) that count as
   // working days — drives streaks, coverage % and missed-day nudges.
   workingDays: jsonb("working_days").notNull().default([1, 2, 3, 4, 5]),
+  // Optional diary additions per project ({ contractors, plannedWorks,
+  // nextDayImpact } booleans). Default {} = off: the 90-second ritual is
+  // unchanged unless the PM switches an addition on.
+  diaryExtras: jsonb("diary_extras").notNull().default({}),
   // IANA timezone for "is the site's day over" derivations and the
   // auto-lock sweep. Diary entry dates themselves are always the
   // phone's client-supplied local date.
@@ -671,6 +675,12 @@ export const diaryEntries = pgTable(
     incidentsCount: integer("incidents_count").notNull().default(0),
     safetyNote: text("safety_note"),
     workNote: text("work_note"),
+    // Diary additions (package 3b, from the VFL shift report). NULL when the
+    // project has the addition off or the foreman left it blank.
+    // contractors: [{ company, discipline, headcount }]
+    contractors: jsonb("contractors"),
+    plannedWorks: text("planned_works"),
+    nextDayImpact: text("next_day_impact"),
     // AUTO Open-Meteo snapshot frozen at submit.
     weather: jsonb("weather"),
     // Map of scalar field -> provenance stamp (auto/carried/edited/you).

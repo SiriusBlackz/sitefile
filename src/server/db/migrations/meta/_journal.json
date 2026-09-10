@@ -155,6 +155,13 @@
       "when": 1788989351398,
       "tag": "0021_report_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788998148885,
+      "tag": "0022_diary_additions",
+      "breakpoints": true
     }
   ]
 }

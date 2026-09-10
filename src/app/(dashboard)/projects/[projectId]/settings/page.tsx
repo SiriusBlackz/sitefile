@@ -38,6 +38,7 @@ import { MEMBER_ROLE_LABELS } from "@/lib/member-roles";
 import { PROJECT_MEMBER_ROLES } from "@/server/db/enums";
 import { ApprovalChainCard } from "@/components/projects/approval-chain-card";
 import { WorkingDaysCard } from "@/components/projects/working-days-card";
+import { DiaryExtrasCard } from "@/components/projects/diary-extras-card";
 import { InspectionSettingsCard } from "@/components/inspection/inspection-settings-card";
 
 function ClientLogoCard({
@@ -543,6 +544,10 @@ export default function ProjectSettingsPage() {
         workingDays={project.workingDays}
         timezone={project.timezone}
       />
+
+      {project.projectType !== "inspection" && (
+        <DiaryExtrasCard projectId={params.projectId} diaryExtras={project.diaryExtras} />
+      )}
 
       <Card>
         <CardHeader>

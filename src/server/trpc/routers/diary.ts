@@ -33,6 +33,7 @@ import {
   type WorkingDays,
 } from "@/lib/dates";
 import { deriveSiteCoords, fetchPeriodWeather } from "@/server/services/weather";
+import { parseDiaryExtras, parseContractors } from "@/lib/diary-extras";
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 
@@ -46,6 +47,12 @@ const workLineSchema = z.object({
   confirmed: z.boolean(),
   evidenceIds: z.array(z.string().uuid()).max(50).optional(),
   sortOrder: z.number().int().min(0).max(999),
+});
+
+const contractorSchema = z.object({
+  company: z.string().trim().min(1).max(80),
+  discipline: z.string().trim().max(80).default(""),
+  headcount: z.number().int().min(0).max(999),
 });
 
 const resourceSchema = z.object({
@@ -70,6 +77,8 @@ const amendApplySchema = z.object({
   toolboxTopic: z.string().trim().max(200).nullish(),
   incidentsCount: z.number().int().min(0).max(999).optional(),
   safetyNote: z.string().trim().max(2000).nullish(),
+  plannedWorks: z.string().trim().max(2000).nullish(),
+  nextDayImpact: z.string().trim().max(2000).nullish(),
 });
 
 const entryPayloadSchema = z.object({
@@ -83,12 +92,17 @@ const entryPayloadSchema = z.object({
   provenance: z.record(z.string(), provenanceEnum).default({}),
   workLines: z.array(workLineSchema).max(60).default([]),
   resources: z.array(resourceSchema).max(30).default([]),
+  // Package 3b additions — absent when the project has them off.
+  contractors: z.array(contractorSchema).max(30).optional(),
+  plannedWorks: z.string().trim().max(2000).optional(),
+  nextDayImpact: z.string().trim().max(2000).optional(),
 });
 
 type ProjectRow = {
   id: string;
   timezone: string;
   workingDays: unknown;
+  diaryExtras: unknown;
   startDate: string | null;
   createdAt: Date | null;
 };
@@ -122,6 +136,7 @@ async function loadProject(
       id: true,
       timezone: true,
       workingDays: true,
+      diaryExtras: true,
       startDate: true,
       createdAt: true,
     },
@@ -165,6 +180,9 @@ function entryScalars(payload: z.infer<typeof entryPayloadSchema>) {
     incidentsCount: payload.incidentsCount,
     safetyNote: payload.safetyNote ?? null,
     provenance: payload.provenance,
+    contractors: payload.contractors?.length ? payload.contractors : null,
+    plannedWorks: payload.plannedWorks || null,
+    nextDayImpact: payload.nextDayImpact || null,
   };
 }
 
@@ -385,6 +403,7 @@ export const diaryRouter = createTRPCRouter({
         isWorkingDay: isWorkingDay(input.localDate, workingDays),
         timezone: project.timezone,
         workingDays,
+        diaryExtras: parseDiaryExtras(project.diaryExtras),
         prefill: {
           workLines: suggestedWorkLines,
           unlinkedPhotoCount: unlinkedCount,
@@ -395,6 +414,7 @@ export const diaryRouter = createTRPCRouter({
             note: r.note,
             provenance: "carried" as const,
           })),
+          contractors: parseContractors(prevEntry?.contractors),
           carriedFromDate: prevEntry?.entryDate ?? null,
         },
         openThreads: openThreads.map((t) => ({
@@ -798,6 +818,8 @@ export const diaryRouter = createTRPCRouter({
         if (p.toolboxTopic !== undefined) partial.toolboxTopic = p.toolboxTopic ?? null;
         if (p.incidentsCount !== undefined) partial.incidentsCount = p.incidentsCount;
         if (p.safetyNote !== undefined) partial.safetyNote = p.safetyNote ?? null;
+        if (p.plannedWorks !== undefined) partial.plannedWorks = p.plannedWorks ?? null;
+        if (p.nextDayImpact !== undefined) partial.nextDayImpact = p.nextDayImpact ?? null;
         if (Object.keys(partial).length > 0) {
           await ctx.db
             .update(diaryEntries)

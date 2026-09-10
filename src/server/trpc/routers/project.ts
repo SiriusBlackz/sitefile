@@ -232,6 +232,13 @@ export const projectRouter = createTRPCRouter({
             )
             .optional(),
           status: z.enum(PROJECT_STATUSES).optional(),
+          diaryExtras: z
+            .object({
+              contractors: z.boolean(),
+              plannedWorks: z.boolean(),
+              nextDayImpact: z.boolean(),
+            })
+            .optional(),
         })
         .refine(
           (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,

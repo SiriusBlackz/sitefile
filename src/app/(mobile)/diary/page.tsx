@@ -31,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import type { DiaryProvenance } from "@/server/db/enums";
+import type { DiaryContractor } from "@/lib/diary-extras";
 
 function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -114,6 +115,10 @@ function DiaryRitual() {
   const [toolbox, setToolbox] = useState(false);
   const [toolboxTopic, setToolboxTopic] = useState("");
   const [safetyNote, setSafetyNote] = useState("");
+  // Package 3b additions — only rendered when the project has them on.
+  const [contractors, setContractors] = useState<DiaryContractor[]>([]);
+  const [plannedWorks, setPlannedWorks] = useState("");
+  const [nextDayImpact, setNextDayImpact] = useState("");
   const enteredAtRef = useRef(new Date());
 
   const submitMutation = trpc.diary.submit.useMutation();
@@ -152,6 +157,9 @@ function DiaryRitual() {
       setToolbox(e.toolboxTalk);
       setToolboxTopic(e.toolboxTopic ?? "");
       setSafetyNote(e.safetyNote ?? "");
+      setContractors(Array.isArray(e.contractors) ? (e.contractors as DiaryContractor[]) : []);
+      setPlannedWorks(e.plannedWorks ?? "");
+      setNextDayImpact(e.nextDayImpact ?? "");
     } else if (!day.entry && local?.payload) {
       try {
         const p = local.payload as ReturnType<typeof buildPayload>;
@@ -172,6 +180,9 @@ function DiaryRitual() {
         setToolbox(p.toolboxTalk);
         setToolboxTopic(p.toolboxTopic ?? "");
         setSafetyNote(p.safetyNote ?? "");
+        setContractors(p.contractors ?? []);
+        setPlannedWorks(p.plannedWorks ?? "");
+        setNextDayImpact(p.nextDayImpact ?? "");
         enteredAtRef.current = new Date(local.enteredAt);
       } catch {
         /* fall through to prefill */
@@ -243,8 +254,21 @@ function DiaryRitual() {
           provenance: resources.materialsProvenance,
         },
       ],
+      contractors: extras.contractors
+        ? contractors.filter((c) => c.company.trim()).map((c) => ({ company: c.company.trim().slice(0, 80), discipline: c.discipline.trim().slice(0, 80), headcount: c.headcount }))
+        : undefined,
+      plannedWorks: extras.plannedWorks && plannedWorks.trim() ? plannedWorks.trim().slice(0, 2000) : undefined,
+      nextDayImpact: extras.nextDayImpact && nextDayImpact.trim() ? nextDayImpact.trim().slice(0, 2000) : undefined,
     };
   }
+  // With the contractors table on, the operatives number is the sum of
+  // headcounts — one source of truth, no double entry.
+  const extras = day?.diaryExtras ?? { contractors: false, plannedWorks: false, nextDayImpact: false };
+  const contractorTotal = contractors.reduce((s, c) => s + (c.headcount || 0), 0);
+  useEffect(() => {
+    if (!extras.contractors || !hydrated) return;
+    setResources((r) => (r.labour.qty === contractorTotal ? r : { ...r, labour: { qty: contractorTotal, provenance: "you" } }));
+  }, [extras.contractors, contractorTotal, hydrated]);
 
   function persistDraft() {
     const payload = buildPayload();
@@ -539,6 +563,18 @@ function DiaryRitual() {
               rows={3}
               className="w-full rounded-xl border bg-background p-3 text-base"
             />
+            {extras.plannedWorks && (
+              <div className="space-y-1">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Planned for tomorrow</p>
+                <textarea
+                  value={plannedWorks}
+                  onChange={(e) => setPlannedWorks(e.target.value)}
+                  placeholder="What is planned next (e.g. continue excavation LB1 car park; place sandbags LB2)…"
+                  rows={2}
+                  className="w-full rounded-xl border bg-background p-3 text-base"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -556,6 +592,7 @@ function DiaryRitual() {
                     materialsNote: mats?.note ?? "",
                     materialsProvenance: "carried",
                   });
+                  if (extras.contractors && day.prefill.contractors.length) setContractors(day.prefill.contractors);
                   setCarriedApplied(true);
                 }}
                 className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-primary/50 bg-accent px-3 text-sm font-bold active:brightness-95"
@@ -564,18 +601,65 @@ function DiaryRitual() {
                 <span className="font-mono text-[10px] text-(--accent-ink)">1 TAP</span>
               </button>
             )}
-            <div className="space-y-2 rounded-xl border p-3">
-              <div className="flex items-center justify-between">
-                <Stepper
-                  label="Operatives on site"
-                  value={resources.labour.qty}
-                  onChange={(v) =>
-                    setResources((r) => ({ ...r, labour: { qty: v, provenance: carriedApplied ? "edited" : "you" } }))
-                  }
-                  className="flex-1"
-                />
-                <ProvenanceChip value={resources.labour.provenance} className="ml-2" />
+            {extras.contractors && (
+              <div className="space-y-2 rounded-xl border p-3">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Contractors on site</p>
+                {contractors.map((c, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_3.5rem_1.5rem] items-center gap-1.5">
+                    <input
+                      value={c.company}
+                      onChange={(e) => setContractors((list) => list.map((x, j) => (j === i ? { ...x, company: e.target.value } : x)))}
+                      placeholder="Company"
+                      className="min-h-11 min-w-0 rounded-lg border bg-background px-2 text-sm"
+                      aria-label="Company"
+                    />
+                    <input
+                      value={c.discipline}
+                      onChange={(e) => setContractors((list) => list.map((x, j) => (j === i ? { ...x, discipline: e.target.value } : x)))}
+                      placeholder="Discipline"
+                      className="min-h-11 min-w-0 rounded-lg border bg-background px-2 text-sm"
+                      aria-label="Discipline"
+                    />
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={999}
+                      value={c.headcount || ""}
+                      onChange={(e) => setContractors((list) => list.map((x, j) => (j === i ? { ...x, headcount: Math.max(0, Math.min(999, Number(e.target.value) || 0)) } : x)))}
+                      placeholder="No."
+                      className="min-h-11 min-w-0 rounded-lg border bg-background px-2 text-center text-sm"
+                      aria-label="Headcount"
+                    />
+                    <button type="button" aria-label="Remove contractor" onClick={() => setContractors((list) => list.filter((_, j) => j !== i))}>
+                      <X className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setContractors((list) => [...list, { company: "", discipline: "", headcount: 0 }])}
+                  className="flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border text-sm font-medium active:bg-muted"
+                >
+                  <Plus className="h-4 w-4" /> Add contractor
+                </button>
+                <p className="text-xs text-muted-foreground">Operatives on site: <b>{contractorTotal}</b> (sum of headcounts)</p>
               </div>
+            )}
+            <div className="space-y-2 rounded-xl border p-3">
+              {!extras.contractors && (
+                <div className="flex items-center justify-between">
+                  <Stepper
+                    label="Operatives on site"
+                    value={resources.labour.qty}
+                    onChange={(v) =>
+                      setResources((r) => ({ ...r, labour: { qty: v, provenance: carriedApplied ? "edited" : "you" } }))
+                    }
+                    className="flex-1"
+                  />
+                  <ProvenanceChip value={resources.labour.provenance} className="ml-2" />
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <Stepper
                   label="Plant on site"
@@ -666,6 +750,18 @@ function DiaryRitual() {
               <OctagonAlert className="h-4 w-4 text-(--accent-ink)" />
               Log a hold-up
             </button>
+            {extras.nextDayImpact && (
+              <div className="space-y-1">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Impact on tomorrow</p>
+                <textarea
+                  value={nextDayImpact}
+                  onChange={(e) => setNextDayImpact(e.target.value)}
+                  placeholder="What today's disruption does to tomorrow (e.g. planings delivery slipped — LB2 surfacing moves to Thursday)…"
+                  rows={2}
+                  className="w-full rounded-xl border bg-background p-3 text-base"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -708,7 +804,9 @@ function DiaryRitual() {
           <div className="space-y-3">
             <div className="space-y-2 rounded-2xl border p-4 text-sm">
               <SummaryRow label="Work lines" value={`${workLines.filter((l) => l.confirmed || l.source === "manual").length} confirmed`} />
-              <SummaryRow label="Crew" value={`${resources.labour.qty} operatives · ${resources.plant.qty} plant`} />
+              <SummaryRow label="Crew" value={`${resources.labour.qty} operatives${extras.contractors ? ` (${contractors.filter((c) => c.company.trim()).length} contractors)` : ""} · ${resources.plant.qty} plant`} />
+              {extras.plannedWorks && <SummaryRow label="Planned tomorrow" value={plannedWorks.trim() ? plannedWorks.trim().slice(0, 60) : "Not filled"} />}
+              {extras.nextDayImpact && <SummaryRow label="Impact on tomorrow" value={nextDayImpact.trim() ? nextDayImpact.trim().slice(0, 60) : "None noted"} />}
               <SummaryRow
                 label="Hold-ups"
                 value={

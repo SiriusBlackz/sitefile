@@ -19,6 +19,7 @@ import { diaryFieldLabel } from "@/lib/holdup-causes";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DiaryProvenance, HoldupCause } from "@/server/db/enums";
+import { parseContractors } from "@/lib/diary-extras";
 
 function localToday(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -385,6 +386,25 @@ function EntryDetailSheet({
               </div>
             )}
 
+            {d.entry.plannedWorks && (
+              <div className="space-y-1 text-xs">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Planned for the next day</p>
+                <p className="whitespace-pre-wrap">{d.entry.plannedWorks}</p>
+              </div>
+            )}
+
+            {parseContractors(d.entry.contractors).length > 0 && (
+              <div className="space-y-1 text-xs">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Contractors on site</p>
+                {parseContractors(d.entry.contractors).map((c, i) => (
+                  <p key={i} className="flex gap-2">
+                    <span className="min-w-0 flex-1">{c.company}{c.discipline ? ` · ${c.discipline}` : ""}</span>
+                    <strong className="tabular-nums">{c.headcount}</strong>
+                  </p>
+                ))}
+              </div>
+            )}
+
             {d.entry.resources.length > 0 && (
               <div className="space-y-1">
                 <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Crew & kit</p>
@@ -413,6 +433,13 @@ function EntryDetailSheet({
                     </p>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {d.entry.nextDayImpact && (
+              <div className="space-y-1 text-xs">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Impact on the next day</p>
+                <p className="whitespace-pre-wrap">{d.entry.nextDayImpact}</p>
               </div>
             )}
 

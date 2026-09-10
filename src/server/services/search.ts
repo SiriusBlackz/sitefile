@@ -89,7 +89,7 @@ export async function searchProject(
   `);
 
   // 2. Diary day notes (work note, safety note, toolbox topic).
-  const noteDoc = sql`concat_ws(' · ', e.work_note, e.safety_note, e.toolbox_topic)`;
+  const noteDoc = sql`concat_ws(' · ', e.work_note, e.safety_note, e.toolbox_topic, e.planned_works, e.next_day_impact)`;
   const notes = db.execute<{
     entry_id: string;
     entry_date: string;

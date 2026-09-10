@@ -16,6 +16,7 @@ import { DEFAULT_WORKING_DAYS, isWorkingDay, type WorkingDays } from "@/lib/date
 import { HOLDUP_CAUSE_LABELS } from "@/lib/holdup-causes";
 import { ReportShell, type ReportMeta } from "@/components/reports/templates/report-shell";
 import { DiaryRecordPages, type DiaryRecordData, type DiaryRecordDay, type DiaryRecordEntry } from "@/components/reports/templates/diary-record";
+import { parseContractors } from "@/lib/diary-extras";
 
 type DB = typeof dbType;
 
@@ -177,6 +178,9 @@ export async function gatherDiaryRecord(db: DB, input: DiaryRecordInput): Promis
         incidents: e.incidentsCount,
         safetyNote: e.safetyNote,
         workNote: e.workNote,
+        contractors: parseContractors(e.contractors),
+        plannedWorks: e.plannedWorks,
+        nextDayImpact: e.nextDayImpact,
         amendments: amendments.filter((a) => a.entryId === e.id).map((a) => { const p = a.payload as { field?: string; previous?: string | null; next?: string | null; note?: string }; return { field: p.field ?? "note", previous: p.previous ?? null, next: p.next ?? null, note: p.note ?? null, at: a.createdAt.toISOString(), by: a.actorId ? (personName.get(a.actorId) ?? null) : null }; }),
       });
     }
@@ -227,10 +231,10 @@ export async function renderDiaryRecordHTML(data: DiaryRecordData): Promise<stri
 /** Flat CSV: one row per entry (a day with no entry still appears). */
 export function diaryRecordCsv(data: DiaryRecordData): string {
   const esc = (v: unknown) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const head = ["date", "working_day", "author", "status", "late", "entered_at", "received_at", "locked_at", "amended", "weather", "labour", "plant", "materials", "hours_lost", "holdup_causes", "visitors", "inspections", "toolbox_talk", "toolbox_topic", "incidents", "work_lines", "safety_note", "work_note", "photos_on_day"];
+  const head = ["date", "working_day", "author", "status", "late", "entered_at", "received_at", "locked_at", "amended", "weather", "labour", "plant", "materials", "hours_lost", "holdup_causes", "visitors", "inspections", "toolbox_talk", "toolbox_topic", "incidents", "work_lines", "safety_note", "work_note", "contractors", "planned_works", "next_day_impact", "photos_on_day"];
   const rows = [head.join(",")];
   for (const d of data.days) {
-    if (d.entries.length === 0) { rows.push([d.date, d.workingDay ? "yes" : "no", "", "no record", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", d.photos.length + d.morePhotos].map(esc).join(",")); continue; }
+    if (d.entries.length === 0) { rows.push([d.date, d.workingDay ? "yes" : "no", "", "no record", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", d.photos.length + d.morePhotos].map(esc).join(",")); continue; }
     for (const e of d.entries) {
       const sum = (k: string) => e.resources.filter((r) => r.kind === k).reduce((s, r) => s + r.qty, 0);
       rows.push([
@@ -238,7 +242,9 @@ export function diaryRecordCsv(data: DiaryRecordData): string {
         sum("labour"), sum("plant"), e.resources.filter((r) => r.kind === "materials").map((r) => `${r.label}${r.qty ? ` ×${r.qty}` : ""}${r.note ? ` (${r.note})` : ""}`).join("; "),
         e.holdups.reduce((s, h) => s + h.hours, 0), e.holdups.map((h) => h.cause).join("; "),
         e.visitors, e.inspections, e.toolboxTalk ? "yes" : "no", e.toolboxTopic ?? "", e.incidents,
-        e.workLines.map((w) => `${w.task ? w.task + ": " : ""}${w.body}`).join(" | "), e.safetyNote ?? "", e.workNote ?? "", d.photos.length + d.morePhotos,
+        e.workLines.map((w) => `${w.task ? w.task + ": " : ""}${w.body}`).join(" | "), e.safetyNote ?? "", e.workNote ?? "",
+        e.contractors.map((c) => `${c.company}${c.discipline ? ` (${c.discipline})` : ""} ×${c.headcount}`).join("; "), e.plannedWorks ?? "", e.nextDayImpact ?? "",
+        d.photos.length + d.morePhotos,
       ].map(esc).join(","));
     }
   }
