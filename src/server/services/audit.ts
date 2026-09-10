@@ -51,7 +51,8 @@ export type AuditEntityType =
   | "diary_entry"
   | "diary_holdup"
   | "inspection_visit"
-  | "inspection_item";
+  | "inspection_item"
+  | "commercial_register";
 
 export interface AuditEntry {
   projectId: string;

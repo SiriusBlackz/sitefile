@@ -14,6 +14,7 @@
 export const REPORT_SECTION_KEYS = [
   "toc",
   "keyIssues",
+  "commercial",
   "keyDates",
   "timeline",
   "lookahead",
@@ -32,6 +33,7 @@ export type ReportSections = Record<ReportSectionKey, boolean>;
 export const REPORT_SECTION_LABELS: Record<ReportSectionKey, string> = {
   toc: "Table of Contents",
   keyIssues: "Key Issues & Early Warnings",
+  commercial: "Commercial — EW & CE registers",
   keyDates: "Key Dates & Milestones",
   timeline: "Programme Timeline",
   lookahead: "Lookahead — Next Period",
@@ -46,6 +48,8 @@ export const REPORT_SECTION_LABELS: Record<ReportSectionKey, string> = {
 const FULL_RECIPE: ReportSections = {
   toc: true,
   keyIssues: true,
+  // Opt-in: prints only when ticked AND a CEMAR register has been imported.
+  commercial: false,
   keyDates: true,
   timeline: true,
   lookahead: true,

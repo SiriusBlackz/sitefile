@@ -162,6 +162,13 @@
       "when": 1788998148885,
       "tag": "0022_diary_additions",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788999288160,
+      "tag": "0023_commercial_register",
+      "breakpoints": true
     }
   ]
 }

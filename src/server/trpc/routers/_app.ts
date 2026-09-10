@@ -10,9 +10,11 @@ import { orgRouter } from "./org";
 import { diaryRouter } from "./diary";
 import { searchRouter } from "./search";
 import { inspectionRouter } from "./inspection";
+import { commercialRouter } from "./commercial";
 
 export const appRouter = createTRPCRouter({
   diary: diaryRouter,
+  commercial: commercialRouter,
   project: projectRouter,
   task: taskRouter,
   evidence: evidenceRouter,

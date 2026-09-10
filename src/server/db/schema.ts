@@ -8,6 +8,7 @@ import {
   boolean,
   real,
   doublePrecision,
+  numeric,
   bigint,
   jsonb,
   unique,
@@ -1206,3 +1207,81 @@ export const selectTaskSchema = createSelectSchema(tasks);
 
 export const insertEvidenceSchema = createInsertSchema(evidence);
 export const selectEvidenceSchema = createSelectSchema(evidence);
+
+// ─── Commercial register (package 4) ────────────────────────────────────────
+// EW / CE registers imported from CEMAR CSV exports. Each import REPLACES
+// the project's rows of that kind (the CSV is the source of truth); the
+// import row keeps the provenance. Additive: progress rows never enter
+// this code path unless a register is imported.
+export const commercialImports = pgTable(
+  "commercial_imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // 'ew' | 'ce'
+    filename: text("filename"),
+    rowCount: integer("row_count").notNull().default(0),
+    importedBy: uuid("imported_by").references(() => users.id),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "date" }).defaultNow(),
+  },
+  (t) => [
+    index("commercial_imports_project_idx").on(t.projectId, t.importedAt),
+    check("commercial_imports_kind_check", sql.raw(`${t.kind.name} IN ('ew','ce')`)),
+  ]
+).enableRLS();
+
+export const commercialEvents = pgTable(
+  "commercial_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    importId: uuid("import_id").references(() => commercialImports.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(), // 'ew' | 'ce'
+    eventId: integer("event_id"),
+    ref: text("ref").notNull(),
+    crossRef: text("cross_ref"),
+    title: text("title").notNull(),
+    fromParty: text("from_party"),
+    author: text("author"),
+    status: text("status"),
+    // EW: Communicated · CE: Notification Date
+    notifiedOn: date("notified_on", { mode: "string" }),
+    // EW only
+    replyDue: date("reply_due", { mode: "string" }),
+    replyDate: date("reply_date", { mode: "string" }),
+    avoidedOn: date("avoided_on", { mode: "string" }),
+    score: integer("score"),
+    // CE only
+    price: numeric("price", { precision: 14, scale: 2 }),
+    days: integer("days"),
+    implementedOn: date("implemented_on", { mode: "string" }),
+    tba: boolean("tba"),
+    ceType: text("ce_type"),
+    category: text("category"),
+    quotationDue: date("quotation_due", { mode: "string" }),
+    assessmentDue: date("assessment_due", { mode: "string" }),
+    // Both (CEMAR exports usually redact these to "Content unavailable")
+    description: text("description"),
+    decision: text("decision"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+  },
+  (t) => [
+    index("commercial_events_project_kind_idx").on(t.projectId, t.kind, t.notifiedOn),
+    check("commercial_events_kind_check", sql.raw(`${t.kind.name} IN ('ew','ce')`)),
+  ]
+).enableRLS();
+
+export const commercialImportsRelations = relations(commercialImports, ({ one, many }) => ({
+  project: one(projects, { fields: [commercialImports.projectId], references: [projects.id] }),
+  importer: one(users, { fields: [commercialImports.importedBy], references: [users.id] }),
+  events: many(commercialEvents),
+}));
+
+export const commercialEventsRelations = relations(commercialEvents, ({ one }) => ({
+  project: one(projects, { fields: [commercialEvents.projectId], references: [projects.id] }),
+  import: one(commercialImports, { fields: [commercialEvents.importId], references: [commercialImports.id] }),
+}));

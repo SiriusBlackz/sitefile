@@ -16,6 +16,7 @@ import {
   Send,
   Settings,
   Search as SearchIcon,
+  Landmark,
 } from "lucide-react";
 
 /**
@@ -111,6 +112,13 @@ function DesknavInner({ projectId }: { projectId: string }) {
           icon: Map,
           attention: (gaps?.zoneCount ?? 1) === 0,
           isActive: (p) => p.startsWith(`${base}/zones`),
+        },
+        {
+          href: `${base}/commercial`,
+          label: "Commercial",
+          icon: Landmark,
+          attention: false,
+          isActive: (p) => p.startsWith(`${base}/commercial`),
         },
       ],
     },

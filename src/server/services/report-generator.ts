@@ -91,6 +91,9 @@ import { SignOffPage } from "@/components/reports/templates/sign-off";
 import { TableOfContents, type TocEntry } from "@/components/reports/templates/table-of-contents";
 import { KeyDatesPage, type KeyDateEntry } from "@/components/reports/templates/key-dates";
 import { KeyIssuesPage } from "@/components/reports/templates/key-issues";
+import { CommercialPages, commercialPageCount, type CommercialData, type CommercialRowOut } from "@/components/reports/templates/commercial";
+import { summariseCe, summariseEw, type CommercialKind } from "./commercial-import";
+import { commercialEvents, commercialImports } from "@/server/db/schema";
 import { LookaheadPage, type LookaheadEntry } from "@/components/reports/templates/lookahead";
 import { PhotoMapPage, type PhotoMapData } from "@/components/reports/templates/photo-map";
 
@@ -1526,6 +1529,58 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
     );
   }
 
+  // Commercial section (package 4) — opt-in and only from an imported
+  // CEMAR register. Progress reports with the section off do no work here.
+  let commercial: CommercialData | null = null;
+  if (sections.commercial) {
+    const rows = await db.query.commercialEvents.findMany({ where: eq(commercialEvents.projectId, input.projectId) });
+    if (rows.length > 0) {
+      const imports = await db.query.commercialImports.findMany({ where: eq(commercialImports.projectId, input.projectId), orderBy: [desc(commercialImports.importedAt)], columns: { kind: true, importedAt: true } });
+      const lastImport = (k: string) => imports.find((i) => i.kind === k)?.importedAt?.toISOString().slice(0, 10) ?? null;
+      const today = new Date().toISOString().slice(0, 10);
+      const typed = rows.map((r) => ({ ...r, kind: r.kind as CommercialKind }));
+      const from = input.periodStart;
+      const to = input.periodEnd;
+      const isAvoided = (r: (typeof typed)[number]) => !!r.avoidedOn || (r.status ?? "").includes("AVOIDED");
+      const isImpl = (r: (typeof typed)[number]) => !!r.implementedOn || (r.status ?? "") === "IMPLEMENTED";
+      const isDraft = (r: (typeof typed)[number]) => (r.status ?? "") === "DRAFT" || r.ref === "DRAFT";
+      const out = (r: (typeof typed)[number]): CommercialRowOut => ({
+        ref: r.ref,
+        title: r.title,
+        notifiedOn: r.notifiedOn,
+        status: r.status,
+        fromParty: r.fromParty,
+        replyDue: r.replyDue,
+        replyDate: r.replyDate,
+        timeliness:
+          r.kind !== "ew" ? "n/a"
+          : r.replyDate ? (r.replyDue && r.replyDate > r.replyDue ? "late" : "on time")
+          : isAvoided(r) ? "n/a"
+          : r.replyDue && r.replyDue < today ? "overdue" : "awaiting",
+        price: r.price,
+        days: r.days,
+        implementedOn: r.implementedOn,
+        quotationDue: r.quotationDue,
+      });
+      const byDate = (a: { notifiedOn: string | null }, b: { notifiedOn: string | null }) => (b.notifiedOn ?? "").localeCompare(a.notifiedOn ?? "");
+      const ews = typed.filter((r) => r.kind === "ew").sort(byDate);
+      const ces = typed.filter((r) => r.kind === "ce").sort(byDate);
+      const inP = (d: string | null) => !!d && d >= from && d <= to;
+      commercial = {
+        periodStart: from,
+        periodEnd: to,
+        asOf: today,
+        lastImport: { ew: lastImport("ew"), ce: lastImport("ce") },
+        ew: summariseEw(typed, from, to, today),
+        ce: summariseCe(typed, from, to, today),
+        ewThisPeriod: ews.filter((r) => inP(r.notifiedOn)).map(out),
+        ewOpen: ews.filter((r) => !isAvoided(r)).map(out),
+        ceThisPeriod: ces.filter((r) => inP(r.notifiedOn) || inP(r.implementedOn)).map(out),
+        ceOutstanding: ces.filter((r) => !isImpl(r) && !isDraft(r)).map(out),
+      };
+    }
+  }
+
   // Key Issues that merely repeat the Executive Summary's Key Risks print
   // the same bullets twice a page apart — drop the exact repeats (the PM's
   // own additions always survive). An emptied list drops the section.
@@ -1554,6 +1609,12 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       reason: anyGps
         ? "map imagery unavailable at generation time"
         : "no GPS-tagged photos this period",
+    });
+  }
+  if (sections.commercial && commercial == null) {
+    omittedSections.push({
+      title: "Commercial — EW & CE registers",
+      reason: "no CEMAR register has been imported for this project",
     });
   }
   if (sections.beforeAfter && beforeAfterPairs.length === 0) {
@@ -1586,6 +1647,7 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
       paragraphs: input.narrative?.length ? input.narrative : paragraphs,
     },
     keyIssues: dedupedKeyIssues,
+    commercial,
     timelineTasks,
     galleryTasks,
     beforeAfterPairs,
@@ -1633,7 +1695,7 @@ function joinList(items: string[], max = 5): string {
 export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherReportData>>): Promise<string> {
   // Dynamic import to avoid Turbopack's react-dom/server static analysis block
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, programmeElapsed, programmeLastDate, narrative, keyIssues, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, photoMap, siteDiary, omittedSections, signatures } =
+  const { meta, sections, summaryStats, keyDates, keyDatesTotal, dataDate, lookahead, lookaheadTotal, lookaheadWindow, programmeElapsed, programmeLastDate, narrative, keyIssues, commercial, timelineTasks, galleryTasks, beforeAfterPairs, verificationStats, photoMap, siteDiary, omittedSections, signatures } =
     data;
 
   // Page numbers are computed in ONE pass using the same pagination
@@ -1645,6 +1707,7 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const hasGallery = sections.gallery && galleryTasks.length > 0;
   const hasBeforeAfter = sections.beforeAfter && beforeAfterPairs.length > 0;
   const hasKeyIssues = sections.keyIssues && keyIssues.length > 0;
+  const hasCommercial = sections.commercial && commercial != null;
   const hasKeyDates = sections.keyDates && keyDates.length > 0;
   const hasLookahead = sections.lookahead && lookahead.length > 0;
   const hasPhotoMap = sections.photoMap && photoMap != null;
@@ -1658,7 +1721,9 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   const summaryPage = hasToc ? 3 : 2;
   const summaryPages = summaryPageCount(narrative, summaryStats);
   const keyIssuesPage = summaryPage + summaryPages;
-  const keyDatesPage = keyIssuesPage + (hasKeyIssues ? 1 : 0);
+  const commercialPage = keyIssuesPage + (hasKeyIssues ? 1 : 0);
+  const commercialPages = hasCommercial ? commercialPageCount(commercial!) : 0;
+  const keyDatesPage = commercialPage + commercialPages;
   const timelineStart = keyDatesPage + (hasKeyDates ? 1 : 0);
   const timelinePages = hasTimeline ? timelinePageCount(timelineTasks.length) : 0;
   const lookaheadPage = timelineStart + timelinePages;
@@ -1679,6 +1744,9 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
   ];
   if (hasKeyIssues) {
     tocEntries.push({ title: "Key Issues & Early Warnings", page: keyIssuesPage });
+  }
+  if (hasCommercial) {
+    tocEntries.push({ title: "Commercial — Early Warnings & Compensation Events", page: commercialPage });
   }
   if (hasKeyDates) {
     tocEntries.push({ title: "Key Dates & Milestones", page: keyDatesPage });
@@ -1734,6 +1802,16 @@ export async function renderReportHTML(data: Awaited<ReturnType<typeof gatherRep
             meta,
             issues: keyIssues,
             startPage: keyIssuesPage,
+          }),
+        ]
+      : []),
+    ...(hasCommercial
+      ? [
+          createElement(CommercialPages, {
+            key: "commercial",
+            meta,
+            data: commercial!,
+            startPage: commercialPage,
           }),
         ]
       : []),
