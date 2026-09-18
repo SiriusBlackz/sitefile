@@ -8,18 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CONTRACT_FORMS, LOCATION_SCHEMES } from "@/server/db/enums";
-
-const CONTRACT_FORM_LABELS: Record<string, string> = {
-  nec4_ecc: "NEC4 ECC",
-  nec3_ecc: "NEC3 ECC",
-  jct: "JCT",
-  other: "Other",
-};
-const SCHEME_LABELS: Record<string, string> = {
-  linear: "Linear (route · chainage · side)",
-  building: "Building (block · level · room · element)",
-  grid: "Grid reference",
-};
+import { CONTRACT_FORM_LABELS, LOCATION_SCHEME_LABELS as SCHEME_LABELS } from "@/lib/format";
 
 type Dates = { completion?: string | null; defectsDate?: string | null; confirmed?: { completion?: boolean; defectsDate?: boolean } } | null;
 

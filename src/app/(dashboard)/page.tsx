@@ -15,6 +15,7 @@ import { portfolioPct } from "@/lib/readiness";
 import { daysUntil } from "@/lib/reporting-cadence";
 import { formatDate } from "@/lib/format";
 import { CalendarClock, FileText } from "lucide-react";
+import { hasDefectsModule } from "@/lib/project-modules";
 import {
   FolderKanban,
   Plus,
@@ -341,6 +342,7 @@ type PortfolioProject = {
   unlinked: number;
   programmeConfirmedThisPeriod: boolean;
   projectType?: string;
+  defectsEnabledAt?: Date | string | null;
   inspection?: { open: number; readyForReview: number; verifiedClosed: number; total: number } | null;
   lastReport: {
     id: string;
@@ -395,7 +397,7 @@ function InspectionPortfolioTile({ project: p }: { project: PortfolioProject }) 
 }
 
 function PortfolioCard({ project: p }: { project: PortfolioProject }) {
-  if (p.projectType === "inspection") return <InspectionPortfolioTile project={p} />;
+  if (p.projectType && hasDefectsModule({ projectType: p.projectType, defectsEnabledAt: p.defectsEnabledAt })) return <InspectionPortfolioTile project={p} />;
   const pct = portfolioPct(p);
   const days = p.nextReportDue ? daysUntil(p.nextReportDue) : null;
   const R = 16;

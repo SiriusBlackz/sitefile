@@ -9,6 +9,7 @@ import {
   gpsZones,
 } from "@/server/db/schema";
 import type { db as dbType } from "@/server/db";
+import { hasDefectsModule, type ProjectModuleFields } from "@/lib/project-modules";
 
 type DB = typeof dbType;
 
@@ -38,7 +39,7 @@ export async function assertProjectAccess(
 ) {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
-    columns: { id: true, orgId: true, status: true, projectType: true },
+    columns: { id: true, orgId: true, status: true, projectType: true, defectsEnabledAt: true },
   });
   if (!project) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
@@ -85,17 +86,23 @@ export async function assertProjectAccess(
 
 /**
  * Inspection / survey procedures are opt-in on the project's type: a
- * progress project can never be written to by the inspection router, and
- * an inspection project never enters the progress code paths.
+ * progress project can never be written to by the inspection router
+ * unless its defects period has been started (hasDefectsModule), and an
+ * inspection project never enters the progress code paths.
  */
 export function assertProjectType(
-  project: { projectType: string },
+  project: ProjectModuleFields,
   expected: "progress" | "inspection" | "condition_survey"
 ) {
-  if (project.projectType !== expected) {
+  const ok =
+    expected === "inspection" ? hasDefectsModule(project) : project.projectType === expected;
+  if (!ok) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
-      message: `This action is only available on ${expected.replace(/_/g, " ")} projects.`,
+      message:
+        expected === "inspection"
+          ? "This action is only available once the defects register is switched on for the project."
+          : `This action is only available on ${expected.replace(/_/g, " ")} projects.`,
     });
   }
 }

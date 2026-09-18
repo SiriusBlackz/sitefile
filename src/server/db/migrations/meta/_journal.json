@@ -169,6 +169,13 @@
       "when": 1788999288160,
       "tag": "0023_commercial_register",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789761940074,
+      "tag": "0024_defects_module",
+      "breakpoints": true
     }
   ]
 }

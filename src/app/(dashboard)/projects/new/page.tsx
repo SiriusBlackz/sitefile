@@ -49,10 +49,11 @@ function NewProjectContent() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Create Project</h1>
         <p className="text-muted-foreground">
-          Set up a new construction project to track progress.
+          Set up a project for progress reporting or a defects inspection.
         </p>
       </div>
       <ProjectForm
+        allowTypeChoice
         onSubmit={handleSubmit}
         isSubmitting={createProject.isPending}
         submitLabel="Create Project"

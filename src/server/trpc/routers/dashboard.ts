@@ -12,6 +12,7 @@ import {
   inspectionItems,
 } from "@/server/db/schema";
 import type { Context } from "../context";
+import { hasDefectsModule } from "@/lib/project-modules";
 
 type AccessibleProject = {
   id: string;
@@ -65,14 +66,15 @@ export const dashboardRouter = createTRPCRouter({
         reportingFrequency: projects.reportingFrequency,
         programmeConfirmedAt: projects.programmeConfirmedAt,
         projectType: projects.projectType,
+        defectsEnabledAt: projects.defectsEnabledAt,
       })
       .from(projects)
       .where(inArray(projects.id, ids));
 
-    // Inspection projects: register counts instead of report readiness.
+    // Defects-mode projects: register counts instead of report readiness.
     // One grouped query, only when such projects exist; progress rows
     // gain a single inert field.
-    const inspectionIds = projectRows.filter((p) => p.projectType === "inspection").map((p) => p.id);
+    const inspectionIds = projectRows.filter((p) => hasDefectsModule(p)).map((p) => p.id);
     const inspectionBy = new Map<string, { open: number; readyForReview: number; verifiedClosed: number; total: number }>();
     if (inspectionIds.length > 0) {
       const rows = await ctx.db
@@ -197,8 +199,9 @@ export const dashboardRouter = createTRPCRouter({
         programmeConfirmedThisPeriod:
           p.programmeConfirmedAt != null && p.programmeConfirmedAt >= periodStart,
         projectType: p.projectType,
+        defectsEnabledAt: p.defectsEnabledAt,
         inspection:
-          p.projectType === "inspection"
+          hasDefectsModule(p)
             ? (inspectionBy.get(p.id) ?? { open: 0, readyForReview: 0, verifiedClosed: 0, total: 0 })
             : null,
         lastReport: last

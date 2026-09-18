@@ -167,6 +167,11 @@ export const projects = pgTable("projects", {
   priorityScheme: jsonb("priority_scheme"),
   // { completion?, defectsDate?, confirmed?: { completion?, defectsDate? } }
   contractDates: jsonb("contract_dates"),
+  // Defects module switched on for a progress project (works reached
+  // completion, defects period starts). NULL = off. A project created as
+  // 'inspection' has the module implicitly — see hasDefectsModule().
+  defectsEnabledAt: timestamp("defects_enabled_at", { withTimezone: true, mode: "date" }),
+  defectsEnabledBy: uuid("defects_enabled_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
 }, (t) => [

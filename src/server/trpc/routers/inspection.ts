@@ -52,12 +52,14 @@ import {
 } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 import { getReadUrl } from "@/server/services/storage";
+import { hasDefectsModule } from "@/lib/project-modules";
 
 /**
  * Defects inspection register (Phase A: record a visit, record items with
  * photos, read the register, generate the inspection record report).
- * Every procedure is opt-in on project_type = 'inspection'; progress
- * projects get PRECONDITION_FAILED before any write. See
+ * Every procedure is opt-in on the defects module (born 'inspection' or
+ * defects period started — hasDefectsModule); other progress projects get
+ * PRECONDITION_FAILED before any write. See
  * Research/Sitefile_Inspection_Implementation_Plan_FINAL.md §C.2.
  */
 
@@ -1010,6 +1012,71 @@ export const inspectionRouter = createTRPCRouter({
       await ctx.db.insert(inspectionItemEvents).values({ itemId: item.id, projectId: item.projectId, actorId: ctx.userId, kind: "notified", note: `Notified ${input.notifiedAt} by ${input.notifiedBy} to ${input.notifiedTo}${input.notificationRef ? ` (${input.notificationRef})` : ""}${correctionDue ? ` · correction due ${correctionDue} (computed)` : ""}` });
       writeAuditLogAsync(ctx.db, { projectId: item.projectId, userId: ctx.userId, action: "notify", entityType: "inspection_item", entityId: item.id, metadata: { ref: item.ref, notifiedAt: input.notifiedAt, correctionDue } });
       return updated;
+    }),
+
+  /**
+   * Start the defects period on a progress project: switches the defects
+   * module on (see hasDefectsModule) without touching project_type, so the
+   * programme, diary and monthly reports stay on record and report
+   * numbering continues. One-way from the app. Oversight roles only, the
+   * same gate as settingsUpdate.
+   */
+  enableDefects: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        locationScheme: z.enum(LOCATION_SCHEMES),
+        contractForm: z.enum(CONTRACT_FORMS).nullable().optional(),
+        defaultCorrectionPeriodDays: z.number().int().min(1).max(365).nullable().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId, {
+        requireActive: true,
+      });
+      // Role gate first so a plain member sees FORBIDDEN, not the module state.
+      await assertInspectionOversight(ctx.db, input.projectId, ctx.userId, ctx.dbUser.role);
+      if (hasDefectsModule(access)) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "The defects register is already switched on for this project.",
+        });
+      }
+      if (access.projectType !== "progress") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "The defects period can only be started on a progress project.",
+        });
+      }
+      const now = new Date();
+      const [updated] = await ctx.db
+        .update(projects)
+        .set({
+          defectsEnabledAt: now,
+          defectsEnabledBy: ctx.userId,
+          locationScheme: input.locationScheme,
+          contractForm: input.contractForm ?? null,
+          defaultCorrectionPeriodDays: input.defaultCorrectionPeriodDays ?? null,
+          updatedAt: now,
+        })
+        // Guard against two PMs clicking at once: only the first write lands.
+        .where(and(eq(projects.id, input.projectId), isNull(projects.defectsEnabledAt)))
+        .returning({ id: projects.id });
+      if (!updated) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "The defects register was switched on by someone else just now.",
+        });
+      }
+      writeAuditLogAsync(ctx.db, {
+        projectId: input.projectId,
+        userId: ctx.userId,
+        action: "update",
+        entityType: "project",
+        entityId: input.projectId,
+        metadata: { defectsEnabled: true, locationScheme: input.locationScheme },
+      });
+      return { ok: true, defectsEnabledAt: now };
     }),
 
   /**

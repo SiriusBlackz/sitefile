@@ -14,6 +14,7 @@ import { getReadUrl } from "@/server/services/storage";
 import { isPlaceholderOrgName } from "@/lib/org-name";
 import { pointInPolygon } from "@/lib/geo";
 import { locationLine } from "@/lib/inspection-location";
+import { hasDefectsModule } from "@/lib/project-modules";
 import {
   resolveInspectionSections,
   INSPECTION_REPORT_TITLE,
@@ -100,7 +101,7 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
     with: { organisation: true },
   });
   if (!project) throw new Error("Project not found");
-  if (project.projectType !== "inspection") throw new Error("Not an inspection project");
+  if (!hasDefectsModule(project)) throw new Error("Defects register is not switched on for this project");
   const org = project.organisation;
   const sections = resolveInspectionSections(input.sections);
 

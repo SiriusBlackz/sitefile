@@ -11,6 +11,7 @@ import { InspectionGenerateDialog } from "@/components/inspection/inspection-gen
 import { InspectionOverviewCard } from "@/components/inspection/inspection-overview-card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { hasDefectsModule } from "@/lib/project-modules";
 
 export default function ReportsPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -19,7 +20,7 @@ export default function ReportsPage() {
   const [generateKey, setGenerateKey] = useState(0);
   const utils = trpc.useUtils();
   const { data: project } = trpc.project.get.useQuery({ id: projectId });
-  const isInspection = project?.projectType === "inspection";
+  const isInspection = hasDefectsModule(project);
   const { data: draft } = trpc.report.getDraft.useQuery({ projectId }, { enabled: !isInspection });
   // Report ids seen as "generating", so we can toast when they finish.
   const generatingIdsRef = useRef<Set<string>>(new Set());

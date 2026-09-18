@@ -30,6 +30,7 @@ import { GapListCard } from "@/components/projects/gap-list-card";
 import { PhoneProjectHome } from "@/components/projects/phone-home";
 import { InspectionPhoneHome } from "@/components/inspection/inspection-phone-home";
 import { InspectionOverviewCard } from "@/components/inspection/inspection-overview-card";
+import { hasDefectsModule } from "@/lib/project-modules";
 import { getProjectStatusColor, getProjectStatusLabel } from "@/lib/project-status";
 
 // Error codes meaning "this project isn't reachable" — don't retry, show not-found.
@@ -159,7 +160,7 @@ export default function ProjectDetailPage() {
   if (isPhone) {
     // Inspection projects have their own home (register counts + Record
     // item); the progress home is untouched.
-    return project.projectType === "inspection" ? (
+    return hasDefectsModule(project) ? (
       <InspectionPhoneHome projectId={project.id} projectName={project.name} />
     ) : (
       <PhoneProjectHome projectId={project.id} projectName={project.name} />
@@ -200,7 +201,7 @@ export default function ProjectDetailPage() {
 
       {/* Progress Stats (progress projects only — inspection projects show
           the register card instead) */}
-      {project.projectType !== "inspection" && (
+      {!hasDefectsModule(project) && (
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="pt-4 pb-4">
@@ -247,7 +248,7 @@ export default function ProjectDetailPage() {
       {/* First report: the A-to-Z setup checklist. From report #1 onward
           it hands over to the living gap list — countdown, this period's
           gaps, and the programme-refresh ritual. */}
-      {project.projectType === "inspection" ? (
+      {hasDefectsModule(project) ? (
         <InspectionOverviewCard projectId={project.id} />
       ) : totalReports === 0 ? (
         <ReportChecklist

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { buildRecipeRows, type GapSnapshot } from "@/lib/readiness";
+import { hasDefectsModule } from "@/lib/project-modules";
 import {
   ClipboardList,
   FileText,
@@ -41,9 +42,9 @@ function DesknavInner({ projectId }: { projectId: string }) {
   );
   const { data: gaps } = trpc.project.gapList.useQuery(
     { id: projectId },
-    // True while loading and for every progress project — only an
-    // inspection project skips the gap engine.
-    { retry: false, enabled: project?.projectType !== "inspection" }
+    // True while loading and for every progress project — only a
+    // defects-mode project skips the gap engine.
+    { retry: false, enabled: !hasDefectsModule(project) }
   );
 
   if (error && UNREACHABLE_CODES.has(error.data?.code ?? "")) return null;
@@ -153,6 +154,19 @@ function DesknavInner({ projectId }: { projectId: string }) {
           icon: ImageIcon,
           isActive: (p) => p === `${base}/evidence`,
         },
+        // A progress project in its defects period keeps its diary: a live
+        // site still has attendance and weather to record. Born-inspection
+        // projects never had one.
+        ...(project?.projectType === "progress"
+          ? [
+              {
+                href: `${base}/diary`,
+                label: "Site Diary",
+                icon: NotebookPen,
+                isActive: (p: string) => p.startsWith(`${base}/diary`),
+              },
+            ]
+          : []),
         {
           href: `${base}/search`,
           label: "Search",
@@ -190,7 +204,7 @@ function DesknavInner({ projectId }: { projectId: string }) {
       ],
     },
   ];
-  const groups = project?.projectType === "inspection" ? inspectionGroups : progressGroups;
+  const groups = hasDefectsModule(project) ? inspectionGroups : progressGroups;
 
   return (
     <nav className="hidden w-48 shrink-0 md:block">

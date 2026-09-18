@@ -69,6 +69,9 @@ export default function OnboardingPage() {
     if (data.checkoutUrl) {
       toast.success("Redirecting to checkout...");
       window.location.href = data.checkoutUrl;
+    } else if (values.projectType === "inspection") {
+      // No programme on a defects inspection — skip the import step.
+      router.push(`/projects/${data.project.id}`);
     } else {
       setProjectId(data.project.id);
       setStep(3);
@@ -217,6 +220,7 @@ export default function OnboardingPage() {
             everything later in project settings.
           </p>
           <ProjectForm
+            allowTypeChoice
             onSubmit={handleCreateProject}
             isSubmitting={createProject.isPending || completeOnboarding.isPending}
             submitLabel="Create Project"

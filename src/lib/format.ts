@@ -67,6 +67,20 @@ export const CONTRACT_TYPE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+// Inspection projects: the form of contract the defects regime runs under
+export const CONTRACT_FORM_LABELS: Record<string, string> = {
+  nec4_ecc: "NEC4 ECC",
+  nec3_ecc: "NEC3 ECC",
+  jct: "JCT",
+  other: "Other",
+};
+
+export const LOCATION_SCHEME_LABELS: Record<string, string> = {
+  linear: "Linear (route · chainage · side)",
+  building: "Building (block · level · room · element)",
+  grid: "Grid reference",
+};
+
 export const REPORTING_FREQUENCY_LABELS: Record<string, string> = {
   weekly: "Weekly",
   fortnightly: "Fortnightly",

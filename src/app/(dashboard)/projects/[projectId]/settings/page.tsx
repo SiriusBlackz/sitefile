@@ -40,6 +40,8 @@ import { ApprovalChainCard } from "@/components/projects/approval-chain-card";
 import { WorkingDaysCard } from "@/components/projects/working-days-card";
 import { DiaryExtrasCard } from "@/components/projects/diary-extras-card";
 import { InspectionSettingsCard } from "@/components/inspection/inspection-settings-card";
+import { EnableDefectsCard } from "@/components/inspection/enable-defects-card";
+import { hasDefectsModule } from "@/lib/project-modules";
 
 function ClientLogoCard({
   projectId,
@@ -268,6 +270,7 @@ export default function ProjectSettingsPage() {
   }
 
   const isArchived = project.status === "archived";
+  const defectsMode = hasDefectsModule(project);
 
   // Org admins own every project (see assertProjectAccess) — surface them as
   // implicit "Owner" rows instead of pretending the project has no members.
@@ -306,12 +309,16 @@ export default function ProjectSettingsPage() {
           nextReportDue: project.nextReportDue ?? "",
           firstReportNumber: project.firstReportNumber ?? 1,
         }}
+        // Fields follow what the project was born as: a progress project in
+        // its defects period keeps its dates, cadence and contract type
+        // editable — they print on the progress reports already issued.
+        inspectionMode={project.projectType === "inspection"}
         onSubmit={handleSubmit}
         isSubmitting={updateProject.isPending}
         submitLabel="Update Project"
       />
 
-      {project.projectType === "inspection" && (
+      {defectsMode && (
         <InspectionSettingsCard
           projectId={params.projectId}
           contractForm={project.contractForm}
@@ -319,6 +326,10 @@ export default function ProjectSettingsPage() {
           defaultCorrectionPeriodDays={project.defaultCorrectionPeriodDays}
           contractDates={project.contractDates}
         />
+      )}
+
+      {!defectsMode && !isArchived && (
+        <EnableDefectsCard projectId={params.projectId} />
       )}
 
       {/* Client branding */}
@@ -545,6 +556,7 @@ export default function ProjectSettingsPage() {
         timezone={project.timezone}
       />
 
+      {/* Diary stays with a born-progress project through its defects period */}
       {project.projectType !== "inspection" && (
         <DiaryExtrasCard projectId={params.projectId} diaryExtras={project.diaryExtras} />
       )}

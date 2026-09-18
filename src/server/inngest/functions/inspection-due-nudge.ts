@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { inngest } from "../client";
 import { db } from "@/server/db";
 import { auditLog, inspectionItems, projectMembers, projects, users } from "@/server/db/schema";
@@ -28,7 +28,8 @@ export async function runInspectionDueSweep(now: Date = new Date(), onlyProjectI
 
   const targets = await db.query.projects.findMany({
     where: and(
-      eq(projects.projectType, "inspection"),
+      // SQL form of hasDefectsModule(): born inspection, or defects period started
+      or(eq(projects.projectType, "inspection"), isNotNull(projects.defectsEnabledAt)),
       eq(projects.status, "active"),
       ...(onlyProjectId ? [eq(projects.id, onlyProjectId)] : [])
     ),
