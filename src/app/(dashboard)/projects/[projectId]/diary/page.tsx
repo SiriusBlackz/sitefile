@@ -419,6 +419,15 @@ function EntryDetailSheet({
               </div>
             )}
 
+            {/* The checked zero is shown as such — distinct from an unanswered question */}
+            {d.holdupDays.length === 0 && (
+              <div className="space-y-1.5">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Hold-ups</p>
+                <p className={cn("text-xs", d.entry.noHoldupsConfirmed ? "text-green-700 dark:text-green-400" : "text-muted-foreground")}>
+                  {d.entry.noHoldupsConfirmed ? "None — confirmed by the author" : "None logged — not confirmed as none"}
+                </p>
+              </div>
+            )}
             {d.holdupDays.length > 0 && (
               <div className="space-y-1.5">
                 <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Hold-ups</p>

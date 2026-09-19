@@ -11,6 +11,7 @@ export interface DiaryRecordEntry {
   holdups: DiaryRecordHoldup[];
   visitors: number; inspections: number; toolboxTalk: boolean; toolboxTopic: string | null; incidents: number;
   safetyNote: string | null; workNote: string | null;
+  noHoldupsConfirmed: boolean;
   /** Package 3b additions; empty / null when the project has them off. */
   contractors: { company: string; discipline: string; headcount: number }[];
   plannedWorks: string | null; nextDayImpact: string | null;
@@ -150,7 +151,9 @@ export function DiaryRecordPages({ data }: { data: DiaryRecordData }) {
           {e.plannedWorks && <Section title="Planned works for the next day"><p style={{ fontSize: 10.5, whiteSpace: "pre-wrap" }}>{e.plannedWorks}</p></Section>}
 
           <Section title="Hold-ups and disruption">
-            {e.holdups.length === 0 ? <p style={{ fontSize: 10 }}>None logged.</p> : <HoldupTable rows={e.holdups} />}
+            {e.holdups.length === 0 ? (
+              <p style={{ fontSize: 10 }}>{e.noHoldupsConfirmed ? "None — confirmed by the author ('No hold-ups today')." : "None logged; not confirmed as none."}</p>
+            ) : <HoldupTable rows={e.holdups} />}
             {e.nextDayImpact && <p style={{ fontSize: 10.5, marginTop: 4 }}><b>Impact on the next day.</b> {e.nextDayImpact}</p>}
           </Section>
 

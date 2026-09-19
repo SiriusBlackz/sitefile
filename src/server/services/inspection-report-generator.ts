@@ -87,6 +87,10 @@ const CONTRACT_FORM_LABELS: Record<string, string> = {
 const CLOSED = new Set(["verified_closed", "accepted_as_is", "void"]);
 const MAX_PHOTOS_PER_ITEM = 4;
 
+function fmtDate(d: string): string {
+  return new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+}
+
 function formatDuration(ms: number): string {
   const hours = Math.floor(ms / 3_600_000);
   const minutes = Math.floor((ms % 3_600_000) / 60_000);
@@ -193,14 +197,38 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
     },
   };
 
-  // Scope page
+  // Scope page. "Existing records" is derived from the data, never a
+  // fixed claim: items first recorded on earlier visits are named as such.
+  const visitDates = new Map(
+    (await db.query.inspectionVisits.findMany({
+      where: eq(inspectionVisits.projectId, input.projectId),
+      columns: { id: true, visitDate: true },
+    })).map((v) => [v.id, v.visitDate])
+  );
+  const firstDate = (it: (typeof items)[number]) => (it.firstVisitId ? visitDates.get(it.firstVisitId) : undefined) ?? (it.createdAt ?? new Date()).toISOString().slice(0, 10);
+  const other = items.filter((it) => firstDate(it) !== visit.visitDate);
+  const group = (pred: (d: string) => boolean) => {
+    const rows = other.filter((it) => pred(firstDate(it)));
+    const dates = Array.from(new Set(rows.map(firstDate))).sort();
+    return { n: rows.length, dates };
+  };
+  const earlier = group((d) => d < visit.visitDate);
+  const later = group((d) => d > visit.visitDate);
+  const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+  const clause = (g: { n: number; dates: string[] }, when: string) =>
+    `${g.n} ${plural(g.n, "was", "were")} first recorded through Sitefile on ${plural(g.dates.length, `${when === "earlier" ? "an" : "a"} ${when} visit`, `${when} visits`)} (${g.dates.map(fmtDate).join(", ")})`;
+  const thisVisitCount = items.length - other.length;
+  const existingRecords =
+    other.length === 0
+      ? null
+      : `No earlier defects list was imported. Of the ${items.length} item${plural(items.length, "", "s")} in this report, ${thisVisitCount} ${plural(thisVisitCount, "was", "were")} first recorded on this visit (${fmtDate(visit.visitDate)})${earlier.n ? `; ${clause(earlier, "earlier")}` : ""}${later.n ? `; ${clause(later, "later")}` : ""}. Items from other visits are carried at their current status; each item record shows its original observation date and status trail. Nothing has been back-dated.`;
   const scope: ScopeData = {
     scopeNote: input.scopeNote ?? visit.scopeNote,
     methodLine: input.methodLine ?? visit.methodLine,
     weather: input.weather ?? visit.weather,
     attendees: (input.attendees ?? (visit.attendees as ScopeData["attendees"])) ?? [],
     notInspected: (input.notInspected ?? (visit.notInspected as ScopeData["notInspected"])) ?? [],
-    existingRecords: null,
+    existingRecords,
   };
 
   // Register + item records
@@ -254,7 +282,7 @@ export async function gatherInspectionReportData(db: DB, input: InspectionReport
       .filter((e) => ["created", "status_change", "not_accepted", "reopened", "disposition", "notified"].includes(e.kind))
       .map((e) => ({
         at: e.createdAt.toISOString(),
-        text: `${e.kind.replace(/_/g, " ")}${e.toStatus ? ` ${e.fromStatus ? `${e.fromStatus.replace(/_/g, " ")} → ` : ""}${e.toStatus.replace(/_/g, " ")}` : ""}${e.actor ? ` · ${e.actor.name}` : ""}${e.note ? ` · ${e.note}` : ""}`,
+        text: `${e.kind.replace(/_/g, " ")}${e.toStatus ? ` ${e.fromStatus ? `${e.fromStatus.replace(/_/g, " ")} to ` : ""}${e.toStatus.replace(/_/g, " ")}` : ""}${e.actor ? ` · ${e.actor.name}` : ""}${e.note ? ` · ${e.note}` : ""}`,
       }));
     records.push({
       ref: it.ref,

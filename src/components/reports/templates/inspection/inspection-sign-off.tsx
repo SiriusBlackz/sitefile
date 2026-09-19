@@ -14,7 +14,7 @@ export function InspectionSignOffPage({ meta, signatures = [], startPage }: { me
       <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
         <Block role="Inspector / contractor submission" description="I confirm this report records the items observed at the visit stated, and I submit the identified corrective work and evidence, if any, for review." sig={byRole.get("contractor")} />
         <Block role="Verifier" description="I verified the items marked Verified closed using the recorded methods and evidence. Satisfactory correction applies only to those items and within my authority." sig={byRole.get("project_manager")} />
-        <Block role="Client / asset representative" description="Decision (tick one): ☐ Acknowledge receipt only  ☐ Agree the stated item outcomes within my authority  ☐ Further information or work required. Reservations, if any, to be written below." sig={undefined} />
+        <Block role="Client / asset representative" description="Decision (tick one): [  ] Acknowledge receipt only  [  ] Agree the stated item outcomes within my authority  [  ] Further information or work required. Reservations, if any, to be written below." sig={undefined} />
       </div>
       <div style={{ marginTop: 28, padding: 14, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
         <h3 style={{ fontSize: 10, color: "#475569", marginBottom: 6 }}>Basis of this record</h3>

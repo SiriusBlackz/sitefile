@@ -125,8 +125,13 @@ export const projects = pgTable("projects", {
   scheduleMode: text("schedule_mode").notNull().default("manual"),
   reportingFrequency: text("reporting_frequency").default("monthly"),
   // When the next report is owed to the client — drives the countdown
-  // chip and the gap list; advanced by one frequency step on generation.
+  // chip and the gap list; advanced one frequency step when the period's
+  // report is first sent or the period closed (advanceReportCadence).
   nextReportDue: date("next_report_due", { mode: "string" }),
+  // Period end of the last report that advanced next_report_due — the
+  // once-per-period guard for advanceReportCadence (a re-issue or a
+  // second send of the same period must not move the date again).
+  cadenceAdvancedThrough: date("cadence_advanced_through", { mode: "string" }),
   // Where report numbering begins: contractors joining mid-contract may
   // already have sent reports №1..N outside Sitefile. Only consulted
   // while the project has no reports; after that MAX+1 rules.
@@ -680,6 +685,9 @@ export const diaryEntries = pgTable(
     toolboxTopic: text("toolbox_topic"),
     incidentsCount: integer("incidents_count").notNull().default(0),
     safetyNote: text("safety_note"),
+    // The foreman's explicit "No hold-ups today" — a checked zero, as
+    // distinct from an unanswered question. Never inferred.
+    noHoldupsConfirmed: boolean("no_holdups_confirmed").notNull().default(false),
     workNote: text("work_note"),
     // Diary additions (package 3b, from the VFL shift report). NULL when the
     // project has the addition off or the foreman left it blank.

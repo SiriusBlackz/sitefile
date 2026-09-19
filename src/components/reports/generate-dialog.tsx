@@ -309,6 +309,8 @@ export function GenerateDialog({
   };
   const [hs, setHs] = useState({ ...emptyHs });
   const hsTouched = Object.values(hs).some((v) => v.trim() !== "");
+  const hsFigure = (v: string): number | null =>
+    v.trim() === "" ? null : Math.max(0, Math.floor(Number(v)) || 0);
 
   // Cover hero photo — per report, optional; null keeps today's cover.
   const [coverEvidenceId, setCoverEvidenceId] = useState<string | null>(
@@ -545,13 +547,15 @@ export function GenerateDialog({
       keyIssues: keyIssuesList.length > 0 ? keyIssuesList : undefined,
       keyRisks: keyRisksList,
       coverEvidenceId: coverEvidenceId ?? undefined,
+      // A blank figure is "not confirmed", never 0 — the PDF prints it
+      // as such rather than asserting a safety statistic nobody entered.
       healthSafety: hsTouched
         ? {
-            accidents: Number(hs.accidents) || 0,
-            nearMisses: Number(hs.nearMisses) || 0,
-            riddor: Number(hs.riddor) || 0,
-            toolboxTalks: Number(hs.toolboxTalks) || 0,
-            inductions: Number(hs.inductions) || 0,
+            accidents: hsFigure(hs.accidents),
+            nearMisses: hsFigure(hs.nearMisses),
+            riddor: hsFigure(hs.riddor),
+            toolboxTalks: hsFigure(hs.toolboxTalks),
+            inductions: hsFigure(hs.inductions),
             note: hs.note.trim() || undefined,
           }
         : undefined,
@@ -855,7 +859,8 @@ export function GenerateDialog({
             <Label>Health &amp; Safety (optional)</Label>
             <p className="text-xs text-muted-foreground">
               Appears as a Health &amp; Safety block on the Executive Summary.
-              Leave everything empty to omit it.
+              Leave everything empty to omit it. A figure left blank prints
+              as &ldquo;not confirmed&rdquo; — enter 0 to state there were none.
             </p>
             {diaryAgg && diaryAgg.daysWithRecord > 0 && (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-accent/50 p-2.5 text-xs">
@@ -908,7 +913,7 @@ export function GenerateDialog({
                     onChange={(e) =>
                       setHs((prev) => ({ ...prev, [key]: e.target.value }))
                     }
-                    placeholder="0"
+                    placeholder="—"
                   />
                 </div>
               ))}

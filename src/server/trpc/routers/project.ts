@@ -11,7 +11,7 @@ import {
   CONTRACT_FORMS,
   LOCATION_SCHEMES,
 } from "@/server/db/enums";
-import { assertProjectAccess } from "../helpers";
+import { assertProjectAccess, advanceReportCadence } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 import { isPlaceholderOrgName } from "@/lib/org-name";
 import {
@@ -572,8 +572,8 @@ export const projectRouter = createTRPCRouter({
     }),
 
   // Closes the reporting period after send: clears the standing draft so
-  // the next period starts honest. Does NOT touch nextReportDue — report
-  // generation already advanced it.
+  // the next period starts honest, and advances the due date if sending
+  // hasn't already (once per period — see advanceReportCadence).
   closePeriod: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -581,9 +581,9 @@ export const projectRouter = createTRPCRouter({
       // Don't wipe the period while a report is mid-approval — the chain
       // would be orphaned with its report still unsendable.
       const latest = await ctx.db.query.reports.findFirst({
-        where: and(eq(reports.projectId, input.id), eq(reports.status, "completed")),
+        where: and(eq(reports.projectId, input.id), eq(reports.status, "completed"), ne(reports.reportKind, "inspection")),
         orderBy: [desc(reports.createdAt)],
-        columns: { approvalState: true },
+        columns: { approvalState: true, periodEnd: true, reportKind: true },
       });
       const chainState = latest ? parseApprovalState(latest.approvalState) : null;
       if (chainState && !isApprovalComplete(chainState)) {
@@ -596,6 +596,9 @@ export const projectRouter = createTRPCRouter({
       await ctx.db
         .delete(reportDrafts)
         .where(eq(reportDrafts.projectId, input.id));
+      if (latest && latest.reportKind !== "inspection") {
+        await advanceReportCadence(ctx.db, input.id, latest.periodEnd);
+      }
       writeAuditLogAsync(ctx.db, {
         projectId: input.id,
         userId: ctx.userId,

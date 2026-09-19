@@ -165,7 +165,7 @@ function MilestoneRow({
               color: drift > 0 ? "#991b1b" : "#166534",
             }}
           >
-            {drift > 0 ? "+" : "−"}
+            {drift > 0 ? "+" : "-"}
             {Math.abs(drift)}d
           </span>
         )}

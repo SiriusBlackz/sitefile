@@ -153,11 +153,11 @@ export interface GenerateReportInput {
    * Executive Summary block when provided.
    */
   healthSafety?: {
-    accidents: number;
-    nearMisses: number;
-    riddor: number;
-    toolboxTalks: number;
-    inductions: number;
+    accidents: number | null;
+    nearMisses: number | null;
+    riddor: number | null;
+    toolboxTalks: number | null;
+    inductions: number | null;
     note?: string;
   };
   /**
@@ -1021,6 +1021,8 @@ export async function gatherReportData(db: DB, input: GenerateReportInput) {
                   ? ("late" as const)
                   : ("record" as const),
             amended: dayEntries.some((e) => e.amendedAt != null),
+            noHoldupsConfirmed:
+              dayHoldups.length === 0 && dayEntries.some((e) => e.noHoldupsConfirmed),
             exceptional: !scheduledSet.has(date),
           };
         });

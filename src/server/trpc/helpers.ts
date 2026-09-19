@@ -10,6 +10,7 @@ import {
 } from "@/server/db/schema";
 import type { db as dbType } from "@/server/db";
 import { hasDefectsModule, type ProjectModuleFields } from "@/lib/project-modules";
+import { addReportingPeriod } from "@/lib/reporting-cadence";
 
 type DB = typeof dbType;
 
@@ -105,6 +106,35 @@ export function assertProjectType(
           : `This action is only available on ${expected.replace(/_/g, " ")} projects.`,
     });
   }
+}
+
+/**
+ * Advance the reporting cadence once a period's report has been sent or
+ * the period closed: the next report is owed one frequency step after
+ * whichever is later — the current due date or this report's period
+ * end (so a report sent a few days early still moves the date). Once
+ * per period: `cadence_advanced_through` records the period end that
+ * last advanced it, so sending twice, sending then closing, or
+ * re-issuing an old period never pushes the next obligation out.
+ * Adopts a due date for projects that never set one.
+ */
+export async function advanceReportCadence(db: DB, projectId: string, periodEnd: string) {
+  const proj = await db.query.projects.findFirst({
+    where: eq(projects.id, projectId),
+    columns: { nextReportDue: true, reportingFrequency: true, cadenceAdvancedThrough: true },
+  });
+  if (!proj) return null;
+  if (proj.cadenceAdvancedThrough && proj.cadenceAdvancedThrough >= periodEnd) {
+    return proj.nextReportDue; // this period (or a later one) already counted
+  }
+  const base =
+    proj.nextReportDue && proj.nextReportDue > periodEnd ? proj.nextReportDue : periodEnd;
+  const next = addReportingPeriod(base, proj.reportingFrequency);
+  await db
+    .update(projects)
+    .set({ nextReportDue: next, cadenceAdvancedThrough: periodEnd })
+    .where(eq(projects.id, projectId));
+  return next;
 }
 
 export async function assertTaskInProject(db: DB, taskId: string, projectId: string) {

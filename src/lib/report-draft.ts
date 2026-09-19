@@ -20,11 +20,11 @@ export interface ReportDraftPayload {
   sections?: Partial<ReportSections>;
   coverEvidenceId?: string | null;
   healthSafety?: {
-    accidents: number;
-    nearMisses: number;
-    riddor: number;
-    toolboxTalks: number;
-    inductions: number;
+    accidents: number | null;
+    nearMisses: number | null;
+    riddor: number | null;
+    toolboxTalks: number | null;
+    inductions: number | null;
     note?: string;
   } | null;
 }

@@ -42,7 +42,7 @@ export const generateReport = inngest.createFunction(
         keyIssues?: string[];
         keyRisks?: string[];
         coverEvidenceId?: string;
-        healthSafety?: { accidents: number; nearMisses: number; riddor: number; toolboxTalks: number; inductions: number; note?: string };
+        healthSafety?: { accidents: number | null; nearMisses: number | null; riddor: number | null; toolboxTalks: number | null; inductions: number | null; note?: string };
       };
 
     // Single heavy step: gather → render → PDF → upload. Deliberately NOT

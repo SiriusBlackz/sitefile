@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "cadence_advanced_through" date;

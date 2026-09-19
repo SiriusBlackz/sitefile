@@ -9,12 +9,13 @@ export interface SinceLastReport {
   newEvidence: number;
 }
 
+/** null = the PM left the figure blank; printed as "not confirmed". */
 export interface HealthSafetyStats {
-  accidents: number;
-  nearMisses: number;
-  riddor: number;
-  toolboxTalks: number;
-  inductions: number;
+  accidents: number | null;
+  nearMisses: number | null;
+  riddor: number | null;
+  toolboxTalks: number | null;
+  inductions: number | null;
   note?: string;
 }
 
@@ -489,7 +490,7 @@ function WeatherBlock({
         {weather.heavyRainDays > 0 && (
           <>
             , including <strong>{weather.heavyRainDays}</strong> day
-            {weather.heavyRainDays === 1 ? "" : "s"} of heavy rain (≥10mm)
+            {weather.heavyRainDays === 1 ? "" : "s"} of heavy rain (10mm or more)
           </>
         )}
         ; total precipitation <strong>{weather.totalPrecipMm}mm</strong>.
@@ -529,9 +530,9 @@ function WeatherBlock({
 
 function HealthSafetyBlock({ hs }: { hs: HealthSafetyStats }) {
   const items = [
-    { label: "Accidents", value: hs.accidents, alert: hs.accidents > 0 },
-    { label: "Near Misses", value: hs.nearMisses, alert: hs.nearMisses > 0 },
-    { label: "RIDDOR", value: hs.riddor, alert: hs.riddor > 0 },
+    { label: "Accidents", value: hs.accidents, alert: (hs.accidents ?? 0) > 0 },
+    { label: "Near Misses", value: hs.nearMisses, alert: (hs.nearMisses ?? 0) > 0 },
+    { label: "RIDDOR", value: hs.riddor, alert: (hs.riddor ?? 0) > 0 },
     { label: "Toolbox Talks", value: hs.toolboxTalks, alert: false },
     { label: "Inductions", value: hs.inductions, alert: false },
   ];
@@ -561,15 +562,21 @@ function HealthSafetyBlock({ hs }: { hs: HealthSafetyStats }) {
             >
               {it.label}
             </div>
-            <div
-              style={{
-                fontSize: 16,
-                fontWeight: 700,
-                color: it.alert ? "#991b1b" : "#0f172a",
-              }}
-            >
-              {it.value}
-            </div>
+            {it.value == null ? (
+              <div style={{ fontSize: 9, fontWeight: 600, color: "#94a3b8", lineHeight: "20px" }}>
+                Not confirmed
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: it.alert ? "#991b1b" : "#0f172a",
+                }}
+              >
+                {it.value}
+              </div>
+            )}
           </div>
         ))}
       </div>

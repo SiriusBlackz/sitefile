@@ -155,6 +155,7 @@ function DiaryRitual() {
       setInspections(e.inspectionsCount);
       setIncidents(e.incidentsCount);
       setToolbox(e.toolboxTalk);
+      setNoneToday(e.noHoldupsConfirmed);
       setToolboxTopic(e.toolboxTopic ?? "");
       setSafetyNote(e.safetyNote ?? "");
       setContractors(Array.isArray(e.contractors) ? (e.contractors as DiaryContractor[]) : []);
@@ -178,6 +179,7 @@ function DiaryRitual() {
         setInspections(p.inspectionsCount);
         setIncidents(p.incidentsCount);
         setToolbox(p.toolboxTalk);
+        setNoneToday(Boolean(p.noHoldupsConfirmed));
         setToolboxTopic(p.toolboxTopic ?? "");
         setSafetyNote(p.safetyNote ?? "");
         setContractors(p.contractors ?? []);
@@ -235,6 +237,8 @@ function DiaryRitual() {
       toolboxTopic: toolbox && toolboxTopic.trim() ? toolboxTopic.trim() : undefined,
       incidentsCount: incidents,
       safetyNote: safetyNote.trim() || undefined,
+      // Only meaningful when nothing was logged today; a logged hold-up wins.
+      noHoldupsConfirmed: noneToday && (day?.todaysHoldupDays.length ?? 0) === 0,
       provenance: {
         labour: resources.labour.provenance,
         plant: resources.plant.provenance,

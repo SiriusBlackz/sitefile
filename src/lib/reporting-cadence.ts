@@ -1,7 +1,8 @@
 /**
  * Reporting-cadence date arithmetic (YYYY-MM-DD strings, UTC).
  * The due date drives the countdown chip and the gap list, and is
- * advanced one step each time a report is generated.
+ * advanced one step when a period's report is first sent or the period
+ * is closed — never on generate (see advanceReportCadence).
  */
 
 export function addReportingPeriod(

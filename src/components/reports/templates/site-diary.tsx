@@ -19,6 +19,8 @@ export interface SiteDiaryDay {
    * "none" = no record made (declared, never hidden). */
   status: "record" | "late" | "none";
   amended: boolean;
+  /** The foreman explicitly confirmed "No hold-ups today" (checked zero). */
+  noHoldupsConfirmed: boolean;
   /** Outside the project's configured working days — authorised
    * exceptional (weekend) working, reported in full and labelled. */
   exceptional: boolean;
@@ -133,7 +135,7 @@ export function SiteDiaryPages({
               <p style={{ fontSize: 10.5, color: "#475569", margin: "6px 0 4px" }}>
                 Daily site records kept by the site team during the period —
                 locked on the day and preserved unedited (later corrections
-                appear as flagged amendments ◆).
+                are marked &quot;amended&quot;, with the original kept).
               </p>
               <div
                 style={{
@@ -155,7 +157,7 @@ export function SiteDiaryPages({
                     ? " — remaining days declared as no record made"
                     : ""}
                   {data.exceptionalDays > 0
-                    ? ` · ${data.exceptionalDays} non-working day${data.exceptionalDays === 1 ? "" : "s"} worked ‡`
+                    ? ` · ${data.exceptionalDays} non-working day${data.exceptionalDays === 1 ? "" : "s"} worked`
                     : ""}
                 </span>
                 {data.labourAvg != null && (
@@ -190,7 +192,9 @@ export function SiteDiaryPages({
                 <tr key={d.date}>
                   <td style={td}>
                     {fmtDay(d.date)}
-                    {d.exceptional ? " ‡" : ""}
+                    {d.exceptional ? (
+                      <span style={{ color: "#64748b", fontSize: 8.5 }}> (non-working day)</span>
+                    ) : null}
                   </td>
                   <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                     {d.labour ?? "—"}
@@ -206,7 +210,11 @@ export function SiteDiaryPages({
                   <td style={{ ...td, color: d.hoursLost > 0 ? "#b91c1c" : "#1e293b" }}>
                     {d.hoursLost > 0
                       ? `${d.hoursLost}h — ${d.causes.join(", ")}`
-                      : "None recorded"}
+                      : d.noHoldupsConfirmed
+                        ? "None — confirmed"
+                        : d.status === "none"
+                          ? "—"
+                          : "None recorded"}
                   </td>
                   <td style={td}>
                     {d.status === "none" ? (
@@ -214,8 +222,12 @@ export function SiteDiaryPages({
                     ) : (
                       <span style={{ color: "#15803d" }}>
                         On record
-                        {d.status === "late" ? " †" : ""}
-                        {d.amended ? " ◆" : ""}
+                        {d.status === "late" ? (
+                          <span style={{ color: "#b45309" }}> · late</span>
+                        ) : null}
+                        {d.amended ? (
+                          <span style={{ color: "#b45309", fontWeight: 700 }}> · amended</span>
+                        ) : null}
                       </span>
                     )}
                   </td>
@@ -226,10 +238,11 @@ export function SiteDiaryPages({
           {pageIdx === pages.length - 1 && (
             <p style={{ fontSize: 8.5, color: "#94a3b8", marginTop: 10 }}>
               Weather figures are recorded automatically from Open-Meteo for
-              the site location at the time each diary locks. † entered
-              after the day · ◆ amended after locking (original preserved)
+              the site location at the time each diary locks. &quot;Late&quot;
+              = entered after the day; &quot;amended&quot; = corrected after
+              locking, original preserved
               {data.exceptionalDays > 0
-                ? " · ‡ non-working day on the project calendar, worked and recorded"
+                ? "; non-working days on the project calendar that were worked are labelled"
                 : ""}
               .
               {data.lateCount > 0

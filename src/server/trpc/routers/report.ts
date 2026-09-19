@@ -23,7 +23,7 @@ import { MEMBER_ROLE_LABELS } from "@/lib/member-roles";
 import type { ProjectMemberRole } from "@/server/db/enums";
 import { randomBytes } from "crypto";
 import { inngest } from "@/server/inngest/client";
-import { assertProjectAccess } from "../helpers";
+import { assertProjectAccess, advanceReportCadence } from "../helpers";
 import { writeAuditLogAsync } from "@/server/services/audit";
 import { signReportToken } from "@/server/services/report-tokens";
 import {
@@ -37,7 +37,6 @@ import {
   renderReportHTML,
 } from "@/server/services/report-generator";
 import bcrypt from "bcryptjs";
-import { addReportingPeriod } from "@/lib/reporting-cadence";
 
 const sectionsSchema = z
   .object(
@@ -132,13 +131,14 @@ export const reportRouter = createTRPCRouter({
           keyIssues: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           keyRisks: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           coverEvidenceId: z.string().uuid().optional(),
+          // null = left blank by the PM → printed as "not confirmed"
           healthSafety: z
             .object({
-              accidents: z.number().int().min(0).max(9999),
-              nearMisses: z.number().int().min(0).max(9999),
-              riddor: z.number().int().min(0).max(9999),
-              toolboxTalks: z.number().int().min(0).max(9999),
-              inductions: z.number().int().min(0).max(9999),
+              accidents: z.number().int().min(0).max(9999).nullable(),
+              nearMisses: z.number().int().min(0).max(9999).nullable(),
+              riddor: z.number().int().min(0).max(9999).nullable(),
+              toolboxTalks: z.number().int().min(0).max(9999).nullable(),
+              inductions: z.number().int().min(0).max(9999).nullable(),
               note: z.string().trim().max(1000).optional(),
             })
             .optional(),
@@ -320,24 +320,10 @@ export const reportRouter = createTRPCRouter({
         });
       }
 
-      // Advance the report cadence: the next report is owed one frequency
-      // step after whichever is later — the current due date or this
-      // report's period end. Adopts a due date automatically for projects
-      // that never set one.
-      const proj = await ctx.db.query.projects.findFirst({
-        where: eq(projects.id, input.projectId),
-        columns: { nextReportDue: true, reportingFrequency: true },
-      });
-      if (proj) {
-        const base =
-          proj.nextReportDue && proj.nextReportDue > input.periodEnd
-            ? proj.nextReportDue
-            : input.periodEnd;
-        await ctx.db
-          .update(projects)
-          .set({ nextReportDue: addReportingPeriod(base, proj.reportingFrequency) })
-          .where(eq(projects.id, input.projectId));
-      }
+      // The report cadence is NOT advanced here: generating is not
+      // delivering, and a regenerate must not push the next obligation
+      // out. See advanceReportCadence — called on first send and on
+      // closing the period.
 
       writeAuditLogAsync(ctx.db, { projectId: input.projectId, userId: ctx.userId, action: "generate", entityType: "report", entityId: report.id, metadata: { reportNumber, periodStart: input.periodStart, periodEnd: input.periodEnd, sections: input.sections } });
 
@@ -381,13 +367,14 @@ export const reportRouter = createTRPCRouter({
           keyIssues: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           keyRisks: z.array(z.string().trim().min(1).max(600)).max(20).optional(),
           coverEvidenceId: z.string().uuid().optional(),
+          // null = left blank by the PM → printed as "not confirmed"
           healthSafety: z
             .object({
-              accidents: z.number().int().min(0).max(9999),
-              nearMisses: z.number().int().min(0).max(9999),
-              riddor: z.number().int().min(0).max(9999),
-              toolboxTalks: z.number().int().min(0).max(9999),
-              inductions: z.number().int().min(0).max(9999),
+              accidents: z.number().int().min(0).max(9999).nullable(),
+              nearMisses: z.number().int().min(0).max(9999).nullable(),
+              riddor: z.number().int().min(0).max(9999).nullable(),
+              toolboxTalks: z.number().int().min(0).max(9999).nullable(),
+              inductions: z.number().int().min(0).max(9999).nullable(),
               note: z.string().trim().max(1000).optional(),
             })
             .optional(),
@@ -741,7 +728,7 @@ export const reportRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const report = await ctx.db.query.reports.findFirst({
         where: eq(reports.id, input.reportId),
-        columns: { id: true, projectId: true, status: true, reportNumber: true, approvalState: true },
+        columns: { id: true, projectId: true, status: true, reportNumber: true, approvalState: true, reportKind: true, periodEnd: true },
       });
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Report not found" });
       await assertProjectAccess(ctx.db, report.projectId, ctx.orgId, ctx.userId);
@@ -755,6 +742,10 @@ export const reportRouter = createTRPCRouter({
           code: "PRECONDITION_FAILED",
           message: `This report is awaiting sign-off${next ? ` from ${next.name}` : ""} before it can be sent.`,
         });
+      }
+      // First send of a progress report satisfies this period's obligation.
+      if (report.reportKind !== "inspection") {
+        await advanceReportCadence(ctx.db, report.projectId, report.periodEnd);
       }
       const token = randomBytes(24).toString("base64url");
       const [share] = await ctx.db

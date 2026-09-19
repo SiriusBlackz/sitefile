@@ -177,6 +177,7 @@ export async function gatherDiaryRecord(db: DB, input: DiaryRecordInput): Promis
         toolboxTopic: e.toolboxTopic,
         incidents: e.incidentsCount,
         safetyNote: e.safetyNote,
+        noHoldupsConfirmed: e.noHoldupsConfirmed,
         workNote: e.workNote,
         contractors: parseContractors(e.contractors),
         plannedWorks: e.plannedWorks,

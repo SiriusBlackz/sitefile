@@ -1,0 +1,1 @@
+ALTER TABLE "diary_entries" ADD COLUMN "no_holdups_confirmed" boolean DEFAULT false NOT NULL;
