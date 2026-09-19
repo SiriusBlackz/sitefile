@@ -8,8 +8,8 @@ import { GenerateDialog } from "@/components/reports/generate-dialog";
 import { ReportBuilderPanel } from "@/components/reports/report-builder-panel";
 import { ProjectBreadcrumb } from "@/components/layout/breadcrumb";
 import { InspectionGenerateDialog } from "@/components/inspection/inspection-generate-dialog";
-import { InspectionOverviewCard } from "@/components/inspection/inspection-overview-card";
-import { Button } from "@/components/ui/button";
+import { InspectionReportBuilderPanel } from "@/components/inspection/inspection-report-builder";
+import type { InspectionDraftPayload } from "@/lib/inspection-readiness";
 import { toast } from "sonner";
 import { hasDefectsModule } from "@/lib/project-modules";
 
@@ -22,6 +22,7 @@ export default function ReportsPage() {
   const { data: project } = trpc.project.get.useQuery({ id: projectId });
   const isInspection = hasDefectsModule(project);
   const { data: draft } = trpc.report.getDraft.useQuery({ projectId }, { enabled: !isInspection });
+  const { data: inspectionDraft } = trpc.inspection.draftGet.useQuery({ projectId }, { enabled: isInspection });
   // Report ids seen as "generating", so we can toast when they finish.
   const generatingIdsRef = useRef<Set<string>>(new Set());
 
@@ -74,14 +75,14 @@ export default function ReportsPage() {
       </div>
 
       {isInspection ? (
-        <>
-          <InspectionOverviewCard projectId={projectId} />
-          <div className="flex justify-end">
-            <Button onClick={() => { setGenerateKey((k) => k + 1); setGenerateOpen(true); }}>
-              Generate inspection report
-            </Button>
-          </div>
-        </>
+        /* The standing inspection draft — readiness rows, facts, live preview, Review & issue. */
+        <InspectionReportBuilderPanel
+          projectId={projectId}
+          onReviewAndIssue={() => {
+            setGenerateKey((k) => k + 1);
+            setGenerateOpen(true);
+          }}
+        />
       ) : (
         /* The standing draft — readiness ring, fix rows, Review & send. */
         <ReportBuilderPanel
@@ -102,6 +103,7 @@ export default function ReportsPage() {
           onOpenChange={setGenerateOpen}
           projectId={projectId}
           onGenerated={() => utils.report.list.invalidate({ projectId })}
+          draft={(inspectionDraft?.payload as InspectionDraftPayload | undefined) ?? null}
         />
       ) : (
       <GenerateDialog

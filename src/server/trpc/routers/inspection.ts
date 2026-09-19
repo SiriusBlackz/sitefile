@@ -12,6 +12,7 @@ import {
   inspectionItems,
   inspectionItemEvents,
   inspectionItemPhotos,
+  inspectionReportDrafts,
 } from "@/server/db/schema";
 import { inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -210,6 +211,54 @@ const reportFactsSchema = z.object({
     .max(50)
     .optional(),
 });
+
+/**
+ * Re-issue target: must be a completed inspection report of this project
+ * and the latest revision of its number. Shared by previewHtml and
+ * generateReport so the preview shows the number/revision that will
+ * actually be issued.
+ */
+async function resolveSupersedes(
+  db: Parameters<typeof assertProjectAccess>[0],
+  projectId: string,
+  supersedesReportId: string | undefined
+) {
+  if (!supersedesReportId) return null;
+  const prev = await db.query.reports.findFirst({
+    where: and(eq(reports.id, supersedesReportId), eq(reports.projectId, projectId)),
+    columns: { id: true, reportNumber: true, revision: true, createdAt: true, reportKind: true, status: true },
+  });
+  if (!prev || prev.reportKind !== "inspection") throw new TRPCError({ code: "NOT_FOUND", message: "Report to supersede not found" });
+  if (prev.status !== "completed") throw new TRPCError({ code: "BAD_REQUEST", message: "Only a completed report can be re-issued" });
+  const latest = await db.query.reports.findFirst({
+    where: and(eq(reports.projectId, projectId), eq(reports.reportNumber, prev.reportNumber)),
+    orderBy: [desc(reports.revision)],
+    columns: { id: true },
+  });
+  if (latest && latest.id !== prev.id) throw new TRPCError({ code: "BAD_REQUEST", message: "A later revision of that report already exists — re-issue the latest revision" });
+  return prev;
+}
+
+const draftPatchSchema = z
+  .object({
+    visitId: z.string().uuid().optional(),
+    stage: z.enum(STAGES).optional(),
+    kind: z.enum(INSPECTION_REPORT_KINDS).optional(),
+    supersedesReportId: z.string().uuid().nullable().optional(),
+    scopeNote: z.string().max(2000).optional(),
+    methodLine: z.string().max(500).optional(),
+    weather: z.string().max(200).optional(),
+    urgentConcerns: z.string().max(2000).optional(),
+    urgentDecidedAt: z.string().max(40).optional(),
+    attendees: reportFactsSchema.shape.attendees,
+    notInspected: reportFactsSchema.shape.notInspected,
+    notInspectedNone: z.boolean().optional(),
+    distribution: z.array(z.string().trim().max(160)).max(20).optional(),
+    sections: inspectionSectionsSchema.optional(),
+    signature: z.object({ name: z.string().max(120), title: z.string().max(120).optional() }).optional(),
+    signedAt: z.string().max(40).optional(),
+  })
+  .strict();
 
 const photoColumns = {
   id: true,
@@ -1127,25 +1176,78 @@ export const inspectionRouter = createTRPCRouter({
 
   /**
    * Same data-gather + templates the PDF pipeline uses, for review before
-   * generating. Also persists the visit facts typed in the dialog.
+   * generating. Reads only — the visit facts are persisted on generate.
    */
   previewHtml: protectedProcedure
-    .input(reportFactsSchema)
+    .input(reportFactsSchema.extend({ supersedesReportId: z.string().uuid().optional() }))
     .mutation(async ({ ctx, input }) => {
       const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
       assertProjectType(access, "inspection");
-      const existing = await ctx.db.query.reports.findMany({
-        where: eq(reports.projectId, input.projectId),
-        columns: { reportNumber: true },
-        orderBy: [desc(reports.reportNumber)],
-        limit: 1,
-      });
+      const { supersedesReportId, ...facts } = input;
+      // Same identity the issue path will allocate: a re-issue keeps the
+      // number and bumps the revision; a new report takes the next number.
+      const superseded = await resolveSupersedes(ctx.db, input.projectId, supersedesReportId);
+      const [existing, projectRow] = await Promise.all([
+        ctx.db.query.reports.findMany({
+          where: eq(reports.projectId, input.projectId),
+          columns: { reportNumber: true },
+          orderBy: [desc(reports.reportNumber)],
+          limit: 1,
+        }),
+        ctx.db.query.projects.findFirst({ where: eq(projects.id, input.projectId), columns: { firstReportNumber: true } }),
+      ]);
       const data = await gatherInspectionReportData(ctx.db, {
-        ...input,
+        ...facts,
         generatedBy: ctx.userId,
-        reportNumber: (existing[0]?.reportNumber ?? 0) + 1,
+        reportNumber: superseded
+          ? superseded.reportNumber
+          : existing[0] ? existing[0].reportNumber + 1 : (projectRow?.firstReportNumber ?? 1),
+        revision: superseded ? superseded.revision + 1 : 1,
+        supersedes: superseded
+          ? { reportNumber: superseded.reportNumber, revision: superseded.revision, issuedAt: superseded.createdAt?.toISOString() ?? null }
+          : null,
       });
-      return { html: await renderInspectionReportHTML(data), summary: data.summary };
+      return { html: await renderInspectionReportHTML(data), summary: data.summary, reportNumber: data.meta.reportNumber, revision: data.meta.revision };
+    }),
+
+  /** Standing pre-issue draft: what the PM has prepared so far at the desk. */
+  draftGet: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      assertProjectType(access, "inspection");
+      const row = await ctx.db.query.inspectionReportDrafts.findFirst({ where: eq(inspectionReportDrafts.projectId, input.projectId) });
+      return row ? { payload: row.payload as Record<string, unknown>, updatedAt: row.updatedAt } : null;
+    }),
+
+  /**
+   * Merge-patch the draft (any project member; the draft is preparation,
+   * not the record). Strict keys and bounded values: an unknown key would
+   * poison the stored JSON for every later read, so the patch is the
+   * typed InspectionDraftPayload and nothing else. An explicit undefined
+   * clears a key (superjson preserves it).
+   */
+  draftSave: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid(), patch: draftPatchSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      assertProjectType(access, "inspection");
+      const existing = await ctx.db.query.inspectionReportDrafts.findFirst({ where: eq(inspectionReportDrafts.projectId, input.projectId) });
+      const payload = { ...((existing?.payload as Record<string, unknown>) ?? {}), ...input.patch };
+      await ctx.db
+        .insert(inspectionReportDrafts)
+        .values({ projectId: input.projectId, payload, updatedBy: ctx.userId, updatedAt: new Date() })
+        .onConflictDoUpdate({ target: inspectionReportDrafts.projectId, set: { payload, updatedBy: ctx.userId, updatedAt: new Date() } });
+      return { payload };
+    }),
+
+  draftClear: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await assertProjectAccess(ctx.db, input.projectId, ctx.orgId, ctx.userId);
+      assertProjectType(access, "inspection");
+      await ctx.db.delete(inspectionReportDrafts).where(eq(inspectionReportDrafts.projectId, input.projectId));
+      return { ok: true };
     }),
 
   /**
@@ -1174,22 +1276,7 @@ export const inspectionRouter = createTRPCRouter({
 
       // Re-issue: the superseded report must be a completed inspection
       // report of this project and the latest revision of its number.
-      let superseded: { id: string; reportNumber: number; revision: number; createdAt: Date | null } | null = null;
-      if (input.supersedesReportId) {
-        const prev = await ctx.db.query.reports.findFirst({
-          where: and(eq(reports.id, input.supersedesReportId), eq(reports.projectId, input.projectId)),
-          columns: { id: true, reportNumber: true, revision: true, createdAt: true, reportKind: true, status: true },
-        });
-        if (!prev || prev.reportKind !== "inspection") throw new TRPCError({ code: "NOT_FOUND", message: "Report to supersede not found" });
-        if (prev.status !== "completed") throw new TRPCError({ code: "BAD_REQUEST", message: "Only a completed report can be re-issued" });
-        const latest = await ctx.db.query.reports.findFirst({
-          where: and(eq(reports.projectId, input.projectId), eq(reports.reportNumber, prev.reportNumber)),
-          orderBy: [desc(reports.revision)],
-          columns: { id: true },
-        });
-        if (latest && latest.id !== prev.id) throw new TRPCError({ code: "BAD_REQUEST", message: "A later revision of that report already exists — re-issue the latest revision" });
-        superseded = prev;
-      }
+      const superseded = await resolveSupersedes(ctx.db, input.projectId, input.supersedesReportId);
 
       // Persist the visit facts typed in the dialog so the register and
       // later revisions carry them.
@@ -1305,6 +1392,10 @@ export const inspectionRouter = createTRPCRouter({
         await ctx.db.update(reports).set({ status: "failed", passwordCiphertext: null }).where(eq(reports.id, report.id));
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Could not queue report generation. Please try again later.", cause: err });
       }
+
+      // The preparation is consumed: facts now live on the visit and in
+      // the report row. The next report starts from the visit's facts.
+      await ctx.db.delete(inspectionReportDrafts).where(eq(inspectionReportDrafts.projectId, input.projectId));
 
       writeAuditLogAsync(ctx.db, {
         projectId: input.projectId,

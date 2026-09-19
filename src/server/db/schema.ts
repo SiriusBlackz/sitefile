@@ -508,6 +508,21 @@ export const reportDraftsRelations = relations(reportDrafts, ({ one }) => ({
   }),
 }));
 
+// Standing pre-issue draft for the inspection report — the visit facts,
+// report kind/stage, distribution and inspector sign-off the PM builds up
+// at the desk before issuing. One per project; cleared when a report is
+// generated (the facts are then on the visit and in report_data).
+export const inspectionReportDrafts = pgTable("inspection_report_drafts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .unique()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  payload: jsonb("payload").notNull().default({}),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow(),
+}).enableRLS();
+
 // ─── Programme Baselines ────────────────────────────────────────────────────
 // The accepted/contract programme, snapshotted once (first import by
 // default) and held fixed while re-imports replace the *current*

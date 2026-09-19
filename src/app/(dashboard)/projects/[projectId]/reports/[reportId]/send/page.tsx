@@ -43,7 +43,9 @@ export default function SendPage() {
     { reportId },
     { refetchInterval: 8000 }
   );
-  const { data: gaps } = trpc.project.gapList.useQuery({ id: projectId });
+  // The gap engine is progress-only; an inspection report never needs it.
+  const { data: gaps } = trpc.project.gapList.useQuery({ id: projectId }, { enabled: !!report && report.reportKind !== "inspection", retry: false });
+  const { data: register } = trpc.inspection.summary.useQuery({ projectId }, { enabled: report?.reportKind === "inspection", retry: false });
 
   const [recipient, setRecipient] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -437,7 +439,33 @@ export default function SendPage() {
               were met — and your renewal argument.
             </p>
 
-            {share && (
+            {/* After an inspection issue the next step is the register, not
+                a reporting period: what's still open, and the next visit. */}
+            {share && report.reportKind === "inspection" && (
+              <div className="rounded-lg border border-green-500/40 bg-green-500/10 p-3">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-green-700 dark:text-green-400">
+                  {opened ? "Issued and opened" : "Issued — awaiting first open"}
+                </p>
+                <p className="mt-1 text-sm">
+                  {register
+                    ? `${register.open + register.reopened} open, ${register.readyForReview} awaiting verification, ${register.verifiedClosed} verified closed on the register.`
+                    : "The register carries on from here."}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Link href={`/projects/${projectId}/inspection`} className={cn(buttonVariants({ size: "sm" }))}>
+                    Outstanding items
+                  </Link>
+                  <Link href={`/inspect?projectId=${projectId}`} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+                    Record the next visit
+                  </Link>
+                  <Link href={`/projects/${projectId}/reports`} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+                    Re-issue as a revision
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {share && report.reportKind !== "inspection" && (
               <div className="rounded-lg border border-green-500/40 bg-green-500/10 p-3">
                 <p className="font-mono text-[10px] uppercase tracking-widest text-green-700 dark:text-green-400">
                   {opened ? "The £99 moment — witnessed" : "Sent — awaiting first open"}
