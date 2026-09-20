@@ -7,8 +7,10 @@ import { usePWA } from "@/lib/use-pwa";
 import { useItemPhotoUpload } from "@/components/inspection/use-item-photo-upload";
 import { Camera, X } from "lucide-react";
 
-type Target = "in_progress" | "ready_for_review" | "verified_closed" | "reopened";
-const COPY: Record<Target, { title: string; body: string; photoLabel: string; photoRequired: boolean; noteRequired: boolean; button: string }> = {
+export type TransitionTarget = "in_progress" | "ready_for_review" | "verified_closed" | "reopened";
+type Target = TransitionTarget;
+/** Wording for each status change; the desk dialog reuses it verbatim. */
+export const TRANSITION_COPY: Record<Target, { title: string; body: string; photoLabel: string; photoRequired: boolean; noteRequired: boolean; button: string }> = {
   in_progress: { title: "Mark in progress", body: "Work on this item has started.", photoLabel: "Progress photo (optional)", photoRequired: false, noteRequired: false, button: "Mark in progress" },
   ready_for_review: { title: "Ready for review", body: "The correction is complete and ready for someone else to verify. A photo of the finished work helps the verifier.", photoLabel: "Photo of the completed work", photoRequired: false, noteRequired: false, button: "Mark ready" },
   verified_closed: { title: "Verify and close", body: "You are recording a visual re-inspection. A verification photo is required and this closes the item against today's visit.", photoLabel: "Verification photo (required)", photoRequired: true, noteRequired: false, button: "Verify closed" },
@@ -41,7 +43,7 @@ export function ItemActionSheet({
   onDone: () => void;
 }) {
   const { isOnline } = usePWA();
-  const copy = COPY[target];
+  const copy = TRANSITION_COPY[target];
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState<string | null>(null);

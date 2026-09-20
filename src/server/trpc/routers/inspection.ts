@@ -37,6 +37,7 @@ import {
   canReject,
   canDispose,
   canNotify,
+  isOversight,
   permissionsFor,
   type Actor,
 } from "@/lib/inspection-transitions";
@@ -759,7 +760,17 @@ export const inspectionRouter = createTRPCRouter({
       const { photos: _drop, ...rest } = item;
       void _drop;
       const actor = await actorFor(ctx.db, item.projectId, ctx.userId, ctx.dbUser.role);
-      return { ...rest, photos, permissions: permissionsFor(item, actor) };
+      // Mirrors the itemUpdate gate: oversight roles always, the recorder
+      // for 24 h after recording. The desk uses it to show "Edit details".
+      const withinDay =
+        item.createdBy === ctx.userId &&
+        item.createdAt != null &&
+        Date.now() - item.createdAt.getTime() < 24 * 60 * 60 * 1000;
+      return {
+        ...rest,
+        photos,
+        permissions: { ...permissionsFor(item, actor), edit: isOversight(actor) || withinDay },
+      };
     }),
 
   /** Counts for the phone home tiles and the report summary. */

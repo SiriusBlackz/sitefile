@@ -11,6 +11,24 @@ import { formatDate } from "@/lib/format";
 import { ITEM_STATUS_LABELS, ITEM_TYPE_LABELS, locationLine } from "@/lib/inspection-location";
 import { INSPECTION_ITEM_STATUSES } from "@/server/db/enums";
 import { ItemDetailSheet } from "@/components/inspection/item-detail-sheet";
+import { CLOSED_STATUSES } from "@/lib/inspection-transitions";
+
+function todayLocal(): string {
+  return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+/** Earliest of repair target and contractual deadline; red when overdue on an open item. */
+function DueCell({ repairTarget, correctionDue, closed, flags }: { repairTarget: string | null; correctionDue: string | null; closed: boolean; flags: Record<string, unknown> }) {
+  const due = [repairTarget, correctionDue].filter((d): d is string => !!d).sort()[0] ?? null;
+  const overdue = !!due && !closed && due < todayLocal();
+  const flagKeys = Object.keys(flags ?? {});
+  return (
+    <>
+      <span className={cn("block tabular-nums", overdue && "font-semibold text-red-700")}>{due ? formatDate(due) : ""}{overdue ? " · overdue" : ""}</span>
+      {flagKeys.length > 0 && <span className="text-amber-800">{flagKeys.map((k) => k.replace(/_/g, " ")).join(", ")}</span>}
+    </>
+  );
+}
 
 export default function InspectionRegisterPage() {
   return (
@@ -70,16 +88,18 @@ function InspectionRegister() {
                 <th className="px-3 py-2">Type</th>
                 <th className="px-3 py-2">Finding</th>
                 <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Responsible</th>
+                <th className="px-3 py-2">Due</th>
                 <th className="px-3 py-2">Photos</th>
                 <th className="px-3 py-2">Recorded</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">Loading…</td></tr>
+                <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">Loading…</td></tr>
               )}
               {!isLoading && shown.length === 0 && (
-                <tr><td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">No items{status ? " with this status" : " yet — record the first one on the phone"}.</td></tr>
+                <tr><td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">No items{status ? " with this status" : " yet — record the first one on the phone"}.</td></tr>
               )}
               {shown.map((it) => (
                 <tr key={it.id} className="border-t align-top hover:bg-muted/30">
@@ -96,6 +116,13 @@ function InspectionRegister() {
                     <Badge variant="secondary" className={cn("text-xs", it.status === "verified_closed" && "bg-green-100 text-green-800")}>
                       {ITEM_STATUS_LABELS[it.status]}
                     </Badge>
+                  </td>
+                  <td className="max-w-[12rem] px-3 py-2 text-xs">
+                    <span className="block truncate">{it.responsibleOrg ?? ""}</span>
+                    {it.priority && <span className="text-muted-foreground">{it.priority}</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    <DueCell repairTarget={it.repairTarget} correctionDue={it.correctionDue} closed={CLOSED_STATUSES.has(it.status)} flags={it.flags as Record<string, unknown>} />
                   </td>
                   <td className="px-3 py-2 tabular-nums">{it.photoCount}</td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{it.createdAt ? formatDate(it.createdAt) : ""}</td>

@@ -1,21 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button-variants";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { ITEM_STATUS_LABELS, ITEM_TYPE_LABELS, locationLine } from "@/lib/inspection-location";
-import { Smartphone } from "lucide-react";
+import { ItemDeskActions } from "@/components/inspection/item-desk-actions";
 
 const ROLE_LABEL: Record<string, string> = { defect: "As found", during: "During", rectified: "Rectified", verified: "Verified" };
 
 /**
- * Desk read-view of one register item, opened from the register table or
- * a search hit (`?item=`). Actions stay on the phone view, which is one
- * link away — the desk is for reading the record, not changing it.
+ * Desk view of one register item, opened from the register table or a
+ * search hit (`?item=`). Reads the record and, since the desk actions
+ * pass, acts on it: the same status rules as the phone plus the
+ * management fields the phone never captures (see ItemDeskActions).
  */
 export function ItemDetailSheet({
   itemId,
@@ -28,7 +27,15 @@ export function ItemDetailSheet({
   locationScheme: string | null | undefined;
   onClose: () => void;
 }) {
+  const utils = trpc.useUtils();
   const { data: item, isLoading } = trpc.inspection.get.useQuery({ itemId: itemId ?? "" }, { enabled: !!itemId });
+  const refresh = () => {
+    if (itemId) utils.inspection.get.invalidate({ itemId });
+    utils.inspection.list.invalidate({ projectId });
+    utils.inspection.summary.invalidate({ projectId });
+  };
+  const flags = ((item?.flags ?? {}) as Record<string, { reason?: string }>);
+  const flagKeys = Object.keys(flags);
   return (
     <Sheet open={!!itemId} onOpenChange={(o) => { if (!o) onClose(); }}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
@@ -57,10 +64,21 @@ export function ItemDetailSheet({
               {item.suspectedCause && <p className="text-xs text-muted-foreground"><b>Suspected cause (not verified):</b> {item.suspectedCause}</p>}
             </section>
 
+            {flagKeys.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {flagKeys.map((k) => (
+                  <span key={k} className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-900">
+                    {k.replace(/_/g, " ")}{flags[k]?.reason ? ` · ${flags[k].reason}` : ""}
+                  </span>
+                ))}
+              </div>
+            )}
+
             <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
               <Row k="Recorded" v={item.createdAt ? `${formatDateTime(item.createdAt)}${item.creator ? ` · ${item.creator.name}` : ""}` : "—"} />
               <Row k="Priority" v={item.priority ?? "—"} />
-              <Row k="Responsible" v={item.responsibleOrg ?? item.responsibleUser?.name ?? "—"} />
+              {item.category && <Row k="Category" v={item.category} />}
+              <Row k="Responsible" v={[item.responsibleOrg, item.responsibleUser?.name].filter(Boolean).join(" · ") || "—"} />
               <Row k="Acceptance basis" v={item.acceptanceBasis ?? "unconfirmed"} />
               <Row k="Repair target" v={item.repairTarget ? formatDate(item.repairTarget) : "—"} />
               <Row k="Contractual deadline" v={item.correctionDue ? `${formatDate(item.correctionDue)} (computed)` : "not confirmed"} />
@@ -69,7 +87,10 @@ export function ItemDetailSheet({
               {item.interimAction && <Row k="Interim action" v={item.interimAction} />}
               {item.accessNote && <Row k="Access" v={item.accessNote} />}
               {item.dispositionRef && <Row k="Disposition ref" v={item.dispositionRef} />}
+              {item.nextAction && <Row k="Next action" v={`${item.nextAction}${item.nextActionOwner ? ` · ${item.nextActionOwner}` : ""}${item.nextActionDue ? ` · due ${formatDate(item.nextActionDue)}` : ""}`} />}
             </dl>
+
+            <ItemDeskActions item={item} onChanged={refresh} />
 
             {item.photos.length > 0 && (
               <section className="space-y-2">
@@ -109,9 +130,6 @@ export function ItemDetailSheet({
               </section>
             )}
 
-            <Link href={`/inspect/${item.id}?projectId=${projectId}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-              <Smartphone className="mr-1.5 h-4 w-4" /> Open in phone view to act on it
-            </Link>
           </div>
         )}
       </SheetContent>
