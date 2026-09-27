@@ -5,6 +5,7 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
+  HeadBucketCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { join, dirname } from "path";
@@ -40,6 +41,21 @@ function getS3Client(): S3Client {
     });
   }
   return s3Client;
+}
+
+/**
+ * Health canary: can the deployed runtime reach the configured bucket
+ * through the configured endpoint with the configured key? A wrong
+ * bucket name, endpoint, jurisdiction or revoked token all fail here
+ * before a contractor's first upload does. Local mode (no R2) is
+ * reported healthy — there is nothing remote to reach.
+ */
+export async function pingStorage(): Promise<boolean> {
+  if (!isR2Configured) return true;
+  await getS3Client().send(
+    new HeadBucketCommand({ Bucket: process.env.R2_BUCKET_NAME! })
+  );
+  return true;
 }
 
 export interface UploadUrlResult {

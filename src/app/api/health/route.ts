@@ -9,7 +9,7 @@ import { db } from "@/server/db";
  * DB, and the daily /api/cron/db-ping alone didn't prevent the 2026-07-06
  * pause.
  *
- * Three checks, each with its own flag so the console log names the
+ * Four checks, each with its own flag so the console log names the
  * culprit (the response stays internals-free):
  *   db    — SELECT 1 through the pooler.
  *   api   — self-fetch of a real tRPC route, asserting the response is
@@ -38,7 +38,7 @@ export async function GET(req: Request) {
   const startedAt = Date.now();
   const errors: string[] = [];
 
-  const [dbOk, apiOk, sharpOk] = await Promise.all([
+  const [dbOk, apiOk, sharpOk, storageOk] = await Promise.all([
     db
       .execute(sql`SELECT 1`)
       .then(() => true)
@@ -70,10 +70,27 @@ export async function GET(req: Request) {
         errors.push(`sharp: ${err instanceof Error ? err.message : String(err)}`);
         return false;
       }),
+    // storage — HeadBucket on the configured R2 bucket via the configured
+    // endpoint. Added with the 2026-09-27 move to an EU-jurisdiction bucket
+    // (different hostname): a bad bucket/endpoint/token pair fails here,
+    // not on a contractor's first upload.
+    import("@/server/services/storage")
+      .then((mod) => mod.pingStorage())
+      .catch((err) => {
+        errors.push(`storage: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      }),
   ]);
 
-  const ok = dbOk && apiOk && sharpOk;
-  const body = { ok, db: dbOk, api: apiOk, sharp: sharpOk, elapsedMs: Date.now() - startedAt };
+  const ok = dbOk && apiOk && sharpOk && storageOk;
+  const body = {
+    ok,
+    db: dbOk,
+    api: apiOk,
+    sharp: sharpOk,
+    storage: storageOk,
+    elapsedMs: Date.now() - startedAt,
+  };
 
   if (!ok) {
     console.error(
