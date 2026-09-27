@@ -4,5 +4,8 @@
       "path": "/api/cron/db-ping",
       "schedule": "0 4 * * *"
     }
+  ],
+  "regions": [
+    "lhr1"
   ]
 }

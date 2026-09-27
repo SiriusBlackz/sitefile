@@ -27,7 +27,12 @@ function getS3Client(): S3Client {
   if (!s3Client) {
     s3Client = new S3Client({
       region: "auto",
-      endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      // EU-jurisdiction buckets live on a different hostname
+      // (<account>.eu.r2.cloudflarestorage.com); R2_ENDPOINT overrides the
+      // default so the bucket's jurisdiction is config, not code.
+      endpoint:
+        process.env.R2_ENDPOINT ||
+        `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
       credentials: {
         accessKeyId: process.env.R2_ACCESS_KEY_ID!,
         secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
