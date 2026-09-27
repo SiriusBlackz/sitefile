@@ -10,20 +10,26 @@ import {
 import { uploadToStorage } from "@/server/services/storage";
 import { decryptReportPassword } from "@/server/services/report-password-crypto";
 import { encryptPdfBuffer } from "@/server/services/pdf-encrypt";
+import { describeFailure } from "@/server/services/report-failure";
 
 export const generateReport = inngest.createFunction(
   {
     id: "generate-report",
     retries: 3,
     triggers: [{ event: "report/generate" }],
-    onFailure: async ({ event }) => {
-      // Mark report as failed after all retries exhausted
+    onFailure: async ({ event, error }) => {
+      // Mark report as failed after all retries exhausted, keeping the
+      // last error so the report row can say why rather than just "Failed".
       const reportId = event.data.event.data?.reportId as string | undefined;
       if (reportId) {
-        console.error(`[generate-report] All retries exhausted for report ${reportId}`);
+        console.error(`[generate-report] All retries exhausted for report ${reportId}`, error);
         await db
           .update(reports)
-          .set({ status: "failed", passwordCiphertext: null })
+          .set({
+            status: "failed",
+            passwordCiphertext: null,
+            failureReason: describeFailure(error),
+          })
           .where(eq(reports.id, reportId));
       }
     },

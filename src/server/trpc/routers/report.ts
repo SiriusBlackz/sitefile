@@ -63,6 +63,7 @@ export const reportRouter = createTRPCRouter({
           periodStart: true,
           periodEnd: true,
           status: true,
+          failureReason: true,
           passwordHash: true,
           approvalState: true,
           createdAt: true,
@@ -217,7 +218,12 @@ export const reportRouter = createTRPCRouter({
       const STALE_GENERATING_MS = 15 * 60 * 1000;
       await ctx.db
         .update(reports)
-        .set({ status: "failed", passwordCiphertext: null })
+        .set({
+          status: "failed",
+          passwordCiphertext: null,
+          failureReason:
+            "Timed out — the report worker did not finish within 15 minutes. Try again; if it repeats, contact support.",
+        })
         .where(
           and(
             eq(reports.projectId, input.projectId),

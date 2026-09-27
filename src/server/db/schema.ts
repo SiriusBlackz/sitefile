@@ -431,6 +431,8 @@ export const reports = pgTable("reports", {
   // worker can encrypt the PDF without the plaintext transiting Inngest.
   // Set at generate time, cleared on completion/failure.
   passwordCiphertext: text("password_ciphertext"),
+  /** Why generation failed (worker error or timeout), shown on the report row. */
+  failureReason: text("failure_reason"),
   reportData: jsonb("report_data"),
   // Snapshot of the project's approval chain taken at generate time, plus
   // per-step approvals. NULL = no chain on this report (sendable once

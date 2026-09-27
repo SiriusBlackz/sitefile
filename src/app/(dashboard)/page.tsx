@@ -60,7 +60,8 @@ const ENTITY_LABELS: Record<string, string> = {
 function describeActivity(
   action: string,
   entityType: string,
-  metadata: Record<string, unknown> | null
+  metadata: Record<string, unknown> | null,
+  reportStatus?: string | null
 ): { phrase: string; connector: string } {
   const name = typeof metadata?.name === "string" ? metadata.name : null;
 
@@ -87,10 +88,14 @@ function describeActivity(
     case "generate": {
       const num =
         typeof metadata?.reportNumber === "number" ? metadata.reportNumber : null;
-      return {
-        phrase: num ? `generated report #${num}` : "generated a report",
-        connector: "for",
-      };
+      const which = num ? `report #${num}` : "a report";
+      // The audit row is written when generation STARTS; only a completed
+      // report has a file, so say what actually happened.
+      if (reportStatus === "failed")
+        return { phrase: `started ${which}, which failed`, connector: "for" };
+      if (reportStatus === "generating")
+        return { phrase: `started generating ${which}`, connector: "for" };
+      return { phrase: `generated ${which}`, connector: "for" };
     }
     case "subscribe":
       return { phrase: "started a subscription", connector: "for" };
@@ -240,7 +245,8 @@ export default function DashboardPage() {
                           const { phrase, connector } = describeActivity(
                             entry.action,
                             entry.entityType,
-                            (entry.metadata as Record<string, unknown>) ?? null
+                            (entry.metadata as Record<string, unknown>) ?? null,
+                            entry.reportStatus
                           );
                           return (
                             <>

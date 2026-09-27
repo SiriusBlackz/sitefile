@@ -23,7 +23,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import Link from "next/link";
-import { Download, Loader2, FileText, Lock, Send } from "lucide-react";
+import { Download, Loader2, FileText, Lock, RotateCcw, Send } from "lucide-react";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/format";
 
@@ -34,6 +34,7 @@ interface Report {
   periodStart: string;
   periodEnd: string;
   status: string | null;
+  failureReason?: string | null;
   hasPassword: boolean;
   awaitingApproval?: boolean;
   nextApprover?: string | null;
@@ -44,9 +45,11 @@ interface Report {
 
 interface ReportListProps {
   reports: Report[];
+  /** Opens the generate dialog again for a failed report. */
+  onRetry?: (report: Report) => void;
 }
 
-export function ReportList({ reports }: ReportListProps) {
+export function ReportList({ reports, onRetry }: ReportListProps) {
   const downloadMutation = trpc.report.download.useMutation();
   // Transient UI state for the spinner + password dialog.
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -155,6 +158,17 @@ export function ReportList({ reports }: ReportListProps) {
                       <StatusBadge status={report.status ?? "generating"} />
                     )}
                   </span>
+                  {report.status === "failed" && (
+                    <p className="mt-1 max-w-md text-xs text-muted-foreground">
+                      {report.failureReason ??
+                        "Generation failed. Try again; if it repeats, contact support."}
+                    </p>
+                  )}
+                  {report.status === "generating" && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Usually a couple of minutes. This page updates itself.
+                    </p>
+                  )}
                 </TableCell>
                 <TableCell>
                   {report.hasPassword ? (
@@ -168,32 +182,45 @@ export function ReportList({ reports }: ReportListProps) {
                 </TableCell>
                 <TableCell className="text-right">
                   {report.status === "completed" ? (
-                    <Link
-                      href={`/projects/${report.projectId}/reports/${report.id}/send`}
-                      className={cn(buttonVariants({ size: "sm" }), "mr-1.5")}
-                    >
-                      <Send className="mr-1 h-3 w-3" />
-                      Send
-                    </Link>
-                  ) : (
-                    <Button size="sm" className="mr-1.5" disabled>
-                      <Send className="mr-1 h-3 w-3" />
-                      Send
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={report.status !== "completed" || loadingId === report.id}
-                    onClick={() => handleDownload(report)}
-                  >
-                    {loadingId === report.id ? (
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    <>
+                      <Link
+                        href={`/projects/${report.projectId}/reports/${report.id}/send`}
+                        className={cn(buttonVariants({ size: "sm" }), "mr-1.5")}
+                      >
+                        <Send className="mr-1 h-3 w-3" />
+                        Send
+                      </Link>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={loadingId === report.id}
+                        onClick={() => handleDownload(report)}
+                      >
+                        {loadingId === report.id ? (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Download className="mr-1 h-3 w-3" />
+                        )}
+                        Download
+                      </Button>
+                    </>
+                  ) : report.status === "failed" ? (
+                    // A failed report has no file: Send/Download would be
+                    // dead buttons. The only sensible action is to try again.
+                    onRetry ? (
+                      <Button size="sm" variant="outline" onClick={() => onRetry(report)}>
+                        <RotateCcw className="mr-1 h-3 w-3" />
+                        Try again
+                      </Button>
                     ) : (
-                      <Download className="mr-1 h-3 w-3" />
-                    )}
-                    Download
-                  </Button>
+                      <span className="text-xs text-muted-foreground">No file</span>
+                    )
+                  ) : (
+                    <span className="inline-flex items-center text-xs text-muted-foreground">
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      Generating
+                    </span>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

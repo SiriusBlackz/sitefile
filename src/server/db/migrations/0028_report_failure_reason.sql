@@ -1,0 +1,1 @@
+ALTER TABLE "reports" ADD COLUMN "failure_reason" text;

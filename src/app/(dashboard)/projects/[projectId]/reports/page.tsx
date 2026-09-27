@@ -94,7 +94,13 @@ export default function ReportsPage() {
         />
       )}
 
-      <ReportList reports={reports} />
+      <ReportList
+        reports={reports}
+        onRetry={() => {
+          setGenerateKey((k) => k + 1);
+          setGenerateOpen(true);
+        }}
+      />
 
       {isInspection ? (
         <InspectionGenerateDialog

@@ -763,10 +763,37 @@ export const projectRouter = createTRPCRouter({
       // `claimed` = has signed in at least once; an unclaimed seat is a
       // pre-seeded invite (clerk_id "invited:<uuid>"). The Clerk id itself
       // never leaves the server.
-      return members.map(({ user, ...m }) => {
+      const explicit = members.map(({ user, ...m }) => {
         const { clerkId, ...rest } = user;
-        return { ...m, user: rest, claimed: !clerkId.startsWith("invited:") };
+        return {
+          ...m,
+          user: rest,
+          claimed: !clerkId.startsWith("invited:"),
+          /** false = a project_members row; true = an org admin who holds
+           *  the project by role (see assertProjectAccess) without a row. */
+          implicit: false,
+        };
       });
+      // Org admins own every project implicitly. Surface them so pickers
+      // built on this list (responsible person, hand-over, approval chain)
+      // don't come back empty on an owner-only project.
+      const memberIds = new Set(explicit.map((m) => m.userId));
+      const admins = await ctx.db.query.users.findMany({
+        where: and(eq(users.orgId, ctx.orgId), eq(users.role, "admin"), isNull(users.deactivatedAt)),
+        columns: { id: true, name: true, email: true, avatarUrl: true, role: true, clerkId: true },
+      });
+      const owners = admins
+        .filter((u) => !memberIds.has(u.id))
+        .map(({ clerkId, ...rest }) => ({
+          id: `owner:${rest.id}`,
+          projectId: input.projectId,
+          userId: rest.id,
+          role: "admin" as const,
+          user: rest,
+          claimed: !clerkId.startsWith("invited:"),
+          implicit: true,
+        }));
+      return [...explicit, ...owners];
     }),
 
   memberAdd: adminProcedure

@@ -396,6 +396,21 @@ export const dashboardRouter = createTRPCRouter({
       },
     });
 
+    // "generated report #N" is only true once the worker finished. Look up
+    // the current status of each generate entry's report so the feed can
+    // say "started" / "failed" honestly instead of claiming a file exists.
+    const generateIds = entries
+      .filter((e) => e.action === "generate" && e.entityType === "report")
+      .map((e) => e.entityId);
+    const statusById = new Map<string, string | null>();
+    if (generateIds.length > 0) {
+      const rows = await ctx.db.query.reports.findMany({
+        where: inArray(reports.id, generateIds),
+        columns: { id: true, status: true },
+      });
+      for (const r of rows) statusById.set(r.id, r.status);
+    }
+
     return entries.map((e) => ({
       id: e.id,
       action: e.action,
@@ -404,6 +419,10 @@ export const dashboardRouter = createTRPCRouter({
       createdAt: e.createdAt,
       user: e.user ? { name: e.user.name, avatarUrl: e.user.avatarUrl } : null,
       project: e.project ? { id: e.project.id, name: e.project.name } : null,
+      reportStatus:
+        e.action === "generate" && e.entityType === "report"
+          ? (statusById.get(e.entityId) ?? null)
+          : null,
     }));
   }),
 });

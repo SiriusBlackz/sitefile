@@ -10,6 +10,7 @@ import {
 } from "@/server/services/inspection-report-generator";
 import { uploadToStorage } from "@/server/services/storage";
 import { decryptReportPassword } from "@/server/services/report-password-crypto";
+import { describeFailure } from "@/server/services/report-failure";
 import { encryptPdfBuffer } from "@/server/services/pdf-encrypt";
 
 /**
@@ -23,11 +24,14 @@ export const generateInspectionReport = inngest.createFunction(
     id: "generate-inspection-report",
     retries: 3,
     triggers: [{ event: "report/generate-inspection" }],
-    onFailure: async ({ event }) => {
+    onFailure: async ({ event, error }) => {
       const reportId = event.data.event.data?.reportId as string | undefined;
       if (reportId) {
-        console.error(`[generate-inspection-report] All retries exhausted for report ${reportId}`);
-        await db.update(reports).set({ status: "failed", passwordCiphertext: null }).where(eq(reports.id, reportId));
+        console.error(`[generate-inspection-report] All retries exhausted for report ${reportId}`, error);
+        await db
+          .update(reports)
+          .set({ status: "failed", passwordCiphertext: null, failureReason: describeFailure(error) })
+          .where(eq(reports.id, reportId));
       }
     },
   },
