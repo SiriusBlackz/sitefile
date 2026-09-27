@@ -1,11 +1,8 @@
-# Supabase free-tier keep-alive, redundant with the Vercel cron
-# (/api/cron/db-ping). Supabase pauses free projects after ~7 days
-# without PLATFORM API activity — this hits the REST API directly so
-# the idle timer resets even if the Vercel cron or the app is down.
-#
-# The URL and publishable key are public by design (they ship in any
-# frontend); RLS deny-all means the request returns no data, but it
-# still counts as activity.
+# Daily production canary (was a Supabase free-tier keep-alive; the
+# database is on Supabase Pro in London since 27 Sep 2026, which never
+# idle-pauses, so the REST ping is gone). What remains is the part that
+# has caught real outages: /api/health must be ok, and a tRPC route must
+# serve JSON rather than Next's HTML error page.
 #
 # NB: GitHub disables scheduled workflows after ~60 days without repo
 # activity — any commit re-enables them. Fine while the project is
@@ -21,16 +18,6 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase REST API (resets free-tier idle timer)
-        run: |
-          # Table endpoint, not the /rest/v1/ root (root needs a secret
-          # key). Deny-all RLS returns 200 with an empty array.
-          status=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "apikey: sb_publishable_I_gfVWp3mYhwN7zOHnCckg_pJc86GWv" \
-            "https://pmuvvacjsntbcxefiiff.supabase.co/rest/v1/projects?select=id&limit=1")
-          echo "supabase rest status: $status"
-          [ "$status" = "200" ]
-
       - name: Ping app health endpoint (DB + tRPC module graph + sharp)
         run: |
           body=$(curl -s -m 20 "https://www.sitefile.app/api/health")

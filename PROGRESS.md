@@ -510,8 +510,9 @@ gotcha is now memorised.
 
 ### Infrastructure on Vercel
 - **Clerk:** `proud-bluejay-8` instance, webhook + publishable key + secret key
-- **Database:** Supabase pooler (aws-1-eu-central-1)
-- **R2 Storage:** Cloudflare bucket `siteproof-media`, WEUR region, public dev URL enabled
+- **Database:** Supabase Pro, project `sitefile-london` (eu-west-2, London) since 27 Sep 2026 — pooler `aws-0-eu-west-2`, app role `sitefile_app`. Moved from Frankfurt (`siteproof`, eu-central-1) for data residency; old project kept as rollback until late Oct 2026, then delete.
+- **Vercel functions:** pinned to `lhr1` (London) via vercel.json since 27 Sep 2026 (was default US East).
+- **R2 Storage:** Cloudflare bucket `siteproof-media`, WEUR location hint, public dev URL enabled — EU-jurisdiction bucket `sitefile-media-eu` pending (needs dashboard creation + wider token)
 - **Inngest:** synced, 3 functions (generate-report, failure handler, process-upload)
 - **Not configured:** Stripe, Mapbox, Anthropic API
 
