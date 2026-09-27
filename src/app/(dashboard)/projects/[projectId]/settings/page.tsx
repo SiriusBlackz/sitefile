@@ -235,6 +235,31 @@ export default function ProjectSettingsPage() {
     },
   });
 
+  // Re-adding an unclaimed colleague is idempotent on the server and
+  // re-sends the Clerk invitation — the "did the email go?" escape hatch.
+  const resendInvite = trpc.org.addColleague.useMutation({
+    onSuccess: (user) => {
+      if (user.inviteEmail === "sent")
+        toast.success(`Invitation re-sent to ${user.email}`, {
+          description: "Ask them to check junk the first time.",
+        });
+      else if (user.inviteEmail === "already_invited")
+        toast.success(`An invitation is already out to ${user.email}`, {
+          description:
+            "They can also sign up at www.sitefile.app/sign-up with this address.",
+        });
+      else if (user.inviteEmail === "failed")
+        toast.warning(`Could not send the invitation to ${user.email}`, {
+          description:
+            "Ask them to sign up at www.sitefile.app/sign-up with this address — their seat is waiting.",
+          duration: 10_000,
+        });
+      else
+        toast.success(`${user.email} can sign up at www.sitefile.app/sign-up`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const setMemberRole = trpc.project.memberSetRole.useMutation({
     onSuccess: () => {
       toast.success("Role updated");
@@ -361,17 +386,20 @@ export default function ProjectSettingsPage() {
             <span className="font-medium text-foreground">
               Getting site staff in:
             </span>{" "}
-            add their work email below — they get an invitation email, and
-            their account lands in your organisation and this project. No
-            email arrived? They can just sign up at www.sitefile.app/sign-up
-            with the same address; re-adding them here resends the invite.
+            add their work email and role below — they get an invitation
+            email, and their account lands in your organisation and this
+            project. No email arrived? Use <em>Resend invite</em> next to
+            their name, or they can just sign up at www.sitefile.app/sign-up
+            with the same address.
           </p>
           <AddColleagueForm
+            withRole
             onAdded={(user) => {
               utils.project.orgUsers.invalidate();
               addMember.mutate({
                 projectId: params.projectId,
                 userId: user.id,
+                role: user.role ?? "member",
               });
             }}
           />
@@ -436,6 +464,25 @@ export default function ProjectSettingsPage() {
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {member.user.email}
+                        {!member.claimed && (
+                          <>
+                            {" · "}
+                            <span className="text-(--accent-ink)">
+                              invited, not signed in yet
+                            </span>
+                            {" · "}
+                            <button
+                              type="button"
+                              className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+                              disabled={resendInvite.isPending}
+                              onClick={() =>
+                                resendInvite.mutate({ email: member.user.email })
+                              }
+                            >
+                              {resendInvite.isPending ? "Sending…" : "Resend invite"}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

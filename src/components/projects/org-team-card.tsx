@@ -72,6 +72,31 @@ export function OrgTeamCard() {
     },
   });
 
+  // Re-adding an unclaimed colleague is idempotent and re-sends the
+  // Clerk invitation email.
+  const resend = trpc.org.addColleague.useMutation({
+    onSuccess: (user) => {
+      if (user.inviteEmail === "sent")
+        toast.success(`Invitation re-sent to ${user.email}`, {
+          description: "Ask them to check junk the first time.",
+        });
+      else if (user.inviteEmail === "failed")
+        toast.warning(`Could not send the invitation to ${user.email}`, {
+          description:
+            "Ask them to sign up at www.sitefile.app/sign-up with this address — their seat is waiting.",
+          duration: 10_000,
+        });
+      else
+        toast.success(`${user.email} can sign up at www.sitefile.app/sign-up`, {
+          description:
+            user.inviteEmail === "already_invited"
+              ? "An invitation is already out to them."
+              : undefined,
+        });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const remove = trpc.org.removeColleague.useMutation({
     onSuccess: (r) => {
       toast.success(
@@ -158,9 +183,19 @@ export function OrgTeamCard() {
                     </div>
                   </div>
                   {!person.claimed && (
-                    <Badge variant="outline" className="shrink-0 text-xs">
-                      Invited — not signed in yet
-                    </Badge>
+                    <>
+                      <Badge variant="outline" className="shrink-0 text-xs">
+                        Invited — not signed in yet
+                      </Badge>
+                      <button
+                        type="button"
+                        className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+                        disabled={resend.isPending}
+                        onClick={() => resend.mutate({ email: person.email })}
+                      >
+                        {resend.isPending ? "Sending…" : "Resend invite"}
+                      </button>
+                    </>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">

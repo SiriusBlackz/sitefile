@@ -749,11 +749,24 @@ export const projectRouter = createTRPCRouter({
         where: eq(projectMembers.projectId, input.projectId),
         with: {
           user: {
-            columns: { id: true, name: true, email: true, avatarUrl: true, role: true },
+            columns: {
+              id: true,
+              name: true,
+              email: true,
+              avatarUrl: true,
+              role: true,
+              clerkId: true,
+            },
           },
         },
       });
-      return members;
+      // `claimed` = has signed in at least once; an unclaimed seat is a
+      // pre-seeded invite (clerk_id "invited:<uuid>"). The Clerk id itself
+      // never leaves the server.
+      return members.map(({ user, ...m }) => {
+        const { clerkId, ...rest } = user;
+        return { ...m, user: rest, claimed: !clerkId.startsWith("invited:") };
+      });
     }),
 
   memberAdd: adminProcedure
